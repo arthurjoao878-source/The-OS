@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves sixteen boundaries:
+The repository currently proves seventeen boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -22,6 +22,7 @@ The repository currently proves sixteen boundaries:
 14. **Read-only system status** — LYRA can collect a bounded snapshot of current CPU, memory, system-disk, and battery state through a local Windows adapter. The action is read-only, performs no process enumeration, and does not mutate system configuration.
 15. **Controlled process inspection** — LYRA can enumerate a bounded view of running processes after explicit confirmation. Only process name, PID, and resident memory are returned, capped at 12 entries; executable paths, command lines, usernames, and open files are excluded.
 16. **Verified process termination** — LYRA can terminate one ordinary process by an exact PID only after a destructive local preview and explicit approval. The process identity is guarded by PID, name, and creation time; protected Windows processes and LYRA's own process are blocked, and exit is verified.
+17. **Controlled visible-window inspection** — LYRA can enumerate a bounded view of visible top-level desktop windows only after explicit confirmation. At most 12 window titles are returned with process name and PID; hidden-window titles, screenshots, keystrokes, executable paths, and window contents are excluded.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
@@ -42,6 +43,8 @@ System status is deliberately narrow. `system_status` reports a single read-only
 Process inspection is privacy-gated. `process_snapshot` does not enumerate anything during the preview; after explicit confirmation it collects only process name, PID, and resident memory (RSS), sorts locally by RSS, and returns at most 12 entries to the AI provider. Executable paths, command lines, usernames, environment data, network connections, and open-file lists are intentionally excluded.
 
 Process termination is intentionally narrow and destructive. `terminate_process` requires an exact PID, prepares a local preview containing the process name and PID, warns that unsaved work may be lost, and carries a PID/name/creation-time guard into execution. LYRA blocks its own process plus a conservative set of protected Windows processes, revalidates identity immediately before termination, waits up to three seconds for exit, and does not escalate to a separate kill fallback.
+
+Visible-window inspection is privacy-gated. `window_snapshot` performs no desktop enumeration during its confirmation preview. After approval, it inspects only visible top-level windows that have non-empty titles, preserves Windows z-order, truncates each title to 160 characters, and returns at most 12 entries containing title, process name, and PID. It does not capture pixels, window contents, keyboard input, hidden-window titles, executable paths, command lines, usernames, or environment data.
 
 Path mutation is intentionally bounded. `create_directory` creates only one level and never creates missing parent directories. `move_path` refuses existing destinations and blocks moving protected Windows system sources or moving a directory inside itself. `trash_path` uses the Windows Recycle Bin rather than permanent deletion, refuses protected system paths, and verifies that the original path disappeared after the shell operation. Mutation previews carry local path/signature guards so a changed source is blocked before execution.
 

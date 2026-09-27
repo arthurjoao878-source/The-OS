@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from theos.core.actions.desktop_windows import WindowSnapshotAction
 from theos.core.actions.file_system import (
     CopyPathAction,
     CreateDirectoryAction,
@@ -20,6 +21,7 @@ from theos.core.tools import ToolCatalog, build_default_tool_catalog
 from theos.integrations.ai import AIProvider
 from theos.integrations.ai import build_ai_provider as create_ai_provider
 from theos.integrations.windows.applications import WindowsApplicationAdapter
+from theos.integrations.windows.desktop_windows import WindowsDesktopWindowAdapter
 from theos.integrations.windows.file_system import WindowsFileSystemAdapter
 from theos.integrations.windows.processes import WindowsProcessAdapter
 from theos.integrations.windows.system_status import WindowsSystemStatusAdapter
@@ -30,6 +32,7 @@ from theos.lyra.memory.sqlite_store import SQLiteMemoryStore
 def build_action_registry() -> ActionRegistry:
     applications = ApplicationRegistry()
     windows_applications = WindowsApplicationAdapter()
+    windows_desktop = WindowsDesktopWindowAdapter()
     windows_files = WindowsFileSystemAdapter()
     windows_processes = WindowsProcessAdapter()
     windows_system = WindowsSystemStatusAdapter()
@@ -46,6 +49,7 @@ def build_action_registry() -> ActionRegistry:
     trash_path = TrashPathAction(windows_files)
     process_snapshot = ProcessSnapshotAction(windows_processes)
     terminate_process = TerminateProcessAction(windows_processes)
+    window_snapshot = WindowSnapshotAction(windows_desktop)
     system_status = SystemStatusAction(windows_system)
 
     registry = ActionRegistry()
@@ -120,6 +124,12 @@ def build_action_registry() -> ActionRegistry:
         terminate_process.execute,
         risk=terminate_process.risk,
         confirmation_preview=terminate_process.confirmation_preview,
+    )
+    registry.register(
+        window_snapshot.name,
+        window_snapshot.execute,
+        risk=window_snapshot.risk,
+        confirmation_preview=window_snapshot.confirmation_preview,
     )
     return registry
 

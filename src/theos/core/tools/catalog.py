@@ -317,6 +317,23 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="window_snapshot",
+            description=(
+                "Inspeciona de forma limitada as janelas de nível superior atualmente "
+                "visíveis no desktop. Retorna no máximo 12 entradas com título da janela, "
+                "nome do processo e PID. Exige confirmação local porque títulos de janelas "
+                "podem revelar atividade do usuário."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
