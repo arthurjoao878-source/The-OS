@@ -73,6 +73,11 @@ _EXPECTED_PATH = "_theos_expected_path"
 _EXPECTED_EXISTS = "_theos_expected_exists"
 _EXPECTED_BEFORE_SHA256 = "_theos_expected_before_sha256"
 _EXPECTED_CONTENT_SHA256 = "_theos_expected_content_sha256"
+_EXPECTED_MUTATION_PATH = "_theos_expected_mutation_path"
+_EXPECTED_MUTATION_PARENT = "_theos_expected_mutation_parent"
+_EXPECTED_SOURCE = "_theos_expected_source"
+_EXPECTED_DESTINATION = "_theos_expected_destination"
+_EXPECTED_SOURCE_SIGNATURE = "_theos_expected_source_signature"
 
 
 def _is_sensitive_path(raw_path: str) -> bool:
@@ -487,5 +492,325 @@ class WriteTextFileAction:
             request_id=request.request_id,
             success=True,
             message=message,
+            evidence=evidence,
+        )
+class CreateDirectoryAction:
+    name = "create_directory"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def risk_for(self, request: ActionRequest) -> ActionRisk:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if _is_sensitive_path(raw_path) or self._windows.is_protected_system_path(
+            raw_path
+        ):
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.CONFIRM
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if not raw_path:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: caminho vazio.",
+            )
+
+        try:
+            evidence = self._windows.preview_create_directory(raw_path)
+        except OSError as exc:
+            return ConfirmationPreview(
+                allowed=False,
+                text=f"Não foi possível preparar a prévia ({type(exc).__name__}).",
+            )
+
+        if not bool(evidence.get("allowed")):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Criação de pasta bloqueada antes da confirmação: "
+                    f"{evidence.get('error', 'CREATE_DIRECTORY_REJECTED')}."
+                ),
+            )
+
+        path = str(evidence["path"])
+        return ConfirmationPreview(
+            allowed=True,
+            text=f"CRIAR PASTA\nCaminho: {path}",
+            execution_guard={
+                _EXPECTED_MUTATION_PATH: path,
+                _EXPECTED_MUTATION_PARENT: str(evidence["parent"]),
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        expected_path = request.arguments.get(_EXPECTED_MUTATION_PATH)
+        expected_parent = request.arguments.get(_EXPECTED_MUTATION_PARENT)
+        if (
+            not raw_path
+            or not isinstance(expected_path, str)
+            or not isinstance(expected_parent, str)
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A criação da pasta não possui uma prévia local aprovada.",
+                error_code="MUTATION_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.create_directory(
+                raw_path,
+                expected_path=expected_path,
+                expected_parent=expected_parent,
+            )
+        except RuntimeError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O destino mudou depois da prévia; a criação foi bloqueada.",
+                evidence={"reason": str(exc)},
+                error_code="MUTATION_CHANGED_AFTER_PREVIEW",
+            )
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui criar essa pasta.",
+                evidence={"exception": type(exc).__name__, "reason": str(exc)},
+                error_code="DIRECTORY_CREATE_FAILED",
+            )
+
+        resolved = Path(str(evidence["path"]))
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=f"Pasta criada: {resolved.name or resolved}.",
+            evidence=evidence,
+        )
+
+
+class MovePathAction:
+    name = "move_path"
+    risk = ActionRisk.DESTRUCTIVE
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def risk_for(self, request: ActionRequest) -> ActionRisk:
+        source = str(request.arguments.get("source", "")).strip()
+        destination = str(request.arguments.get("destination", "")).strip()
+        if (
+            _is_sensitive_path(source)
+            or _is_sensitive_path(destination)
+            or self._windows.is_protected_system_path(source)
+            or self._windows.is_protected_system_path(destination)
+        ):
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.DESTRUCTIVE
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        source = str(request.arguments.get("source", "")).strip()
+        destination = str(request.arguments.get("destination", "")).strip()
+        if not source or not destination:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: origem ou destino vazio.",
+            )
+
+        try:
+            evidence = self._windows.preview_move_path(source, destination)
+        except OSError as exc:
+            return ConfirmationPreview(
+                allowed=False,
+                text=f"Não foi possível preparar a prévia ({type(exc).__name__}).",
+            )
+
+        if not bool(evidence.get("allowed")):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Movimentação bloqueada antes da confirmação: "
+                    f"{evidence.get('error', 'MOVE_REJECTED')}."
+                ),
+            )
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "MOVER/RENOMEAR CAMINHO\n"
+                f"Origem: {evidence['source']}\n"
+                f"Destino: {evidence['destination']}\n"
+                "O destino existente nunca será sobrescrito."
+            ),
+            execution_guard={
+                _EXPECTED_SOURCE: str(evidence["source"]),
+                _EXPECTED_DESTINATION: str(evidence["destination"]),
+                _EXPECTED_SOURCE_SIGNATURE: str(evidence["source_signature"]),
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        source = str(request.arguments.get("source", "")).strip()
+        destination = str(request.arguments.get("destination", "")).strip()
+        expected_source = request.arguments.get(_EXPECTED_SOURCE)
+        expected_destination = request.arguments.get(_EXPECTED_DESTINATION)
+        expected_signature = request.arguments.get(_EXPECTED_SOURCE_SIGNATURE)
+        if (
+            not source
+            or not destination
+            or not isinstance(expected_source, str)
+            or not isinstance(expected_destination, str)
+            or not isinstance(expected_signature, str)
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A movimentação não possui uma prévia local aprovada.",
+                error_code="MUTATION_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.move_path(
+                source,
+                destination,
+                expected_source=expected_source,
+                expected_destination=expected_destination,
+                expected_source_signature=expected_signature,
+            )
+        except RuntimeError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A origem ou o destino mudou depois da prévia; "
+                    "a movimentação foi bloqueada."
+                ),
+                evidence={"reason": str(exc)},
+                error_code="MUTATION_CHANGED_AFTER_PREVIEW",
+            )
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui mover ou renomear esse caminho.",
+                evidence={"exception": type(exc).__name__, "reason": str(exc)},
+                error_code="PATH_MOVE_FAILED",
+            )
+
+        destination_path = Path(str(evidence["destination"]))
+        noun = "Pasta" if evidence.get("kind") == "directory" else "Arquivo"
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=f"{noun} movido para {destination_path}.",
+            evidence=evidence,
+        )
+
+
+class TrashPathAction:
+    name = "trash_path"
+    risk = ActionRisk.DESTRUCTIVE
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def risk_for(self, request: ActionRequest) -> ActionRisk:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if _is_sensitive_path(raw_path) or self._windows.is_protected_system_path(
+            raw_path
+        ):
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.DESTRUCTIVE
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if not raw_path:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: caminho vazio.",
+            )
+
+        try:
+            evidence = self._windows.preview_trash_path(raw_path)
+        except OSError as exc:
+            return ConfirmationPreview(
+                allowed=False,
+                text=f"Não foi possível preparar a prévia ({type(exc).__name__}).",
+            )
+
+        if not bool(evidence.get("allowed")):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Envio para a Lixeira bloqueado antes da confirmação: "
+                    f"{evidence.get('error', 'TRASH_REJECTED')}."
+                ),
+            )
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "ENVIAR PARA A LIXEIRA DO WINDOWS\n"
+                f"Caminho: {evidence['path']}\n"
+                f"Tipo: {evidence['kind']}\n"
+                "A ação não usa exclusão permanente."
+            ),
+            execution_guard={
+                _EXPECTED_MUTATION_PATH: str(evidence["path"]),
+                _EXPECTED_SOURCE_SIGNATURE: str(evidence["source_signature"]),
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        expected_path = request.arguments.get(_EXPECTED_MUTATION_PATH)
+        expected_signature = request.arguments.get(_EXPECTED_SOURCE_SIGNATURE)
+        if (
+            not raw_path
+            or not isinstance(expected_path, str)
+            or not isinstance(expected_signature, str)
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O envio para a Lixeira não possui uma prévia local aprovada.",
+                error_code="MUTATION_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.trash_path(
+                raw_path,
+                expected_path=expected_path,
+                expected_source_signature=expected_signature,
+            )
+        except RuntimeError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "O caminho mudou ou a Lixeira recusou a operação; "
+                    "nenhuma conclusão de sucesso foi emitida."
+                ),
+                evidence={"reason": str(exc)},
+                error_code="TRASH_OPERATION_FAILED",
+            )
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar esse caminho para a Lixeira.",
+                evidence={"exception": type(exc).__name__, "reason": str(exc)},
+                error_code="TRASH_OPERATION_FAILED",
+            )
+
+        resolved = Path(str(evidence["path"]))
+        noun = "Pasta" if evidence.get("kind") == "directory" else "Arquivo"
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=f"{noun} enviado para a Lixeira: {resolved.name or resolved}.",
             evidence=evidence,
         )

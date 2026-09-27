@@ -391,6 +391,16 @@ class ToolLoopExecutor:
         if request.action == "write_text_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Gravando {target}..."
+        if request.action == "create_directory":
+            target = str(request.arguments.get("path", "pasta"))
+            return f"Criando pasta {target}..."
+        if request.action == "move_path":
+            source = str(request.arguments.get("source", "origem"))
+            destination = str(request.arguments.get("destination", "destino"))
+            return f"Movendo {source} para {destination}..."
+        if request.action == "trash_path":
+            target = str(request.arguments.get("path", "caminho"))
+            return f"Enviando {target} para a Lixeira..."
         return f"Executando {request.action}..."
 
     @staticmethod

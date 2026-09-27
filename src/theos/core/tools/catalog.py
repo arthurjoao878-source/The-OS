@@ -167,6 +167,74 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="create_directory",
+            description=(
+                "Cria exatamente uma pasta local. Não cria pais ausentes. "
+                "A mutação exige prévia local e confirmação do usuário."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local da nova pasta.",
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="move_path",
+            description=(
+                "Move ou renomeia um arquivo ou pasta local para um destino que ainda "
+                "não existe. Nunca sobrescreve o destino. Exige prévia e confirmação."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Caminho local de origem.",
+                    },
+                    "destination": {
+                        "type": "string",
+                        "description": "Novo caminho local de destino.",
+                    },
+                },
+                "required": ["source", "destination"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_move_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="trash_path",
+            description=(
+                "Envia um arquivo ou pasta local para a Lixeira do Windows quando o "
+                "usuário pedir para excluir, remover ou apagar. Não faz exclusão permanente. "
+                "Exige prévia e confirmação."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local a enviar para a Lixeira.",
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
@@ -230,6 +298,25 @@ def _validate_find_path(arguments: Mapping[str, object]) -> dict[str, object]:
     return {
         "root": root.strip(),
         "query": query.strip(),
+    }
+
+
+def _validate_move_path(arguments: Mapping[str, object]) -> dict[str, object]:
+    if set(arguments) != {"source", "destination"}:
+        raise ToolValidationError(
+            "move_path requires only 'source' and 'destination'"
+        )
+
+    source = arguments.get("source")
+    destination = arguments.get("destination")
+    if not isinstance(source, str) or not source.strip():
+        raise ToolValidationError("source must be a non-blank string")
+    if not isinstance(destination, str) or not destination.strip():
+        raise ToolValidationError("destination must be a non-blank string")
+
+    return {
+        "source": source.strip(),
+        "destination": destination.strip(),
     }
 
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import ctypes
 import difflib
 import hashlib
 import os
+import shutil
 import tempfile
+from ctypes import wintypes
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,6 +16,39 @@ MAX_FIND_DEPTH = 4
 MAX_READ_BYTES = 16 * 1024
 MAX_WRITE_BYTES = 16 * 1024
 MAX_WRITE_PREVIEW_CHARS = 3500
+
+_FO_DELETE = 0x0003
+_FOF_SILENT = 0x0004
+_FOF_NOCONFIRMATION = 0x0010
+_FOF_ALLOWUNDO = 0x0040
+_FOF_NOERRORUI = 0x0400
+
+
+def _recycle_with_shell(path: Path) -> tuple[int, bool]:
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [
+            ("hwnd", wintypes.HWND),
+            ("wFunc", wintypes.UINT),
+            ("pFrom", wintypes.LPCWSTR),
+            ("pTo", wintypes.LPCWSTR),
+            ("fFlags", wintypes.WORD),
+            ("fAnyOperationsAborted", wintypes.BOOL),
+            ("hNameMappings", wintypes.LPVOID),
+            ("lpszProgressTitle", wintypes.LPCWSTR),
+        ]
+
+    operation = SHFILEOPSTRUCTW()
+    operation.wFunc = _FO_DELETE
+    operation.pFrom = f"{path}\0\0"
+    operation.pTo = None
+    operation.fFlags = (
+        _FOF_SILENT
+        | _FOF_NOCONFIRMATION
+        | _FOF_ALLOWUNDO
+        | _FOF_NOERRORUI
+    )
+    result = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(operation))
+    return int(result), bool(operation.fAnyOperationsAborted)
 
 
 class WindowsFileSystemAdapter:
@@ -360,6 +396,241 @@ class WindowsFileSystemAdapter:
         evidence["atomic_replace"] = True
         evidence["write_verified"] = True
         return evidence
+
+    def path_signature(self, raw_path: str) -> str | None:
+        path = self.resolve(raw_path)
+        if not path.exists():
+            return None
+
+        stat = path.stat()
+        kind = "directory" if path.is_dir() else "file"
+        parts = [
+            kind,
+            str(stat.st_dev),
+            str(stat.st_ino),
+            str(stat.st_size),
+            str(stat.st_mtime_ns),
+        ]
+        if path.is_dir():
+            try:
+                names = sorted(child.name.casefold() for child in path.iterdir())
+            except OSError:
+                names = ["<listing-unavailable>"]
+            names_digest = hashlib.sha256(
+                "\0".join(names).encode("utf-8")
+            ).hexdigest()
+            parts.append(names_digest)
+        return "|".join(parts)
+
+    def is_protected_system_path(self, raw_path: str) -> bool:
+        path = self.resolve(raw_path)
+
+        if path.anchor and path == Path(path.anchor):
+            return True
+
+        protected_roots: list[Path] = []
+        for key in (
+            "SystemRoot",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramData",
+        ):
+            value = os.environ.get(key)
+            if not value:
+                continue
+            root = self.resolve(value)
+            protected_roots.append(root)
+
+        return any(path == root or root in path.parents for root in protected_roots)
+
+    def preview_create_directory(self, raw_path: str) -> dict[str, object]:
+        path = self.resolve(raw_path)
+        parent = path.parent
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "parent": str(parent),
+            "parent_exists": parent.exists(),
+            "parent_is_directory": parent.is_dir(),
+            "protected_system_path": self.is_protected_system_path(raw_path),
+            "allowed": False,
+        }
+        if path.exists():
+            evidence["error"] = "TARGET_ALREADY_EXISTS"
+            return evidence
+        if not parent.exists() or not parent.is_dir():
+            evidence["error"] = "PARENT_NOT_DIRECTORY"
+            return evidence
+
+        evidence["allowed"] = True
+        return evidence
+
+    def create_directory(
+        self,
+        raw_path: str,
+        *,
+        expected_path: str,
+        expected_parent: str,
+    ) -> dict[str, object]:
+        preview = self.preview_create_directory(raw_path)
+        if not bool(preview.get("allowed")):
+            raise ValueError(str(preview.get("error", "CREATE_DIRECTORY_REJECTED")))
+        if str(preview["path"]) != expected_path:
+            raise RuntimeError("DIRECTORY_TARGET_CHANGED")
+        if str(preview["parent"]) != expected_parent:
+            raise RuntimeError("DIRECTORY_TARGET_CHANGED")
+        if bool(preview["exists"]):
+            raise RuntimeError("DIRECTORY_TARGET_CHANGED")
+
+        path = Path(str(preview["path"]))
+        path.mkdir()
+        if not path.is_dir():
+            raise RuntimeError("DIRECTORY_VERIFICATION_FAILED")
+
+        return {
+            "path": str(path),
+            "created": True,
+            "verified_directory": True,
+        }
+
+    def preview_move_path(
+        self,
+        raw_source: str,
+        raw_destination: str,
+    ) -> dict[str, object]:
+        source = self.resolve(raw_source)
+        destination = self.resolve(raw_destination)
+        destination_parent = destination.parent
+        evidence: dict[str, object] = {
+            "source": str(source),
+            "destination": str(destination),
+            "source_exists": source.exists(),
+            "destination_exists": destination.exists(),
+            "destination_parent": str(destination_parent),
+            "destination_parent_exists": destination_parent.exists(),
+            "destination_parent_is_directory": destination_parent.is_dir(),
+            "source_protected_system_path": self.is_protected_system_path(raw_source),
+            "destination_protected_system_path": self.is_protected_system_path(
+                raw_destination
+            ),
+            "allowed": False,
+        }
+
+        if not source.exists():
+            evidence["error"] = "SOURCE_NOT_FOUND"
+            return evidence
+        if bool(evidence["source_protected_system_path"]):
+            evidence["error"] = "PROTECTED_SYSTEM_SOURCE"
+            return evidence
+        if source == destination:
+            evidence["error"] = "SOURCE_EQUALS_DESTINATION"
+            return evidence
+        if destination.exists():
+            evidence["error"] = "DESTINATION_ALREADY_EXISTS"
+            return evidence
+        if not destination_parent.exists() or not destination_parent.is_dir():
+            evidence["error"] = "DESTINATION_PARENT_NOT_DIRECTORY"
+            return evidence
+        if source.is_dir() and source in destination.parents:
+            evidence["error"] = "DESTINATION_INSIDE_SOURCE"
+            return evidence
+
+        evidence["source_kind"] = "directory" if source.is_dir() else "file"
+        evidence["source_signature"] = self.path_signature(raw_source)
+        evidence["allowed"] = True
+        return evidence
+
+    def move_path(
+        self,
+        raw_source: str,
+        raw_destination: str,
+        *,
+        expected_source: str,
+        expected_destination: str,
+        expected_source_signature: str,
+    ) -> dict[str, object]:
+        preview = self.preview_move_path(raw_source, raw_destination)
+        if not bool(preview.get("allowed")):
+            raise ValueError(str(preview.get("error", "MOVE_REJECTED")))
+        if str(preview["source"]) != expected_source:
+            raise RuntimeError("MOVE_TARGET_CHANGED")
+        if str(preview["destination"]) != expected_destination:
+            raise RuntimeError("MOVE_TARGET_CHANGED")
+        if preview.get("source_signature") != expected_source_signature:
+            raise RuntimeError("MOVE_SOURCE_CHANGED")
+        if bool(preview["destination_exists"]):
+            raise RuntimeError("MOVE_TARGET_CHANGED")
+
+        source = Path(str(preview["source"]))
+        destination = Path(str(preview["destination"]))
+        kind = str(preview["source_kind"])
+
+        shutil.move(str(source), str(destination))
+
+        if source.exists() or not destination.exists():
+            raise RuntimeError("MOVE_VERIFICATION_FAILED")
+
+        return {
+            "source": str(source),
+            "destination": str(destination),
+            "kind": kind,
+            "source_absent_after_move": True,
+            "destination_present_after_move": True,
+        }
+
+    def preview_trash_path(self, raw_path: str) -> dict[str, object]:
+        path = self.resolve(raw_path)
+        protected = self.is_protected_system_path(raw_path)
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "protected_system_path": protected,
+            "allowed": False,
+        }
+        if not path.exists():
+            evidence["error"] = "PATH_NOT_FOUND"
+            return evidence
+        if protected:
+            evidence["error"] = "PROTECTED_SYSTEM_PATH"
+            return evidence
+
+        evidence["kind"] = "directory" if path.is_dir() else "file"
+        evidence["source_signature"] = self.path_signature(raw_path)
+        if path.is_file():
+            evidence["size_bytes"] = path.stat().st_size
+        evidence["allowed"] = True
+        return evidence
+
+    def trash_path(
+        self,
+        raw_path: str,
+        *,
+        expected_path: str,
+        expected_source_signature: str,
+    ) -> dict[str, object]:
+        preview = self.preview_trash_path(raw_path)
+        if not bool(preview.get("allowed")):
+            raise ValueError(str(preview.get("error", "TRASH_REJECTED")))
+        if str(preview["path"]) != expected_path:
+            raise RuntimeError("TRASH_TARGET_CHANGED")
+        if preview.get("source_signature") != expected_source_signature:
+            raise RuntimeError("TRASH_SOURCE_CHANGED")
+
+        path = Path(str(preview["path"]))
+        result_code, aborted = _recycle_with_shell(path)
+        if result_code != 0 or aborted:
+            raise RuntimeError(
+                f"RECYCLE_BIN_OPERATION_FAILED:{result_code}:aborted={aborted}"
+            )
+        if path.exists():
+            raise RuntimeError("TRASH_VERIFICATION_FAILED")
+
+        return {
+            "path": str(path),
+            "kind": str(preview["kind"]),
+            "sent_to_recycle_bin": True,
+            "path_absent_after_operation": True,
+        }
 
     @staticmethod
     def _normalize_text(content: str) -> str:

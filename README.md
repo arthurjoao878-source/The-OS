@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves eleven boundaries:
+The repository currently proves twelve boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -17,6 +17,7 @@ The repository currently proves eleven boundaries:
 9. **Bounded file/folder actions** — LYRA can inspect local path metadata, search names inside a user-specified root, and ask Windows to open an existing file or folder. Files with potentially executable/script suffixes are locally upgraded to `CONFIRM`.
 10. **Controlled text-file reading** — LYRA can read at most 16 KiB from a local text file after explicit user confirmation. Binary-looking files are rejected; sensitive credential/key filenames are locally upgraded to `PRIVILEGED`.
 11. **Previewed text-file mutation** — LYRA can create or fully replace a text file of at most 16 KiB only after THE OS prepares a local preview/diff and the user explicitly approves it. Existing files are `DESTRUCTIVE`; sensitive or executable/script-like paths are `PRIVILEGED`.
+12. **Controlled path mutation** — LYRA can create one directory, move/rename a path without overwriting the destination, and send a path to the Windows Recycle Bin. Every mutation uses a local preview plus explicit approval; move/trash operations are `DESTRUCTIVE`, sensitive locations are `PRIVILEGED`, and protected Windows system paths cannot be moved or trashed.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
@@ -29,6 +30,8 @@ Filesystem search is intentionally bounded: name search starts only from the roo
 `write_text_file` accepts only a complete replacement body of at most 16 KiB. Before approval, THE OS resolves the target locally, verifies that its parent exists, rejects directories, binary-looking existing files, and existing files larger than the bounded limit, then produces a unified diff for ordinary files. Sensitive paths use a redacted local preview so secrets are not printed into the LYRA chat. New ordinary files are `CONFIRM`, existing ordinary files are `DESTRUCTIVE`, and sensitive or executable/script-like paths are `PRIVILEGED`.
 
 Approval carries a local execution guard containing the resolved path and hashes from the preview. If the target or proposed content changes between preview and execution, the write is blocked. Successful writes use a same-directory temporary file plus `os.replace`, then verify the resulting SHA-256. The tool never creates missing parent directories.
+
+Path mutation is intentionally bounded. `create_directory` creates only one level and never creates missing parent directories. `move_path` refuses existing destinations and blocks moving protected Windows system sources or moving a directory inside itself. `trash_path` uses the Windows Recycle Bin rather than permanent deletion, refuses protected system paths, and verifies that the original path disappeared after the shell operation. Mutation previews carry local path/signature guards so a changed source is blocked before execution.
 
 `open_path` verifies that the target exists before handing it to the Windows shell. For generic files and folders, THE OS can verify the local target and that the shell-open request was submitted, but it does not claim that the associated GUI rendered successfully. Live visual acceptance remains the final check for that handoff.
 

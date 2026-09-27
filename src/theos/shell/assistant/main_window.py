@@ -319,7 +319,14 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _action_subject(request: ActionRequest) -> str:
-        for key in ("application", "path", "query", "root"):
+        for key in (
+            "application",
+            "path",
+            "source",
+            "destination",
+            "query",
+            "root",
+        ):
             value = request.arguments.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()

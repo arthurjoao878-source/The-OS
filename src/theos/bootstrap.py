@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from theos.core.actions.file_system import (
+    CreateDirectoryAction,
     FindPathAction,
     InspectPathAction,
+    MovePathAction,
     OpenPathAction,
     ReadTextFileAction,
+    TrashPathAction,
     WriteTextFileAction,
 )
 from theos.core.actions.open_application import OpenApplicationAction
@@ -30,6 +33,9 @@ def build_action_registry() -> ActionRegistry:
     open_path = OpenPathAction(windows_files)
     read_text_file = ReadTextFileAction(windows_files)
     write_text_file = WriteTextFileAction(windows_files)
+    create_directory = CreateDirectoryAction(windows_files)
+    move_path = MovePathAction(windows_files)
+    trash_path = TrashPathAction(windows_files)
 
     registry = ActionRegistry()
     registry.register(
@@ -62,6 +68,24 @@ def build_action_registry() -> ActionRegistry:
         write_text_file.execute,
         risk=write_text_file.risk_for,
         confirmation_preview=write_text_file.confirmation_preview,
+    )
+    registry.register(
+        create_directory.name,
+        create_directory.execute,
+        risk=create_directory.risk_for,
+        confirmation_preview=create_directory.confirmation_preview,
+    )
+    registry.register(
+        move_path.name,
+        move_path.execute,
+        risk=move_path.risk_for,
+        confirmation_preview=move_path.confirmation_preview,
+    )
+    registry.register(
+        trash_path.name,
+        trash_path.execute,
+        risk=trash_path.risk_for,
+        confirmation_preview=trash_path.confirmation_preview,
     )
     return registry
 
