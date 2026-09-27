@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 
 from theos.core.actions.registry import ActionRegistry
 from theos.lyra.conversation.smoke_intent import resolve_smoke_intent
+from theos.lyra.memory.intent import MemoryIntentKind, resolve_memory_intent
+from theos.lyra.memory.service import MemoryService
 
 
 class WorkerSignals(QObject):
@@ -33,9 +35,14 @@ class ActionWorker(QRunnable):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, action_registry: ActionRegistry) -> None:
+    def __init__(
+        self,
+        action_registry: ActionRegistry,
+        memory_service: MemoryService,
+    ) -> None:
         super().__init__()
         self._actions = action_registry
+        self._memory = memory_service
         self._pool = QThreadPool.globalInstance()
 
         self.setWindowTitle("THE OS — LYRA")
@@ -64,7 +71,7 @@ class MainWindow(QMainWindow):
         send.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)
 
-        self._lyra("Pronta. O primeiro teste é: abre o Discord.")
+        self._lyra("Pronta.")
 
     def _you(self, text: str) -> None:
         self.chat.appendPlainText(f"Você\n{text}\n")
@@ -80,9 +87,31 @@ class MainWindow(QMainWindow):
         self.input.clear()
         self._you(text)
 
+        memory_intent = resolve_memory_intent(text)
+        if memory_intent is not None:
+            if memory_intent.kind is MemoryIntentKind.REMEMBER:
+                self._memory.remember(memory_intent.text)
+                self._lyra("Memória salva.")
+                return
+
+            results = self._memory.recall(memory_intent.text, limit=3)
+            if not results:
+                self._lyra("Não encontrei nada na memória sobre isso.")
+                return
+            remembered = "\n".join(
+                f"• {record.content}"
+                for record in results
+                if record.content is not None
+            )
+            self._lyra(f"Eu lembro:\n{remembered}")
+            return
+
         request = resolve_smoke_intent(text)
         if request is None:
-            self._lyra("Ainda estou no primeiro slice. Tente: abre o Discord.")
+            self._lyra(
+                "Ainda estou nos primeiros slices. "
+                "Posso abrir aplicativos e guardar/consultar memórias explícitas."
+            )
             return
 
         app = str(request.arguments.get("application", "aplicativo"))

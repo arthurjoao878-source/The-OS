@@ -4,6 +4,8 @@ from theos.core.actions.open_application import OpenApplicationAction
 from theos.core.actions.registry import ActionRegistry
 from theos.core.applications.registry import ApplicationRegistry
 from theos.integrations.windows.applications import WindowsApplicationAdapter
+from theos.lyra.memory.service import MemoryService
+from theos.lyra.memory.sqlite_store import SQLiteMemoryStore
 
 
 def build_action_registry() -> ActionRegistry:
@@ -15,3 +17,7 @@ def build_action_registry() -> ActionRegistry:
     registry = ActionRegistry()
     registry.register(open_application.name, open_application.execute)
     return registry
+
+
+def build_memory_service() -> MemoryService:
+    return MemoryService(SQLiteMemoryStore())
