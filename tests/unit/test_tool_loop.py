@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from theos.core.actions.contracts import ActionRequest, ActionResult
+from theos.core.actions.contracts import ActionRequest, ActionResult, ActionRisk
 from theos.core.actions.registry import ActionRegistry
 from theos.core.tools import ToolCall, build_default_tool_catalog
 from theos.integrations.ai import (
@@ -64,10 +64,49 @@ class TwoStepProvider:
         return AIReply(text="unused", provider_id="fake")
 
 
-def test_tool_loop_executes_next_action_after_verified_result() -> None:
-    executed: list[str] = []
-    registry = ActionRegistry()
+class SensitiveProvider:
+    provider_id = "fake"
 
+    def __init__(self) -> None:
+        self.continuations = 0
+
+    def respond(self, text, *, history=(), tools=()):
+        _ = text, history, tools
+        return AIToolTurn(
+            calls=(
+                ToolCall(
+                    name="open_application",
+                    arguments={"application": "PowerShell"},
+                    call_id="call_sensitive",
+                ),
+            ),
+            continuation=AIContinuation(provider_id="fake", state="sensitive"),
+            provider_id="fake",
+        )
+
+    def continue_after_tools(
+        self,
+        turn: AIToolTurn,
+        results: tuple[AIToolResult, ...],
+    ):
+        _ = turn, results
+        self.continuations += 1
+        return AIReply(
+            text="PowerShell aberto com autorização.",
+            provider_id="fake",
+        )
+
+    def reply(self, text, *, history=()):
+        _ = text, history
+        return AIReply(text="unused", provider_id="fake")
+
+
+def _register_open_application(
+    registry: ActionRegistry,
+    executed: list[str],
+    *,
+    sensitive: bool = False,
+) -> None:
     def handler(request: ActionRequest) -> ActionResult:
         application = str(request.arguments["application"])
         executed.append(application)
@@ -78,7 +117,22 @@ def test_tool_loop_executes_next_action_after_verified_result() -> None:
             evidence={"verified": True},
         )
 
-    registry.register("open_application", handler)
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        if sensitive and request.arguments.get("application") == "PowerShell":
+            return ActionRisk.CONFIRM
+        return ActionRisk.NORMAL
+
+    registry.register(
+        "open_application",
+        handler,
+        risk=risk_for,
+    )
+
+
+def test_tool_loop_executes_next_action_after_verified_result() -> None:
+    executed: list[str] = []
+    registry = ActionRegistry()
+    _register_open_application(registry, executed)
     provider = TwoStepProvider()
     executor = ToolLoopExecutor(
         provider,
@@ -131,3 +185,64 @@ def test_tool_loop_stops_without_continuing_after_failed_action() -> None:
     assert result.completed_steps == 1
     assert provider.continuations == 0
     assert result.error == "Plano interrompido porque uma ação falhou na verificação."
+
+
+def test_sensitive_tool_pauses_before_side_effect_and_resumes_after_approval() -> None:
+    executed: list[str] = []
+    registry = ActionRegistry()
+    _register_open_application(registry, executed, sensitive=True)
+    provider = SensitiveProvider()
+    executor = ToolLoopExecutor(
+        provider,
+        registry,
+        build_default_tool_catalog(),
+    )
+
+    waiting = executor.execute(
+        "Abra o PowerShell.",
+        tools=build_default_tool_catalog().definitions(),
+    )
+
+    assert waiting.awaiting_confirmation is True
+    assert waiting.completed_steps == 0
+    assert executed == []
+    assert provider.continuations == 0
+
+    pending = waiting.pending_confirmation
+    assert pending is not None
+    assert pending.risk is ActionRisk.CONFIRM
+
+    completed = executor.resume(pending, approved=True)
+
+    assert completed.success is True
+    assert completed.completed_steps == 1
+    assert executed == ["PowerShell"]
+    assert provider.continuations == 1
+    assert completed.final_reply == "PowerShell aberto com autorização."
+
+
+def test_cancelled_confirmation_never_executes_or_continues_provider() -> None:
+    executed: list[str] = []
+    registry = ActionRegistry()
+    _register_open_application(registry, executed, sensitive=True)
+    provider = SensitiveProvider()
+    executor = ToolLoopExecutor(
+        provider,
+        registry,
+        build_default_tool_catalog(),
+    )
+
+    waiting = executor.execute(
+        "Abra o PowerShell.",
+        tools=build_default_tool_catalog().definitions(),
+    )
+    pending = waiting.pending_confirmation
+    assert pending is not None
+
+    cancelled = executor.resume(pending, approved=False)
+
+    assert cancelled.success is False
+    assert cancelled.completed_steps == 0
+    assert cancelled.error == "Ação cancelada pelo usuário."
+    assert executed == []
+    assert provider.continuations == 0

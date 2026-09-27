@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from theos.core.actions.contracts import ActionRequest, ActionRisk
+from theos.core.actions.policy import requires_confirmation
 from theos.core.actions.registry import ActionRegistry
-from theos.core.tools import ToolCatalog, ToolDefinition, ToolValidationError
+from theos.core.tools import ToolCall, ToolCatalog, ToolDefinition, ToolValidationError
 from theos.integrations.ai import (
     AIProvider,
     AIProviderError,
@@ -18,22 +20,46 @@ MAX_TOOL_LOOP_STEPS = 4
 
 
 @dataclass(frozen=True, slots=True)
+class PendingActionConfirmation:
+    turn: AIToolTurn
+    call: ToolCall
+    request: ActionRequest
+    risk: ActionRisk
+    completed_steps: int
+
+    def __post_init__(self) -> None:
+        if self.call.call_id is None:
+            raise ValueError("pending tool call must contain call_id")
+        if self.completed_steps < 0 or self.completed_steps >= MAX_TOOL_LOOP_STEPS:
+            raise ValueError("completed_steps is out of range")
+
+
+@dataclass(frozen=True, slots=True)
 class ToolLoopResult:
     success: bool
     messages: tuple[str, ...]
     final_reply: str | None
     completed_steps: int
     error: str | None = None
+    pending_confirmation: PendingActionConfirmation | None = None
 
     def __post_init__(self) -> None:
         if self.completed_steps < 0 or self.completed_steps > MAX_TOOL_LOOP_STEPS:
             raise ValueError("completed_steps is out of range")
         if self.success and self.error is not None:
             raise ValueError("successful tool loop cannot contain an error")
+        if self.success and self.pending_confirmation is not None:
+            raise ValueError("successful tool loop cannot be pending confirmation")
+        if self.error is not None and self.pending_confirmation is not None:
+            raise ValueError("failed tool loop cannot be both errored and pending")
+
+    @property
+    def awaiting_confirmation(self) -> bool:
+        return self.pending_confirmation is not None
 
 
 class ToolLoopExecutor:
-    """Runs a bounded provider -> local tool -> provider loop."""
+    """Runs a bounded provider -> local tool -> provider loop with local risk gates."""
 
     def __init__(
         self,
@@ -62,11 +88,83 @@ class ToolLoopExecutor:
         except AIProviderError as exception:
             return self._failure(str(exception), completed_steps=0)
 
-        messages: list[str] = []
-        completed_steps = 0
+        return self._drive(
+            response,
+            completed_steps=0,
+            messages=[],
+        )
 
+    def resume(
+        self,
+        pending: PendingActionConfirmation,
+        *,
+        approved: bool,
+    ) -> ToolLoopResult:
+        if not approved:
+            return ToolLoopResult(
+                success=False,
+                messages=(),
+                final_reply=None,
+                completed_steps=pending.completed_steps,
+                error="Ação cancelada pelo usuário.",
+            )
+
+        result = self._execute_request(
+            pending.request,
+            completed_steps=pending.completed_steps,
+        )
+        messages = list(result.messages)
+        if result.action_result is None:
+            return ToolLoopResult(
+                success=False,
+                messages=tuple(messages),
+                final_reply=None,
+                completed_steps=result.completed_steps,
+                error=result.error,
+            )
+
+        if not result.action_result.success:
+            return ToolLoopResult(
+                success=False,
+                messages=tuple(messages),
+                final_reply=None,
+                completed_steps=result.completed_steps,
+                error="Plano interrompido porque uma ação falhou na verificação.",
+            )
+
+        output = self._tool_output(
+            pending.call,
+            result.action_result,
+        )
+        try:
+            response = self._provider.continue_after_tools(
+                pending.turn,
+                (output,),
+            )
+        except AIProviderError as exception:
+            return ToolLoopResult(
+                success=False,
+                messages=tuple(messages),
+                final_reply=None,
+                completed_steps=result.completed_steps,
+                error=str(exception),
+            )
+
+        return self._drive(
+            response,
+            completed_steps=result.completed_steps,
+            messages=messages,
+        )
+
+    def _drive(
+        self,
+        response: object,
+        *,
+        completed_steps: int,
+        messages: list[str],
+    ) -> ToolLoopResult:
         while isinstance(response, AIToolTurn):
-            if completed_steps + len(response.calls) > self._max_steps:
+            if completed_steps >= self._max_steps:
                 return ToolLoopResult(
                     success=False,
                     messages=tuple(messages),
@@ -75,72 +173,72 @@ class ToolLoopExecutor:
                     error=f"O plano excedeu o limite de {self._max_steps} ações por pedido.",
                 )
 
-            prepared: list[tuple[object, object]] = []
-            for call in response.calls:
-                if call.call_id is None:
-                    return ToolLoopResult(
-                        success=False,
-                        messages=tuple(messages),
-                        final_reply=None,
-                        completed_steps=completed_steps,
-                        error="A IA retornou uma ferramenta sem call_id.",
-                    )
-                if not self._actions.contains(call.name):
-                    return ToolLoopResult(
-                        success=False,
-                        messages=tuple(messages),
-                        final_reply=None,
-                        completed_steps=completed_steps,
-                        error="A IA propôs uma ação que não está registrada.",
-                    )
-                try:
-                    request = self._tools.build_action_request(call)
-                except ToolValidationError:
-                    return ToolLoopResult(
-                        success=False,
-                        messages=tuple(messages),
-                        final_reply=None,
-                        completed_steps=completed_steps,
-                        error="A IA propôs argumentos inválidos para uma ação.",
-                    )
-                prepared.append((call, request))
-
-            outputs: list[AIToolResult] = []
-            for call, request in prepared:
-                app = str(request.arguments.get("application", "aplicativo"))
-                messages.append(f"Abrindo {app}...")
-
-                result = self._actions.execute(request)
-                completed_steps += 1
-                messages.append(
-                    f"Etapa {completed_steps}: {result.message}"
+            if len(response.calls) != 1:
+                return ToolLoopResult(
+                    success=False,
+                    messages=tuple(messages),
+                    final_reply=None,
+                    completed_steps=completed_steps,
+                    error="O provedor retornou mais de uma ação na mesma etapa serial.",
                 )
 
-                output = json.dumps(
-                    result.model_dump(mode="json"),
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                outputs.append(
-                    AIToolResult(
-                        call_id=call.call_id,
-                        output=output,
-                    )
+            call = response.calls[0]
+            prepared = self._prepare_call(call)
+            if isinstance(prepared, str):
+                return ToolLoopResult(
+                    success=False,
+                    messages=tuple(messages),
+                    final_reply=None,
+                    completed_steps=completed_steps,
+                    error=prepared,
                 )
 
-                if not result.success:
-                    return ToolLoopResult(
-                        success=False,
-                        messages=tuple(messages),
-                        final_reply=None,
+            risk = self._actions.risk_for(prepared)
+            if requires_confirmation(risk):
+                return ToolLoopResult(
+                    success=False,
+                    messages=tuple(messages),
+                    final_reply=None,
+                    completed_steps=completed_steps,
+                    pending_confirmation=PendingActionConfirmation(
+                        turn=response,
+                        call=call,
+                        request=prepared,
+                        risk=risk,
                         completed_steps=completed_steps,
-                        error="Plano interrompido porque uma ação falhou na verificação.",
-                    )
+                    ),
+                )
 
+            result = self._execute_request(
+                prepared,
+                completed_steps=completed_steps,
+            )
+            messages.extend(result.messages)
+            completed_steps = result.completed_steps
+
+            if result.action_result is None:
+                return ToolLoopResult(
+                    success=False,
+                    messages=tuple(messages),
+                    final_reply=None,
+                    completed_steps=completed_steps,
+                    error=result.error,
+                )
+
+            if not result.action_result.success:
+                return ToolLoopResult(
+                    success=False,
+                    messages=tuple(messages),
+                    final_reply=None,
+                    completed_steps=completed_steps,
+                    error="Plano interrompido porque uma ação falhou na verificação.",
+                )
+
+            output = self._tool_output(call, result.action_result)
             try:
                 response = self._provider.continue_after_tools(
                     response,
-                    tuple(outputs),
+                    (output,),
                 )
             except AIProviderError as exception:
                 return ToolLoopResult(
@@ -165,6 +263,60 @@ class ToolLoopExecutor:
             messages=tuple(messages),
             final_reply=response.text,
             completed_steps=completed_steps,
+        )
+
+    def _prepare_call(self, call: ToolCall) -> ActionRequest | str:
+        if call.call_id is None:
+            return "A IA retornou uma ferramenta sem call_id."
+        if not self._actions.contains(call.name):
+            return "A IA propôs uma ação que não está registrada."
+
+        try:
+            return self._tools.build_action_request(call)
+        except ToolValidationError:
+            return "A IA propôs argumentos inválidos para uma ação."
+
+    @dataclass(frozen=True, slots=True)
+    class _Execution:
+        messages: tuple[str, ...]
+        completed_steps: int
+        action_result: object | None
+        error: str | None = None
+
+    def _execute_request(
+        self,
+        request: ActionRequest,
+        *,
+        completed_steps: int,
+    ) -> _Execution:
+        app = str(request.arguments.get("application", "aplicativo"))
+        messages = [f"Abrindo {app}..."]
+
+        action_result = self._actions.execute(request)
+        completed_steps += 1
+        messages.append(f"Etapa {completed_steps}: {action_result.message}")
+
+        return self._Execution(
+            messages=tuple(messages),
+            completed_steps=completed_steps,
+            action_result=action_result,
+        )
+
+    @staticmethod
+    def _tool_output(
+        call: ToolCall,
+        action_result: object,
+    ) -> AIToolResult:
+        if call.call_id is None:
+            raise ValueError("tool call must contain call_id")
+        output = json.dumps(
+            action_result.model_dump(mode="json"),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        return AIToolResult(
+            call_id=call.call_id,
+            output=output,
         )
 
     @staticmethod

@@ -6,18 +6,24 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from theos.core.actions.contracts import ActionRequest
+from theos.core.actions.contracts import ActionRequest, ActionRisk
+from theos.core.actions.policy import requires_confirmation
 from theos.core.actions.registry import ActionRegistry
 from theos.core.tools import ToolCatalog, ToolDefinition
 from theos.integrations.ai import AIProvider
 from theos.lyra.context import ConversationTurn, SessionContext
-from theos.lyra.execution import ToolLoopExecutor, ToolLoopResult
+from theos.lyra.execution import (
+    PendingActionConfirmation,
+    ToolLoopExecutor,
+    ToolLoopResult,
+)
 from theos.lyra.memory.intent import MemoryIntentKind
 from theos.lyra.memory.service import MemoryService
 from theos.lyra.planning import LyraPlanner, PlanKind
@@ -64,6 +70,32 @@ class ToolLoopWorker(QRunnable):
             )
         except (TypeError, ValueError):
             self.signals.failed.emit("O loop de ferramentas retornou um estado inválido.")
+            return
+        self.signals.finished.emit(result)
+
+
+class ToolLoopResumeWorker(QRunnable):
+    def __init__(
+        self,
+        executor: ToolLoopExecutor,
+        pending: PendingActionConfirmation,
+        *,
+        approved: bool,
+    ) -> None:
+        super().__init__()
+        self.executor = executor
+        self.pending = pending
+        self.approved = approved
+        self.signals = WorkerSignals()
+
+    def run(self) -> None:
+        try:
+            result = self.executor.resume(
+                self.pending,
+                approved=self.approved,
+            )
+        except (TypeError, ValueError):
+            self.signals.failed.emit("Não consegui retomar a ação após a confirmação.")
             return
         self.signals.finished.emit(result)
 
@@ -183,10 +215,7 @@ class MainWindow(QMainWindow):
             request = plan.action_request
             if request is None:
                 raise RuntimeError("action plan missing action request")
-
-            app = str(request.arguments.get("application", "aplicativo"))
-            self._lyra(f"Abrindo {app}...")
-            self._start_action(request)
+            self._handle_direct_action(request)
             return
 
         self._lyra("Pensando...")
@@ -200,6 +229,35 @@ class MainWindow(QMainWindow):
         worker.signals.finished.connect(self._on_tool_loop_result)
         worker.signals.failed.connect(self._on_ai_failure)
         self._pool.start(worker)
+
+    def _handle_direct_action(self, request: ActionRequest) -> None:
+        risk = self._actions.risk_for(request)
+        if requires_confirmation(risk) and not self._confirm_action(request, risk):
+            self._lyra("Ação cancelada.", remember_in_session=True)
+            return
+
+        app = str(request.arguments.get("application", "aplicativo"))
+        self._lyra(f"Abrindo {app}...")
+        self._start_action(request)
+
+    def _confirm_action(
+        self,
+        request: ActionRequest,
+        risk: ActionRisk,
+    ) -> bool:
+        app = str(request.arguments.get("application", request.action))
+        self._lyra(
+            f"Confirmação necessária para {request.action}: {app} "
+            f"({risk.value})."
+        )
+        choice = QMessageBox.question(
+            self,
+            "LYRA — confirmação necessária",
+            f"Autorizar esta ação?\n\n{request.action}: {app}\nRisco: {risk.value}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return choice == QMessageBox.StandardButton.Yes
 
     def _start_action(self, request: ActionRequest) -> None:
         self._set_busy(True)
@@ -220,13 +278,37 @@ class MainWindow(QMainWindow):
         for message in result.messages:
             self._lyra(message, remember_in_session=True)
 
+        pending = result.pending_confirmation
+        if pending is not None:
+            approved = self._confirm_action(
+                pending.request,
+                pending.risk,
+            )
+            self._resume_tool_loop(pending, approved=approved)
+            return
+
         if result.final_reply is not None:
             self._lyra(result.final_reply, remember_in_session=True)
 
         if result.error is not None:
-            self._lyra(result.error)
+            self._lyra(result.error, remember_in_session=True)
 
         self._set_busy(False)
+
+    def _resume_tool_loop(
+        self,
+        pending: PendingActionConfirmation,
+        *,
+        approved: bool,
+    ) -> None:
+        worker = ToolLoopResumeWorker(
+            self._tool_loop,
+            pending,
+            approved=approved,
+        )
+        worker.signals.finished.connect(self._on_tool_loop_result)
+        worker.signals.failed.connect(self._on_ai_failure)
+        self._pool.start(worker)
 
     def _on_ai_failure(self, message: str) -> None:
         self._lyra(message)

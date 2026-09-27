@@ -4,6 +4,27 @@ from theos.core.actions.contracts import ActionRequest, ActionResult, ActionRisk
 from theos.core.applications.registry import ApplicationRegistry
 from theos.integrations.windows.applications import WindowsApplicationAdapter
 
+_CONFIRM_REQUIRED_APPLICATIONS = frozenset(
+    {
+        "cmd",
+        "cmd.exe",
+        "command prompt",
+        "editor do registro",
+        "powershell",
+        "powershell.exe",
+        "prompt de comando",
+        "pwsh",
+        "pwsh.exe",
+        "regedit",
+        "regedit.exe",
+        "terminal",
+        "windows powershell",
+        "windows terminal",
+        "wt",
+        "wt.exe",
+    }
+)
+
 
 class OpenApplicationAction:
     name = "open_application"
@@ -16,6 +37,13 @@ class OpenApplicationAction:
     ) -> None:
         self._applications = applications
         self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        raw_name = str(request.arguments.get("application", "")).strip().casefold()
+        if raw_name in _CONFIRM_REQUIRED_APPLICATIONS:
+            return ActionRisk.CONFIRM
+        return ActionRisk.NORMAL
 
     def execute(self, request: ActionRequest) -> ActionResult:
         raw_name = str(request.arguments.get("application", "")).strip()

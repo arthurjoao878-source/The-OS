@@ -36,7 +36,7 @@ class ApplicationRegistry:
 
         from_path = shutil.which(exe_name)
         if from_path:
-            return ResolvedApplication(display_name, from_path, (Path(exe_name).name,))
+            return ResolvedApplication(display_name, from_path, (Path(from_path).name,))
 
         if exe_name.lower() == "discord.exe":
             local = os.environ.get("LOCALAPPDATA")

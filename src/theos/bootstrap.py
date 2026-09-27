@@ -18,7 +18,11 @@ def build_action_registry() -> ActionRegistry:
     open_application = OpenApplicationAction(applications, windows)
 
     registry = ActionRegistry()
-    registry.register(open_application.name, open_application.execute)
+    registry.register(
+        open_application.name,
+        open_application.execute,
+        risk=open_application.risk_for,
+    )
     return registry
 
 

@@ -8,6 +8,14 @@ import psutil
 
 from theos.core.applications.registry import ResolvedApplication
 
+_CONSOLE_EXECUTABLES = frozenset(
+    {
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+    }
+)
+
 
 class WindowsApplicationAdapter:
     def launch(self, app: ResolvedApplication) -> int:
@@ -16,6 +24,12 @@ class WindowsApplicationAdapter:
             process = subprocess.Popen(
                 [str(target), "--processStart", "Discord.exe"],
                 close_fds=True,
+            )
+        elif target.name.lower() in _CONSOLE_EXECUTABLES:
+            process = subprocess.Popen(
+                [str(target)],
+                close_fds=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
         else:
             process = subprocess.Popen([str(target)], close_fds=True)
