@@ -138,6 +138,96 @@ class ActivateWindowAction:
             evidence=evidence,
         )
 
+class MinimizeWindowAction:
+    name = "minimize_window"
+    risk = ActionRisk.NORMAL
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="PID e título exatos da janela são obrigatórios.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.minimize_window(pid, title.strip())
+        except RuntimeError as exc:
+            reason = str(exc)
+            if reason == "SELF_WINDOW_MINIMIZE_BLOCKED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="A LYRA bloqueou a minimização da própria janela.",
+                    evidence={"reason": reason},
+                    error_code="SELF_WINDOW_MINIMIZE_BLOCKED",
+                )
+            if reason == "WINDOW_TARGET_NOT_FOUND":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Não encontrei essa janela visível.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_NOT_FOUND",
+                )
+            if reason == "WINDOW_TARGET_AMBIGUOUS":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "a minimização foi bloqueada."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_AMBIGUOUS",
+                )
+            if reason == "WINDOW_MINIMIZE_NOT_VERIFIED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O Windows não confirmou a janela como minimizada.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_MINIMIZE_NOT_VERIFIED",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui minimizar essa janela.",
+                evidence={"reason": reason},
+                error_code="WINDOW_MINIMIZE_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui minimizar essa janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="WINDOW_MINIMIZE_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Janela minimizada e verificada: {evidence['title']} "
+                f"(PID {evidence['pid']})."
+            ),
+            evidence=evidence,
+        )
+
+
 _EXPECTED_CLOSE_PID = "_theos_expected_close_pid"
 _EXPECTED_CLOSE_TITLE = "_theos_expected_close_title"
 

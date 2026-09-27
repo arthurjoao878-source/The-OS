@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves nineteen boundaries:
+The repository currently proves twenty boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -25,6 +25,7 @@ The repository currently proves nineteen boundaries:
 17. **Controlled visible-window inspection** — LYRA can enumerate a bounded view of visible top-level desktop windows only after explicit confirmation. At most 12 window titles are returned with process name and PID; hidden-window titles, screenshots, keystrokes, executable paths, and window contents are excluded.
 18. **Verified visible-window activation** — LYRA can bring one already-known visible top-level window to the foreground using its exact PID plus the bounded title returned by `window_snapshot`. Missing or ambiguous targets are blocked, minimized targets may be restored, and foreground state is verified locally.
 19. **Confirmed graceful window close** — LYRA can request normal closure of one already-known visible top-level window by exact PID plus bounded title. The action is destructive and requires a static local preview plus approval, blocks LYRA's own window, never force-kills the process, and verifies that the original target window was destroyed or is no longer visible.
+20. **Verified visible-window minimization** — LYRA can minimize one already-known visible top-level window using its exact PID plus bounded title. The action is normal, blocks LYRA's own window, changes no file or process state, and verifies locally that the selected window entered the minimized state.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
@@ -49,6 +50,8 @@ Process termination is intentionally narrow and destructive. `terminate_process`
 Visible-window inspection is privacy-gated. `window_snapshot` performs no desktop enumeration during its confirmation preview. After approval, it inspects only visible top-level windows that have non-empty titles, preserves Windows z-order, truncates each title to 160 characters, and returns at most 12 entries containing title, process name, and PID. It does not capture pixels, window contents, keyboard input, hidden-window titles, executable paths, command lines, usernames, or environment data.
 
 Visible-window activation is intentionally narrow. `activate_window` accepts only an exact PID plus a non-empty title of at most 160 characters, matching the bounded title representation produced by `window_snapshot`. THE OS resolves only visible top-level windows, blocks zero or multiple matches, restores a minimized target when needed, requests foreground activation, and verifies that the selected window actually became the Windows foreground window. Window handles are kept local and are never returned to the AI provider. This action is `NORMAL`: it changes focus but does not modify files, terminate processes, type input, or interact with controls inside the window.
+
+Visible-window minimization is intentionally narrow. `minimize_window` accepts only an exact PID plus a non-empty title of at most 160 characters from `window_snapshot`. THE OS resolves exactly one visible top-level target, blocks LYRA's own window, asks Windows to minimize it with `SW_MINIMIZE`, and verifies the minimized state with `IsIconic` before reporting success. The action is `NORMAL`: it does not close the window, terminate a process, type input, or inspect window contents.
 
 Graceful visible-window close is confirmation-gated. `close_window` accepts the same exact PID plus bounded-title target shape as `activate_window`, but is classified `DESTRUCTIVE` because closing an application window can affect unsaved work. Its preview is static and performs no desktop enumeration. After approval, THE OS resolves exactly one visible matching window, blocks LYRA's own process window, sends only the normal `WM_SYSCOMMAND/SC_CLOSE` command, and waits up to 3 seconds for the original target window to be destroyed or become non-visible. It never escalates to process termination or force-kill; if an application keeps the window open for its own save/confirmation UI, THE OS reports that closure was not verified.
 
