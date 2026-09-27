@@ -331,18 +331,39 @@ class MainWindow(QMainWindow):
         risk: ActionRisk,
     ) -> bool:
         subject = self._action_subject(request)
+        preview = self._actions.confirmation_preview_for(request)
+        preview_text = ""
+
+        if preview is not None:
+            if not preview.allowed:
+                self._lyra(f"Prévia local bloqueou a ação:\n{preview.text}")
+                return False
+            preview_text = preview.text
+            self._lyra(f"Prévia local da alteração:\n{preview_text}")
+
         self._lyra(
             f"Confirmação necessária para {request.action}: {subject} "
             f"({risk.value})."
         )
+        dialog_text = (
+            f"Autorizar esta ação?\n\n"
+            f"{request.action}: {subject}\n"
+            f"Risco: {risk.value}"
+        )
+        if preview_text:
+            dialog_text += f"\n\nPrévia local:\n{preview_text}"
+
         choice = QMessageBox.question(
             self,
             "LYRA — confirmação necessária",
-            f"Autorizar esta ação?\n\n{request.action}: {subject}\nRisco: {risk.value}",
+            dialog_text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
-        return choice == QMessageBox.StandardButton.Yes
+        approved = choice == QMessageBox.StandardButton.Yes
+        if approved and preview is not None:
+            request.arguments.update(preview.execution_guard)
+        return approved
 
     def _start_action(self, request: ActionRequest) -> None:
         self._set_busy(True)

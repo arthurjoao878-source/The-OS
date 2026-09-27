@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves ten boundaries:
+The repository currently proves eleven boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -16,6 +16,7 @@ The repository currently proves ten boundaries:
 8. **Cooperative task control** — conversational/tool tasks expose Pause, Resume, and Cancel controls. Pause blocks at safe execution checkpoints; Cancel prevents later local side effects and provider continuations after the next checkpoint.
 9. **Bounded file/folder actions** — LYRA can inspect local path metadata, search names inside a user-specified root, and ask Windows to open an existing file or folder. Files with potentially executable/script suffixes are locally upgraded to `CONFIRM`.
 10. **Controlled text-file reading** — LYRA can read at most 16 KiB from a local text file after explicit user confirmation. Binary-looking files are rejected; sensitive credential/key filenames are locally upgraded to `PRIVILEGED`.
+11. **Previewed text-file mutation** — LYRA can create or fully replace a text file of at most 16 KiB only after THE OS prepares a local preview/diff and the user explicitly approves it. Existing files are `DESTRUCTIVE`; sensitive or executable/script-like paths are `PRIVILEGED`.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
@@ -24,6 +25,10 @@ Risk classification is also local authority. Launching shells or administrative 
 Filesystem search is intentionally bounded: name search starts only from the root explicitly supplied to the tool, is depth-limited, and caps the number of matches. `inspect_path` returns metadata and a bounded directory listing.
 
 `read_text_file` is deliberately not automatic even though it is read-only at the filesystem level. File contents are returned to the configured AI provider as tool data, so every read requires local confirmation before the file is touched. Known credential/key paths such as `.env`, private-key names, `.pem`, `.key`, `.p12`, and `.pfx` are classified as `PRIVILEGED`. The tool reads at most 16 KiB, rejects binary-looking data, and marks returned content as untrusted data so text inside a file is not authority to execute more actions.
+
+`write_text_file` accepts only a complete replacement body of at most 16 KiB. Before approval, THE OS resolves the target locally, verifies that its parent exists, rejects directories, binary-looking existing files, and existing files larger than the bounded limit, then produces a unified diff for ordinary files. Sensitive paths use a redacted local preview so secrets are not printed into the LYRA chat. New ordinary files are `CONFIRM`, existing ordinary files are `DESTRUCTIVE`, and sensitive or executable/script-like paths are `PRIVILEGED`.
+
+Approval carries a local execution guard containing the resolved path and hashes from the preview. If the target or proposed content changes between preview and execution, the write is blocked. Successful writes use a same-directory temporary file plus `os.replace`, then verify the resulting SHA-256. The tool never creates missing parent directories.
 
 `open_path` verifies that the target exists before handing it to the Windows shell. For generic files and folders, THE OS can verify the local target and that the shell-open request was submitted, but it does not claim that the associated GUI rendered successfully. Live visual acceptance remains the final check for that handoff.
 

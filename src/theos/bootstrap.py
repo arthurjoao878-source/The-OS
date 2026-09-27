@@ -5,6 +5,7 @@ from theos.core.actions.file_system import (
     InspectPathAction,
     OpenPathAction,
     ReadTextFileAction,
+    WriteTextFileAction,
 )
 from theos.core.actions.open_application import OpenApplicationAction
 from theos.core.actions.registry import ActionRegistry
@@ -28,6 +29,7 @@ def build_action_registry() -> ActionRegistry:
     find_path = FindPathAction(windows_files)
     open_path = OpenPathAction(windows_files)
     read_text_file = ReadTextFileAction(windows_files)
+    write_text_file = WriteTextFileAction(windows_files)
 
     registry = ActionRegistry()
     registry.register(
@@ -54,6 +56,12 @@ def build_action_registry() -> ActionRegistry:
         read_text_file.name,
         read_text_file.execute,
         risk=read_text_file.risk_for,
+    )
+    registry.register(
+        write_text_file.name,
+        write_text_file.execute,
+        risk=write_text_file.risk_for,
+        confirmation_preview=write_text_file.confirmation_preview,
     )
     return registry
 

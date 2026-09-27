@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import difflib
+import hashlib
 import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,10 +11,12 @@ MAX_DIRECTORY_ENTRIES = 30
 MAX_FIND_RESULTS = 20
 MAX_FIND_DEPTH = 4
 MAX_READ_BYTES = 16 * 1024
+MAX_WRITE_BYTES = 16 * 1024
+MAX_WRITE_PREVIEW_CHARS = 3500
 
 
 class WindowsFileSystemAdapter:
-    """Bounded Windows filesystem inspection, search, open, and text-read primitives."""
+    """Bounded Windows filesystem inspection, search, open, read, and write primitives."""
 
     @staticmethod
     def resolve(raw_path: str) -> Path:
@@ -198,6 +203,167 @@ class WindowsFileSystemAdapter:
         evidence["content_is_untrusted_data"] = True
         evidence["line_count_in_chunk"] = content.count("\n") + (1 if content else 0)
         return evidence
+
+    def preview_text_write(
+        self,
+        raw_path: str,
+        content: str,
+    ) -> dict[str, object]:
+        path = self.resolve(raw_path)
+        normalized = self._normalize_text(content)
+        new_bytes = normalized.encode("utf-8")
+        new_sha256 = hashlib.sha256(new_bytes).hexdigest()
+
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "new_bytes": len(new_bytes),
+            "new_sha256": new_sha256,
+            "allowed": False,
+        }
+
+        if len(new_bytes) > MAX_WRITE_BYTES:
+            evidence["error"] = "CONTENT_TOO_LARGE"
+            return evidence
+
+        parent = path.parent
+        evidence["parent"] = str(parent)
+        evidence["parent_exists"] = parent.exists()
+        evidence["parent_is_directory"] = parent.is_dir()
+        if not parent.exists() or not parent.is_dir():
+            evidence["error"] = "PARENT_NOT_DIRECTORY"
+            return evidence
+
+        before = ""
+        before_sha256: str | None = None
+        if path.exists():
+            if not path.is_file():
+                evidence["error"] = "PATH_NOT_FILE"
+                return evidence
+
+            size_bytes = path.stat().st_size
+            evidence["old_bytes"] = size_bytes
+            if size_bytes > MAX_WRITE_BYTES:
+                evidence["error"] = "EXISTING_FILE_TOO_LARGE"
+                return evidence
+
+            raw_before = path.read_bytes()
+            before_sha256 = hashlib.sha256(raw_before).hexdigest()
+            encoding = self._detect_text_encoding(raw_before)
+            if encoding is None:
+                evidence["error"] = "EXISTING_FILE_NOT_TEXT"
+                return evidence
+
+            try:
+                before = (
+                    raw_before.decode(encoding)
+                    .replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                )
+            except UnicodeDecodeError:
+                evidence["error"] = "EXISTING_FILE_NOT_TEXT"
+                return evidence
+
+        diff = "".join(
+            difflib.unified_diff(
+                before.splitlines(keepends=True),
+                normalized.splitlines(keepends=True),
+                fromfile=f"antes/{path.name}",
+                tofile=f"depois/{path.name}",
+                n=3,
+            )
+        )
+        if len(diff) > MAX_WRITE_PREVIEW_CHARS:
+            diff = (
+                diff[:MAX_WRITE_PREVIEW_CHARS]
+                + "\n... prévia truncada pelo limite local ..."
+            )
+            evidence["preview_truncated"] = True
+        else:
+            evidence["preview_truncated"] = False
+
+        evidence["allowed"] = True
+        evidence["before_sha256"] = before_sha256
+        evidence["changed"] = before != normalized
+        evidence["diff"] = diff
+        evidence["mode"] = "replace" if path.exists() else "create"
+        return evidence
+
+    def write_text(
+        self,
+        raw_path: str,
+        content: str,
+        *,
+        expected_path: str,
+        expected_exists: bool,
+        expected_before_sha256: str | None,
+        expected_content_sha256: str,
+    ) -> dict[str, object]:
+        preview = self.preview_text_write(raw_path, content)
+        if not bool(preview.get("allowed")):
+            raise ValueError(str(preview.get("error", "WRITE_PREVIEW_REJECTED")))
+
+        if str(preview["path"]) != expected_path:
+            raise RuntimeError("WRITE_TARGET_CHANGED")
+        if bool(preview["exists"]) != expected_exists:
+            raise RuntimeError("WRITE_TARGET_CHANGED")
+        if preview.get("before_sha256") != expected_before_sha256:
+            raise RuntimeError("WRITE_TARGET_CHANGED")
+        if preview.get("new_sha256") != expected_content_sha256:
+            raise RuntimeError("WRITE_CONTENT_CHANGED")
+
+        path = Path(str(preview["path"]))
+        normalized = self._normalize_text(content)
+        payload = normalized.encode("utf-8")
+
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "existed_before": expected_exists,
+            "changed": bool(preview["changed"]),
+            "bytes_written": len(payload),
+            "sha256": expected_content_sha256,
+            "atomic_replace": False,
+            "write_verified": False,
+        }
+
+        if not bool(preview["changed"]) and expected_exists:
+            evidence["written"] = False
+            evidence["write_verified"] = True
+            return evidence
+
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".theos.tmp",
+                delete=False,
+            ) as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+                temporary_path = Path(handle.name)
+
+            os.replace(temporary_path, path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+        written = path.read_bytes()
+        written_sha256 = hashlib.sha256(written).hexdigest()
+        if written_sha256 != expected_content_sha256:
+            raise RuntimeError("WRITE_VERIFICATION_FAILED")
+
+        evidence["written"] = True
+        evidence["atomic_replace"] = True
+        evidence["write_verified"] = True
+        return evidence
+
+    @staticmethod
+    def _normalize_text(content: str) -> str:
+        return content.replace("\r\n", "\n").replace("\r", "\n")
 
     @staticmethod
     def _detect_text_encoding(raw: bytes) -> str | None:

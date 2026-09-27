@@ -3,16 +3,23 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from theos.core.actions.contracts import ActionRequest, ActionResult, ActionRisk
+from theos.core.actions.contracts import (
+    ActionRequest,
+    ActionResult,
+    ActionRisk,
+    ConfirmationPreview,
+)
 
 ActionHandler = Callable[[ActionRequest], ActionResult]
 RiskResolver = Callable[[ActionRequest], ActionRisk]
+PreviewResolver = Callable[[ActionRequest], ConfirmationPreview]
 
 
 @dataclass(frozen=True, slots=True)
 class _ActionRegistration:
     handler: ActionHandler
     risk_resolver: RiskResolver
+    preview_resolver: PreviewResolver | None
 
 
 class ActionRegistry:
@@ -25,6 +32,7 @@ class ActionRegistry:
         handler: ActionHandler,
         *,
         risk: ActionRisk | RiskResolver = ActionRisk.NORMAL,
+        confirmation_preview: PreviewResolver | None = None,
     ) -> None:
         if name in self._registrations:
             raise ValueError(f"Action already registered: {name}")
@@ -38,6 +46,7 @@ class ActionRegistry:
         self._registrations[name] = _ActionRegistration(
             handler=handler,
             risk_resolver=risk_resolver,
+            preview_resolver=confirmation_preview,
         )
 
     def contains(self, name: str) -> bool:
@@ -54,6 +63,20 @@ class ActionRegistry:
         if not isinstance(risk, ActionRisk):
             raise TypeError("risk resolver must return ActionRisk")
         return risk
+
+    def confirmation_preview_for(
+        self,
+        request: ActionRequest,
+    ) -> ConfirmationPreview | None:
+        registration = self._registrations.get(request.action)
+        if registration is None:
+            raise KeyError(f"Action not registered: {request.action}")
+        if registration.preview_resolver is None:
+            return None
+        preview = registration.preview_resolver(request)
+        if not isinstance(preview, ConfirmationPreview):
+            raise TypeError("preview resolver must return ConfirmationPreview")
+        return preview
 
     def execute(self, request: ActionRequest) -> ActionResult:
         registration = self._registrations.get(request.action)

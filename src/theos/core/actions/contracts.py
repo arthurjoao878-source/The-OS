@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -27,3 +28,10 @@ class ActionResult(BaseModel):
     message: str
     evidence: dict[str, Any] = Field(default_factory=dict)
     error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmationPreview:
+    allowed: bool
+    text: str
+    execution_guard: dict[str, Any] = field(default_factory=dict)

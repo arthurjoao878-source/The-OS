@@ -7,6 +7,7 @@ from theos.core.actions.contracts import ActionRequest
 from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
 
 ArgumentValidator = Callable[[Mapping[str, object]], dict[str, object]]
+MAX_WRITE_CONTENT_BYTES = 16 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +165,32 @@ def build_default_tool_catalog() -> ToolCatalog:
         ),
         _validate_single_path,
     )
+    catalog.register(
+        ToolDefinition(
+            name="write_text_file",
+            description=(
+                "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
+                "de texto pequeno existente. Toda mutação exige confirmação local e uma "
+                "prévia/diff gerada pelo THE OS antes da gravação. Não use para binários."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local do arquivo de texto a criar ou substituir.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Conteúdo textual completo que ficará no arquivo.",
+                    },
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_write_text_file,
+    )
     return catalog
 
 
@@ -203,4 +230,27 @@ def _validate_find_path(arguments: Mapping[str, object]) -> dict[str, object]:
     return {
         "root": root.strip(),
         "query": query.strip(),
+    }
+
+
+def _validate_write_text_file(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"path", "content"}:
+        raise ToolValidationError("write_text_file requires only 'path' and 'content'")
+
+    path = arguments.get("path")
+    content = arguments.get("content")
+    if not isinstance(path, str) or not path.strip():
+        raise ToolValidationError("path must be a non-blank string")
+    if not isinstance(content, str):
+        raise ToolValidationError("content must be a string")
+    if len(content.encode("utf-8")) > MAX_WRITE_CONTENT_BYTES:
+        raise ToolValidationError(
+            f"content exceeds the {MAX_WRITE_CONTENT_BYTES}-byte local limit"
+        )
+
+    return {
+        "path": path.strip(),
+        "content": content,
     }
