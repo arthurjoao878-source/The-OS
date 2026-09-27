@@ -3,6 +3,7 @@ from __future__ import annotations
 from theos.core.actions.desktop_windows import (
     ActivateWindowAction,
     CloseWindowAction,
+    MaximizeWindowAction,
     MinimizeWindowAction,
     WindowSnapshotAction,
 )
@@ -56,6 +57,7 @@ def build_action_registry() -> ActionRegistry:
     terminate_process = TerminateProcessAction(windows_processes)
     window_snapshot = WindowSnapshotAction(windows_desktop)
     activate_window = ActivateWindowAction(windows_desktop)
+    maximize_window = MaximizeWindowAction(windows_desktop)
     minimize_window = MinimizeWindowAction(windows_desktop)
     close_window = CloseWindowAction(windows_desktop)
     system_status = SystemStatusAction(windows_system)
@@ -143,6 +145,11 @@ def build_action_registry() -> ActionRegistry:
         activate_window.name,
         activate_window.execute,
         risk=activate_window.risk,
+    )
+    registry.register(
+        maximize_window.name,
+        maximize_window.execute,
+        risk=maximize_window.risk,
     )
     registry.register(
         minimize_window.name,

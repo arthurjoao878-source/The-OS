@@ -138,6 +138,96 @@ class ActivateWindowAction:
             evidence=evidence,
         )
 
+class MaximizeWindowAction:
+    name = "maximize_window"
+    risk = ActionRisk.NORMAL
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="PID e título exatos da janela são obrigatórios.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.maximize_window(pid, title.strip())
+        except RuntimeError as exc:
+            reason = str(exc)
+            if reason == "SELF_WINDOW_MAXIMIZE_BLOCKED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="A LYRA bloqueou a maximização da própria janela.",
+                    evidence={"reason": reason},
+                    error_code="SELF_WINDOW_MAXIMIZE_BLOCKED",
+                )
+            if reason == "WINDOW_TARGET_NOT_FOUND":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Não encontrei essa janela visível.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_NOT_FOUND",
+                )
+            if reason == "WINDOW_TARGET_AMBIGUOUS":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "a maximização foi bloqueada."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_AMBIGUOUS",
+                )
+            if reason == "WINDOW_MAXIMIZE_NOT_VERIFIED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O Windows não confirmou a janela como maximizada.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_MAXIMIZE_NOT_VERIFIED",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui maximizar essa janela.",
+                evidence={"reason": reason},
+                error_code="WINDOW_MAXIMIZE_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui maximizar essa janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="WINDOW_MAXIMIZE_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Janela maximizada e verificada: {evidence['title']} "
+                f"(PID {evidence['pid']})."
+            ),
+            evidence=evidence,
+        )
+
+
 class MinimizeWindowAction:
     name = "minimize_window"
     risk = ActionRisk.NORMAL

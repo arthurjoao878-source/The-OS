@@ -15,6 +15,9 @@ WINDOW_CLOSE_VERIFY_TIMEOUT_SECONDS = 3.0
 WINDOW_CLOSE_VERIFY_INTERVAL_SECONDS = 0.05
 WINDOW_MINIMIZE_VERIFY_TIMEOUT_SECONDS = 0.75
 WINDOW_MINIMIZE_VERIFY_INTERVAL_SECONDS = 0.05
+WINDOW_MAXIMIZE_VERIFY_TIMEOUT_SECONDS = 0.75
+WINDOW_MAXIMIZE_VERIFY_INTERVAL_SECONDS = 0.05
+SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
 SW_RESTORE = 9
 WM_SYSCOMMAND = 0x0112
@@ -232,6 +235,122 @@ class WindowsDesktopWindowAdapter:
             "activated": True,
             "foreground_verified": True,
             "restored_from_minimized": was_minimized,
+            "title_match": "bounded_title_exact",
+        }
+
+    def maximize_window(self, pid: int, title: str) -> dict[str, object]:
+        if pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_MAXIMIZE_BLOCKED")
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsZoomed.argtypes = [wintypes.HWND]
+        user32.IsZoomed.restype = wintypes.BOOL
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindow.restype = wintypes.BOOL
+
+        matches: list[tuple[int, str]] = []
+
+        def visit_window(hwnd: int, _lparam: int) -> bool:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(
+                hwnd,
+                ctypes.byref(process_id),
+            )
+            if int(process_id.value) != pid:
+                return True
+
+            title_length = int(user32.GetWindowTextLengthW(hwnd))
+            if title_length <= 0:
+                return True
+
+            buffer = ctypes.create_unicode_buffer(title_length + 1)
+            copied = int(
+                user32.GetWindowTextW(
+                    hwnd,
+                    buffer,
+                    title_length + 1,
+                )
+            )
+            if copied <= 0:
+                return True
+
+            full_title = buffer.value.strip()
+            if not full_title:
+                return True
+
+            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
+            if bounded_title == title:
+                matches.append((int(hwnd), full_title))
+            return True
+
+        callback = callback_type(visit_window)
+        if not user32.EnumWindows(callback, 0):
+            error_code = ctypes.get_last_error()
+            raise OSError(error_code, "EnumWindows failed")
+
+        if not matches:
+            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
+        if len(matches) != 1:
+            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
+
+        hwnd_value, full_title = matches[0]
+        hwnd = wintypes.HWND(hwnd_value)
+        was_maximized = bool(user32.IsZoomed(hwnd))
+
+        if not was_maximized:
+            user32.ShowWindow(hwnd, SW_MAXIMIZE)
+
+        deadline = time.monotonic() + WINDOW_MAXIMIZE_VERIFY_TIMEOUT_SECONDS
+        maximized_verified = False
+        while time.monotonic() <= deadline:
+            if user32.IsZoomed(hwnd):
+                maximized_verified = True
+                break
+            time.sleep(WINDOW_MAXIMIZE_VERIFY_INTERVAL_SECONDS)
+
+        if not maximized_verified:
+            raise RuntimeError("WINDOW_MAXIMIZE_NOT_VERIFIED")
+
+        try:
+            process_name = psutil.Process(pid).name()
+        except psutil.Error:
+            process_name = "processo-indisponivel"
+
+        return {
+            "pid": pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "process_name": process_name,
+            "maximized": True,
+            "maximized_verified": True,
+            "already_maximized": was_maximized,
             "title_match": "bounded_title_exact",
         }
 
