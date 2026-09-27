@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from theos.core.actions.registry import ActionRegistry
+from theos.integrations.ai import AIProvider, AIProviderError
 from theos.lyra.conversation.smoke_intent import resolve_smoke_intent
 from theos.lyra.memory.intent import MemoryIntentKind, resolve_memory_intent
 from theos.lyra.memory.service import MemoryService
@@ -20,6 +21,7 @@ from theos.lyra.memory.service import MemoryService
 
 class WorkerSignals(QObject):
     finished = Signal(object)
+    failed = Signal(str)
 
 
 class ActionWorker(QRunnable):
@@ -34,15 +36,36 @@ class ActionWorker(QRunnable):
         self.signals.finished.emit(result)
 
 
+class AIWorker(QRunnable):
+    def __init__(self, provider: AIProvider, text: str) -> None:
+        super().__init__()
+        self.provider = provider
+        self.text = text
+        self.signals = WorkerSignals()
+
+    def run(self) -> None:
+        try:
+            reply = self.provider.reply(self.text)
+        except AIProviderError as exception:
+            self.signals.failed.emit(str(exception))
+            return
+        except (TypeError, ValueError):
+            self.signals.failed.emit("O provedor de IA retornou uma resposta invÃ¡lida.")
+            return
+        self.signals.finished.emit(reply)
+
+
 class MainWindow(QMainWindow):
     def __init__(
         self,
         action_registry: ActionRegistry,
         memory_service: MemoryService,
+        ai_provider: AIProvider,
     ) -> None:
         super().__init__()
         self._actions = action_registry
         self._memory = memory_service
+        self._ai = ai_provider
         self._pool = QThreadPool.globalInstance()
 
         self.setWindowTitle("THE OS — LYRA")
@@ -107,19 +130,26 @@ class MainWindow(QMainWindow):
             return
 
         request = resolve_smoke_intent(text)
-        if request is None:
-            self._lyra(
-                "Ainda estou nos primeiros slices. "
-                "Posso abrir aplicativos e guardar/consultar memórias explícitas."
-            )
+        if request is not None:
+            app = str(request.arguments.get("application", "aplicativo"))
+            self._lyra(f"Abrindo {app}...")
+
+            worker = ActionWorker(self._actions, request)
+            worker.signals.finished.connect(self._on_action_result)
+            self._pool.start(worker)
             return
 
-        app = str(request.arguments.get("application", "aplicativo"))
-        self._lyra(f"Abrindo {app}...")
-
-        worker = ActionWorker(self._actions, request)
-        worker.signals.finished.connect(self._on_result)
+        self._lyra("Pensando...")
+        worker = AIWorker(self._ai, text)
+        worker.signals.finished.connect(self._on_ai_result)
+        worker.signals.failed.connect(self._on_ai_failure)
         self._pool.start(worker)
 
-    def _on_result(self, result: object) -> None:
+    def _on_action_result(self, result: object) -> None:
         self._lyra(result.message)
+
+    def _on_ai_result(self, reply: object) -> None:
+        self._lyra(reply.text)
+
+    def _on_ai_failure(self, message: str) -> None:
+        self._lyra(message)
