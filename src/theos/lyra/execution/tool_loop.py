@@ -356,8 +356,7 @@ class ToolLoopExecutor:
         completed_steps: int,
         progress: ProgressCallback | None,
     ) -> _Execution:
-        app = str(request.arguments.get("application", "aplicativo"))
-        opening = f"Abrindo {app}..."
+        opening = self._progress_message(request)
         self._emit_progress(progress, opening)
 
         action_result = self._actions.execute(request)
@@ -370,6 +369,23 @@ class ToolLoopExecutor:
             completed_steps=completed_steps,
             action_result=action_result,
         )
+
+    @staticmethod
+    def _progress_message(request: ActionRequest) -> str:
+        if request.action == "open_application":
+            target = str(request.arguments.get("application", "aplicativo"))
+            return f"Abrindo {target}..."
+        if request.action == "inspect_path":
+            target = str(request.arguments.get("path", "caminho"))
+            return f"Inspecionando {target}..."
+        if request.action == "find_path":
+            query = str(request.arguments.get("query", "item"))
+            root = str(request.arguments.get("root", "pasta"))
+            return f"Procurando {query} em {root}..."
+        if request.action == "open_path":
+            target = str(request.arguments.get("path", "caminho"))
+            return f"Abrindo {target}..."
+        return f"Executando {request.action}..."
 
     @staticmethod
     def _tool_output(

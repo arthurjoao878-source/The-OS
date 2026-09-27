@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves eight boundaries:
+The repository currently proves nine boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -14,10 +14,15 @@ The repository currently proves eight boundaries:
 6. **Verified multi-step tool loop** — after each successful local action, THE OS returns the verified result to the model so it can continue the same request with the next required action. The loop is capped at four local actions and stops immediately on failure.
 7. **Local risk policy + confirmation gate** — action risk is resolved by THE OS, not by the model. `READ_ONLY` and `NORMAL` actions may proceed automatically; `CONFIRM`, `DESTRUCTIVE`, and `PRIVILEGED` actions pause before side effects and require explicit user approval.
 8. **Cooperative task control** — conversational/tool tasks expose Pause, Resume, and Cancel controls. Pause blocks at safe execution checkpoints; Cancel prevents later local side effects and provider continuations after the next checkpoint.
+9. **Bounded file/folder actions** — LYRA can inspect local path metadata, search names inside a user-specified root, and ask Windows to open an existing file or folder. Files with potentially executable/script suffixes are locally upgraded to `CONFIRM`.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
-Risk classification is also local authority. Launching shells or administrative system tools through `open_application` is classified as `CONFIRM`, while ordinary applications such as Notepad remain `NORMAL`.
+Risk classification is also local authority. Launching shells or administrative system tools through `open_application` is classified as `CONFIRM`, while ordinary applications such as Notepad remain `NORMAL`. For `open_path`, executable, script, shortcut, installer, and similar suffixes are also classified as `CONFIRM`.
+
+Filesystem search is intentionally bounded: name search starts only from the root explicitly supplied to the tool, is depth-limited, and caps the number of matches. `inspect_path` returns metadata and a bounded directory listing; it does not read file contents.
+
+`open_path` verifies that the target exists before handing it to the Windows shell. For generic files and folders, THE OS can verify the local target and that the shell-open request was submitted, but it does not claim that the associated GUI rendered successfully. Live visual acceptance remains the final check for that handoff.
 
 Task cancellation is cooperative. THE OS does not forcibly kill a provider HTTP request or a local action that is already in progress. Instead, cancellation is checked before provider work, before local side effects, after each verified action, and before the next step. Pause follows the same safe checkpoints.
 

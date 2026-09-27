@@ -19,6 +19,39 @@ def test_tool_catalog_builds_allowlisted_action_request() -> None:
     assert request.arguments == {"application": "Bloco de Notas"}
 
 
+def test_tool_catalog_builds_file_system_requests() -> None:
+    catalog = build_default_tool_catalog()
+
+    inspect_request = catalog.build_action_request(
+        ToolCall(
+            name="inspect_path",
+            arguments={"path": r"  C:\Projetos\TheOS  "},
+        )
+    )
+    find_request = catalog.build_action_request(
+        ToolCall(
+            name="find_path",
+            arguments={
+                "root": r" C:\Projetos\TheOS ",
+                "query": " README ",
+            },
+        )
+    )
+    open_request = catalog.build_action_request(
+        ToolCall(
+            name="open_path",
+            arguments={"path": r" C:\Projetos\TheOS "},
+        )
+    )
+
+    assert inspect_request.arguments == {"path": r"C:\Projetos\TheOS"}
+    assert find_request.arguments == {
+        "root": r"C:\Projetos\TheOS",
+        "query": "README",
+    }
+    assert open_request.arguments == {"path": r"C:\Projetos\TheOS"}
+
+
 def test_tool_catalog_rejects_unknown_tool() -> None:
     catalog = build_default_tool_catalog()
 
@@ -41,6 +74,17 @@ def test_tool_catalog_rejects_extra_arguments() -> None:
                 arguments={
                     "application": "Notepad",
                     "unexpected": "value",
+                },
+            )
+        )
+
+    with pytest.raises(ToolValidationError):
+        catalog.build_action_request(
+            ToolCall(
+                name="inspect_path",
+                arguments={
+                    "path": r"C:\Temp",
+                    "recursive": True,
                 },
             )
         )

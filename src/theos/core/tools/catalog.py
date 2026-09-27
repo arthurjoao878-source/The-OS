@@ -74,6 +74,74 @@ def build_default_tool_catalog() -> ToolCatalog:
         ),
         _validate_open_application,
     )
+    catalog.register(
+        ToolDefinition(
+            name="inspect_path",
+            description=(
+                "Inspeciona metadados locais de um arquivo ou pasta existente. "
+                "Para pastas, retorna uma listagem limitada de entradas. "
+                "Não lê o conteúdo de arquivos."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local absoluto ou com variáveis de ambiente.",
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="find_path",
+            description=(
+                "Procura arquivos e pastas pelo nome dentro de uma pasta raiz local. "
+                "A busca é limitada em profundidade e quantidade de resultados."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {
+                        "type": "string",
+                        "description": "Pasta local onde a busca deve começar.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Trecho do nome do arquivo ou pasta a localizar.",
+                    },
+                },
+                "required": ["root", "query"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_find_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="open_path",
+            description=(
+                "Pede ao Windows para abrir um arquivo ou pasta local existente. "
+                "Arquivos potencialmente executáveis exigem confirmação local do usuário."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local do arquivo ou pasta a abrir.",
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_single_path,
+    )
     return catalog
 
 
@@ -86,3 +154,31 @@ def _validate_open_application(arguments: Mapping[str, object]) -> dict[str, obj
         raise ToolValidationError("application must be a non-blank string")
 
     return {"application": application.strip()}
+
+
+def _validate_single_path(arguments: Mapping[str, object]) -> dict[str, object]:
+    if set(arguments) != {"path"}:
+        raise ToolValidationError("tool requires only 'path'")
+
+    path = arguments.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise ToolValidationError("path must be a non-blank string")
+
+    return {"path": path.strip()}
+
+
+def _validate_find_path(arguments: Mapping[str, object]) -> dict[str, object]:
+    if set(arguments) != {"root", "query"}:
+        raise ToolValidationError("find_path requires only 'root' and 'query'")
+
+    root = arguments.get("root")
+    query = arguments.get("query")
+    if not isinstance(root, str) or not root.strip():
+        raise ToolValidationError("root must be a non-blank string")
+    if not isinstance(query, str) or not query.strip():
+        raise ToolValidationError("query must be a non-blank string")
+
+    return {
+        "root": root.strip(),
+        "query": query.strip(),
+    }

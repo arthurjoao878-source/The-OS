@@ -317,20 +317,28 @@ class MainWindow(QMainWindow):
         self._lyra(f"Abrindo {app}...")
         self._start_action(request)
 
+    @staticmethod
+    def _action_subject(request: ActionRequest) -> str:
+        for key in ("application", "path", "query", "root"):
+            value = request.arguments.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return request.action
+
     def _confirm_action(
         self,
         request: ActionRequest,
         risk: ActionRisk,
     ) -> bool:
-        app = str(request.arguments.get("application", request.action))
+        subject = self._action_subject(request)
         self._lyra(
-            f"Confirmação necessária para {request.action}: {app} "
+            f"Confirmação necessária para {request.action}: {subject} "
             f"({risk.value})."
         )
         choice = QMessageBox.question(
             self,
             "LYRA — confirmação necessária",
-            f"Autorizar esta ação?\n\n{request.action}: {app}\nRisco: {risk.value}",
+            f"Autorizar esta ação?\n\n{request.action}: {subject}\nRisco: {risk.value}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
