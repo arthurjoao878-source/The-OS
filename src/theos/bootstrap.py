@@ -1,0 +1,17 @@
+from __future__ import annotations
+
+from theos.core.actions.open_application import OpenApplicationAction
+from theos.core.actions.registry import ActionRegistry
+from theos.core.applications.registry import ApplicationRegistry
+from theos.integrations.windows.applications import WindowsApplicationAdapter
+
+
+def build_action_registry() -> ActionRegistry:
+    applications = ApplicationRegistry()
+    windows = WindowsApplicationAdapter()
+
+    open_application = OpenApplicationAction(applications, windows)
+
+    registry = ActionRegistry()
+    registry.register(open_application.name, open_application.execute)
+    return registry

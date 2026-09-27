@@ -1,0 +1,10 @@
+[lyra]
+language = "pt-BR"
+concise_responses = true
+
+[voice]
+enabled = false
+
+[execution]
+verify_actions = true
+confirm_destructive = true
