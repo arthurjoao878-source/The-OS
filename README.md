@@ -4,15 +4,20 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves five boundaries:
+The repository currently proves six boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
 3. **Provider-neutral AI conversation** — unmatched conversation can fall through to a configured AI provider.
 4. **Bounded session context + planner routing** — visible user/LYRA turns are kept in memory for the current process.
 5. **AI tool planning with local authority** — the model may propose only tools advertised by THE OS; THE OS validates the proposal, converts it to a registered `ActionRequest`, executes locally, and reports verified results.
+6. **Verified multi-step tool loop** — after each successful local action, THE OS returns the verified result to the model so it can continue the same request with the next required action. The loop is capped at four local actions and stops immediately on failure.
 
-The model never receives arbitrary shell execution. A model tool call is only a proposal. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
+The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
+
+For the OpenAI Responses adapter, tool calls are deliberately serial (`parallel_tool_calls: false`). THE OS executes at most one model-proposed action at a time, verifies it locally, returns its `function_call_output`, and only then allows the model to propose the next step.
+
+The Responses adapter remains stateless with `store: false`. It replays response output items and tool results locally for continuation and requests encrypted reasoning items when tools are enabled.
 
 The session context is intentionally separate from persistent memory. Normal conversation is not automatically written to SQLite.
 

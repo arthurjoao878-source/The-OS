@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from theos.core.tools import ToolCall, ToolDefinition
-from theos.integrations.ai.contracts import AIProviderError, AIReply, AIResponse
+from theos.integrations.ai.contracts import (
+    AIContinuation,
+    AIProviderError,
+    AIReply,
+    AIResponse,
+    AIToolResult,
+    AIToolTurn,
+)
 from theos.lyra.context import ConversationTurn
 
 _SYSTEM_INSTRUCTIONS = """\
@@ -16,9 +25,18 @@ Responda em português do Brasil por padrão.
 Seja natural, objetiva, clara e útil.
 Quando ferramentas estiverem disponíveis, use uma ferramenta apenas se o pedido realmente
 exigir uma ação local no computador.
+Se o usuário pedir várias ações locais, conclua todas as ações solicitadas antes da resposta
+final. Se você chamar uma ferramenta por vez, depois de receber o resultado continue com a
+próxima ação pendente. Não encerre o pedido após apenas a primeira etapa.
 Nunca afirme que uma ação foi executada antes de receber a evidência do THE OS.
 Não invente memórias. Memória persistente é fornecida separadamente pelo THE OS.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class _OpenAIContinuationState:
+    replay_input: tuple[dict[str, object], ...]
+    tools: tuple[ToolDefinition, ...]
 
 
 class OpenAIResponsesProvider:
@@ -66,19 +84,84 @@ class OpenAIResponsesProvider:
         if not normalized:
             raise ValueError("text must not be blank")
 
-        input_value: str | list[dict[str, str]]
-        if history:
-            input_value = [
-                {
-                    "role": turn.role.value,
-                    "content": turn.text,
-                }
-                for turn in history
-            ]
-            input_value.append({"role": "user", "content": normalized})
-        else:
-            input_value = normalized
+        replay_input = [
+            {
+                "role": turn.role.value,
+                "content": turn.text,
+            }
+            for turn in history
+        ]
+        replay_input.append({"role": "user", "content": normalized})
 
+        body = self._create_response(
+            input_value=normalized if not history else replay_input,
+            tools=tools,
+        )
+        return self._decode_response(
+            body,
+            replay_input=tuple(replay_input),
+            tools=tools,
+        )
+
+    def continue_after_tools(
+        self,
+        turn: AIToolTurn,
+        results: tuple[AIToolResult, ...],
+    ) -> AIResponse:
+        if turn.provider_id != self.provider_id:
+            raise AIProviderError("A continuação pertence a outro provedor de IA.")
+        if turn.continuation.provider_id != self.provider_id:
+            raise AIProviderError("O estado de continuação pertence a outro provedor de IA.")
+
+        state = turn.continuation.state
+        if not isinstance(state, _OpenAIContinuationState):
+            raise AIProviderError("O estado de continuação da IA é inválido.")
+
+        expected_call_ids = tuple(call.call_id for call in turn.calls)
+        if any(call_id is None for call_id in expected_call_ids):
+            raise AIProviderError("A chamada de ferramenta não possui call_id.")
+
+        actual_call_ids = tuple(result.call_id for result in results)
+        if expected_call_ids != actual_call_ids:
+            raise AIProviderError("Os resultados não correspondem às chamadas de ferramenta.")
+
+        replay_input = [deepcopy(item) for item in state.replay_input]
+        replay_input.extend(
+            {
+                "type": "function_call_output",
+                "call_id": result.call_id,
+                "output": result.output,
+            }
+            for result in results
+        )
+
+        body = self._create_response(
+            input_value=replay_input,
+            tools=state.tools,
+        )
+        return self._decode_response(
+            body,
+            replay_input=tuple(replay_input),
+            tools=state.tools,
+        )
+
+    def reply(
+        self,
+        text: str,
+        *,
+        history: tuple[ConversationTurn, ...] = (),
+    ) -> AIReply:
+        response = self.respond(text, history=history)
+        if not isinstance(response, AIReply):
+            raise AIProviderError("O provedor retornou ferramenta em modo de conversa.")
+        return response
+
+    def _create_response(
+        self,
+        *,
+        input_value: object,
+        tools: tuple[ToolDefinition, ...],
+    ) -> Mapping[str, object]:
         payload: dict[str, object] = {
             "model": self._model,
             "instructions": _SYSTEM_INSTRUCTIONS,
@@ -88,6 +171,8 @@ class OpenAIResponsesProvider:
         if tools:
             payload["tools"] = [_encode_tool(definition) for definition in tools]
             payload["tool_choice"] = "auto"
+            payload["parallel_tool_calls"] = False
+            payload["include"] = ["reasoning.encrypted_content"]
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -119,9 +204,42 @@ class OpenAIResponsesProvider:
         except ValueError as exception:
             raise AIProviderError("O provedor de IA retornou uma resposta inválida.") from exception
 
-        tool_call = _extract_tool_call(body)
-        if tool_call is not None:
-            return tool_call
+        if not isinstance(body, Mapping):
+            raise AIProviderError("O provedor de IA retornou um objeto inválido.")
+        return body
+
+    def _decode_response(
+        self,
+        body: Mapping[str, object],
+        *,
+        replay_input: tuple[dict[str, object], ...],
+        tools: tuple[ToolDefinition, ...],
+    ) -> AIResponse:
+        output = body.get("output")
+        output_items = _copy_output_items(output)
+        calls = _extract_tool_calls(output_items)
+
+        if calls:
+            if len(calls) > 1:
+                raise AIProviderError(
+                    "O provedor retornou múltiplas ferramentas mesmo com execução serial."
+                )
+            continuation_input = (
+                *deepcopy(list(replay_input)),
+                *deepcopy(output_items),
+            )
+            return AIToolTurn(
+                calls=tuple(calls),
+                continuation=AIContinuation(
+                    provider_id=self.provider_id,
+                    state=_OpenAIContinuationState(
+                        replay_input=continuation_input,
+                        tools=tools,
+                    ),
+                ),
+                provider_id=self.provider_id,
+                model=self._model,
+            )
 
         answer = _extract_output_text(body)
         if answer is None:
@@ -132,17 +250,6 @@ class OpenAIResponsesProvider:
             provider_id=self.provider_id,
             model=self._model,
         )
-
-    def reply(
-        self,
-        text: str,
-        *,
-        history: tuple[ConversationTurn, ...] = (),
-    ) -> AIReply:
-        response = self.respond(text, history=history)
-        if not isinstance(response, AIReply):
-            raise AIProviderError("O provedor retornou uma ferramenta em modo de conversa.")
-        return response
 
 
 def _encode_tool(definition: ToolDefinition) -> dict[str, object]:
@@ -155,22 +262,36 @@ def _encode_tool(definition: ToolDefinition) -> dict[str, object]:
     }
 
 
-def _extract_tool_call(body: object) -> ToolCall | None:
-    if not isinstance(body, Mapping):
-        return None
-
-    output = body.get("output")
+def _copy_output_items(output: object) -> list[dict[str, object]]:
+    if output is None:
+        return []
     if not isinstance(output, list):
-        return None
+        raise AIProviderError("A saída estruturada do provedor é inválida.")
 
+    copied: list[dict[str, object]] = []
+    for item in output:
+        if not isinstance(item, Mapping):
+            raise AIProviderError("Um item de saída do provedor é inválido.")
+        copied.append(deepcopy(dict(item)))
+    return copied
+
+
+def _extract_tool_calls(output: list[dict[str, object]]) -> list[ToolCall]:
     calls: list[ToolCall] = []
     for item in output:
-        if not isinstance(item, Mapping) or item.get("type") != "function_call":
+        if item.get("type") != "function_call":
             continue
 
         name = item.get("name")
         raw_arguments = item.get("arguments")
-        if not isinstance(name, str) or not name.strip() or not isinstance(raw_arguments, str):
+        call_id = item.get("call_id")
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or not isinstance(raw_arguments, str)
+            or not isinstance(call_id, str)
+            or not call_id.strip()
+        ):
             raise AIProviderError("O provedor retornou uma chamada de ferramenta inválida.")
 
         try:
@@ -183,20 +304,17 @@ def _extract_tool_call(body: object) -> ToolCall | None:
         if not isinstance(decoded, dict) or not all(isinstance(key, str) for key in decoded):
             raise AIProviderError("Os argumentos da ferramenta precisam ser um objeto JSON.")
 
-        calls.append(ToolCall(name=name, arguments=decoded))
-
-    if len(calls) > 1:
-        raise AIProviderError(
-            "A LYRA recebeu mais de uma ação simultânea; esta versão executa uma por vez."
+        calls.append(
+            ToolCall(
+                name=name,
+                arguments=decoded,
+                call_id=call_id,
+            )
         )
+    return calls
 
-    return calls[0] if calls else None
 
-
-def _extract_output_text(body: object) -> str | None:
-    if not isinstance(body, Mapping):
-        return None
-
+def _extract_output_text(body: Mapping[str, object]) -> str | None:
     direct = body.get("output_text")
     if isinstance(direct, str) and direct.strip():
         return direct.strip()

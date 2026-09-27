@@ -26,7 +26,47 @@ class AIReply:
             raise ValueError("model must be a non-blank string or None")
 
 
-AIResponse = AIReply | ToolCall
+@dataclass(frozen=True, slots=True)
+class AIContinuation:
+    provider_id: str
+    state: object
+
+    def __post_init__(self) -> None:
+        if not self.provider_id.strip():
+            raise ValueError("provider_id must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class AIToolTurn:
+    calls: tuple[ToolCall, ...]
+    continuation: AIContinuation
+    provider_id: str
+    model: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.calls:
+            raise ValueError("tool turn must contain at least one call")
+        if not all(isinstance(call, ToolCall) for call in self.calls):
+            raise TypeError("tool turn calls must be ToolCall instances")
+        if not self.provider_id.strip():
+            raise ValueError("provider_id must not be blank")
+        if self.model is not None and not self.model.strip():
+            raise ValueError("model must be a non-blank string or None")
+
+
+@dataclass(frozen=True, slots=True)
+class AIToolResult:
+    call_id: str
+    output: str
+
+    def __post_init__(self) -> None:
+        if not self.call_id.strip():
+            raise ValueError("call_id must not be blank")
+        if not self.output.strip():
+            raise ValueError("tool output must not be blank")
+
+
+AIResponse = AIReply | AIToolTurn
 
 
 @runtime_checkable
@@ -40,6 +80,12 @@ class AIProvider(Protocol):
         *,
         history: tuple[ConversationTurn, ...] = (),
         tools: tuple[ToolDefinition, ...] = (),
+    ) -> AIResponse: ...
+
+    def continue_after_tools(
+        self,
+        turn: AIToolTurn,
+        results: tuple[AIToolResult, ...],
     ) -> AIResponse: ...
 
     def reply(
@@ -74,6 +120,14 @@ class UnavailableAIProvider:
             provider_id=self.provider_id,
             model=None,
         )
+
+    def continue_after_tools(
+        self,
+        turn: AIToolTurn,
+        results: tuple[AIToolResult, ...],
+    ) -> AIResponse:
+        _ = turn, results
+        raise AIProviderError("O provedor de IA não está disponível para continuar ferramentas.")
 
     def reply(
         self,
