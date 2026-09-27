@@ -78,6 +78,7 @@ _EXPECTED_MUTATION_PARENT = "_theos_expected_mutation_parent"
 _EXPECTED_SOURCE = "_theos_expected_source"
 _EXPECTED_DESTINATION = "_theos_expected_destination"
 _EXPECTED_SOURCE_SIGNATURE = "_theos_expected_source_signature"
+_EXPECTED_COPY_MANIFEST_SHA256 = "_theos_expected_copy_manifest_sha256"
 
 
 def _is_sensitive_path(raw_path: str) -> bool:
@@ -591,6 +592,133 @@ class CreateDirectoryAction:
             evidence=evidence,
         )
 
+
+class CopyPathAction:
+    name = "copy_path"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def risk_for(self, request: ActionRequest) -> ActionRisk:
+        source = str(request.arguments.get("source", "")).strip()
+        destination = str(request.arguments.get("destination", "")).strip()
+        if (
+            _is_sensitive_path(source)
+            or _is_sensitive_path(destination)
+            or self._windows.is_protected_system_path(source)
+            or self._windows.is_protected_system_path(destination)
+        ):
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.CONFIRM
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        source = str(request.arguments.get("source", "")).strip()
+        destination = str(request.arguments.get("destination", "")).strip()
+        if not source or not destination:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: origem ou destino vazio.",
+            )
+
+        try:
+            evidence = self._windows.preview_copy_path(source, destination)
+        except OSError as exc:
+            return ConfirmationPreview(
+                allowed=False,
+                text=f"Não foi possível preparar a prévia ({type(exc).__name__}).",
+            )
+
+        if not bool(evidence.get("allowed")):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Cópia bloqueada antes da confirmação: "
+                    f"{evidence.get('error', 'COPY_REJECTED')}."
+                ),
+            )
+
+        kind = "PASTA" if evidence["source_kind"] == "directory" else "ARQUIVO"
+        preview_text = (
+            f"COPIAR {kind}\n"
+            f"Origem: {evidence['source']}\n"
+            f"Destino: {evidence['destination']}\n"
+            f"Arquivos: {evidence['files']}\n"
+            f"Pastas internas: {evidence['directories']}\n"
+            f"Tamanho total: {evidence['total_bytes']} byte(s)\n"
+            "A origem será preservada e o destino existente nunca será sobrescrito."
+        )
+        return ConfirmationPreview(
+            allowed=True,
+            text=preview_text,
+            execution_guard={
+                _EXPECTED_SOURCE: str(evidence["source"]),
+                _EXPECTED_DESTINATION: str(evidence["destination"]),
+                _EXPECTED_COPY_MANIFEST_SHA256: str(
+                    evidence["source_manifest_sha256"]
+                ),
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        source = str(request.arguments.get("source", "")).strip()
+        destination = str(request.arguments.get("destination", "")).strip()
+        expected_source = request.arguments.get(_EXPECTED_SOURCE)
+        expected_destination = request.arguments.get(_EXPECTED_DESTINATION)
+        expected_manifest = request.arguments.get(_EXPECTED_COPY_MANIFEST_SHA256)
+        if (
+            not source
+            or not destination
+            or not isinstance(expected_source, str)
+            or not isinstance(expected_destination, str)
+            or not isinstance(expected_manifest, str)
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A cópia não possui uma prévia local aprovada.",
+                error_code="MUTATION_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.copy_path(
+                source,
+                destination,
+                expected_source=expected_source,
+                expected_destination=expected_destination,
+                expected_source_manifest_sha256=expected_manifest,
+            )
+        except RuntimeError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A origem ou o destino mudou, ou a verificação da cópia falhou; "
+                    "a publicação do destino foi bloqueada."
+                ),
+                evidence={"reason": str(exc)},
+                error_code="COPY_CHANGED_OR_VERIFICATION_FAILED",
+            )
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui copiar esse caminho.",
+                evidence={"exception": type(exc).__name__, "reason": str(exc)},
+                error_code="PATH_COPY_FAILED",
+            )
+
+        destination_path = Path(str(evidence["destination"]))
+        if evidence.get("kind") == "directory":
+            message = f"Pasta copiada para {destination_path}."
+        else:
+            message = f"Arquivo copiado para {destination_path}."
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=message,
+            evidence=evidence,
+        )
 
 class MovePathAction:
     name = "move_path"

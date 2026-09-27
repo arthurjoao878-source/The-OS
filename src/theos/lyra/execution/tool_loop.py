@@ -394,6 +394,10 @@ class ToolLoopExecutor:
         if request.action == "create_directory":
             target = str(request.arguments.get("path", "pasta"))
             return f"Criando pasta {target}..."
+        if request.action == "copy_path":
+            source = str(request.arguments.get("source", "origem"))
+            destination = str(request.arguments.get("destination", "destino"))
+            return f"Copiando {source} para {destination}..."
         if request.action == "move_path":
             source = str(request.arguments.get("source", "origem"))
             destination = str(request.arguments.get("destination", "destino"))

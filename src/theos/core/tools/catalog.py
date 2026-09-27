@@ -188,6 +188,32 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="copy_path",
+            description=(
+                "Copia um arquivo ou uma árvore de pasta local para um destino novo. "
+                "A origem é preservada, o destino existente nunca é sobrescrito, e a "
+                "operação é limitada localmente por quantidade de entradas e tamanho."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Caminho local de origem.",
+                    },
+                    "destination": {
+                        "type": "string",
+                        "description": "Novo caminho local de destino.",
+                    },
+                },
+                "required": ["source", "destination"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_copy_path,
+    )
+    catalog.register(
+        ToolDefinition(
             name="move_path",
             description=(
                 "Move ou renomeia um arquivo ou pasta local para um destino que ainda "
@@ -298,6 +324,25 @@ def _validate_find_path(arguments: Mapping[str, object]) -> dict[str, object]:
     return {
         "root": root.strip(),
         "query": query.strip(),
+    }
+
+
+def _validate_copy_path(arguments: Mapping[str, object]) -> dict[str, object]:
+    if set(arguments) != {"source", "destination"}:
+        raise ToolValidationError(
+            "copy_path requires only 'source' and 'destination'"
+        )
+
+    source = arguments.get("source")
+    destination = arguments.get("destination")
+    if not isinstance(source, str) or not source.strip():
+        raise ToolValidationError("source must be a non-blank string")
+    if not isinstance(destination, str) or not destination.strip():
+        raise ToolValidationError("destination must be a non-blank string")
+
+    return {
+        "source": source.strip(),
+        "destination": destination.strip(),
     }
 
 

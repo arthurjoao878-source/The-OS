@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from theos.core.actions.file_system import (
+    CopyPathAction,
     CreateDirectoryAction,
     FindPathAction,
     InspectPathAction,
@@ -34,6 +35,7 @@ def build_action_registry() -> ActionRegistry:
     read_text_file = ReadTextFileAction(windows_files)
     write_text_file = WriteTextFileAction(windows_files)
     create_directory = CreateDirectoryAction(windows_files)
+    copy_path = CopyPathAction(windows_files)
     move_path = MovePathAction(windows_files)
     trash_path = TrashPathAction(windows_files)
 
@@ -74,6 +76,12 @@ def build_action_registry() -> ActionRegistry:
         create_directory.execute,
         risk=create_directory.risk_for,
         confirmation_preview=create_directory.confirmation_preview,
+    )
+    registry.register(
+        copy_path.name,
+        copy_path.execute,
+        risk=copy_path.risk_for,
+        confirmation_preview=copy_path.confirmation_preview,
     )
     registry.register(
         move_path.name,

@@ -309,9 +309,13 @@ class MainWindow(QMainWindow):
 
     def _handle_direct_action(self, request: ActionRequest) -> None:
         risk = self._actions.risk_for(request)
-        if requires_confirmation(risk) and not self._confirm_action(request, risk):
-            self._lyra("Ação cancelada.", remember_in_session=True)
-            return
+        if requires_confirmation(risk):
+            decision = self._confirm_action(request, risk)
+            if decision is None:
+                return
+            if not decision:
+                self._lyra("Ação cancelada.", remember_in_session=True)
+                return
 
         app = str(request.arguments.get("application", "aplicativo"))
         self._lyra(f"Abrindo {app}...")
@@ -336,7 +340,7 @@ class MainWindow(QMainWindow):
         self,
         request: ActionRequest,
         risk: ActionRisk,
-    ) -> bool:
+    ) -> bool | None:
         subject = self._action_subject(request)
         preview = self._actions.confirmation_preview_for(request)
         preview_text = ""
@@ -344,7 +348,7 @@ class MainWindow(QMainWindow):
         if preview is not None:
             if not preview.allowed:
                 self._lyra(f"Prévia local bloqueou a ação:\n{preview.text}")
-                return False
+                return None
             preview_text = preview.text
             self._lyra(f"Prévia local da alteração:\n{preview_text}")
 
@@ -393,11 +397,14 @@ class MainWindow(QMainWindow):
 
         pending = result.pending_confirmation
         if pending is not None:
-            approved = self._confirm_action(
+            decision = self._confirm_action(
                 pending.request,
                 pending.risk,
             )
-            self._resume_tool_loop(pending, approved=approved)
+            if decision is None:
+                self._finish_tool_task()
+                return
+            self._resume_tool_loop(pending, approved=decision)
             return
 
         if result.final_reply is not None:

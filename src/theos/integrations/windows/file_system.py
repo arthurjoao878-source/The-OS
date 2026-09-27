@@ -16,6 +16,8 @@ MAX_FIND_DEPTH = 4
 MAX_READ_BYTES = 16 * 1024
 MAX_WRITE_BYTES = 16 * 1024
 MAX_WRITE_PREVIEW_CHARS = 3500
+MAX_COPY_ENTRIES = 256
+MAX_COPY_BYTES = 64 * 1024 * 1024
 
 _FO_DELETE = 0x0003
 _FOF_SILENT = 0x0004
@@ -491,6 +493,293 @@ class WindowsFileSystemAdapter:
             "path": str(path),
             "created": True,
             "verified_directory": True,
+        }
+
+    @staticmethod
+    def _is_link_like(path: Path) -> bool:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        return bool(is_junction is not None and is_junction())
+
+    @staticmethod
+    def _file_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def copy_manifest(self, raw_path: str) -> dict[str, object]:
+        path = self.resolve(raw_path)
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "allowed": False,
+            "max_entries": MAX_COPY_ENTRIES,
+            "max_bytes": MAX_COPY_BYTES,
+        }
+        if not path.exists():
+            evidence["error"] = "SOURCE_NOT_FOUND"
+            return evidence
+        if self._is_link_like(path):
+            evidence["error"] = "LINK_SOURCE_NOT_ALLOWED"
+            return evidence
+
+        if path.is_file():
+            size = path.stat().st_size
+            if size > MAX_COPY_BYTES:
+                evidence["error"] = "COPY_TOO_LARGE"
+                evidence["total_bytes"] = size
+                return evidence
+
+            content_sha256 = self._file_sha256(path)
+            manifest_payload = (
+                f"ROOT_FILE\\0{size}\\0{content_sha256}".encode()
+            )
+            evidence.update(
+                {
+                    "allowed": True,
+                    "kind": "file",
+                    "files": 1,
+                    "directories": 0,
+                    "entries": 1,
+                    "total_bytes": size,
+                    "content_sha256": content_sha256,
+                    "manifest_sha256": hashlib.sha256(
+                        manifest_payload
+                    ).hexdigest(),
+                }
+            )
+            return evidence
+
+        if not path.is_dir():
+            evidence["error"] = "UNSUPPORTED_SOURCE_KIND"
+            return evidence
+
+        manifest_lines: list[str] = ["ROOT_DIRECTORY"]
+        entries = 0
+        files_count = 0
+        directories_count = 0
+        total_bytes = 0
+
+        for current, directories, filenames in os.walk(path, topdown=True):
+            current_path = Path(current)
+            directories.sort(key=str.casefold)
+            filenames.sort(key=str.casefold)
+
+            for name in directories:
+                child = current_path / name
+                if self._is_link_like(child):
+                    evidence["error"] = "LINK_ENTRY_NOT_ALLOWED"
+                    evidence["link_path"] = str(child)
+                    return evidence
+                entries += 1
+                directories_count += 1
+                if entries > MAX_COPY_ENTRIES:
+                    evidence["error"] = "COPY_TOO_MANY_ENTRIES"
+                    evidence["entries"] = entries
+                    return evidence
+                relative = child.relative_to(path).as_posix()
+                manifest_lines.append(f"D\\0{relative}")
+
+            for name in filenames:
+                child = current_path / name
+                if self._is_link_like(child):
+                    evidence["error"] = "LINK_ENTRY_NOT_ALLOWED"
+                    evidence["link_path"] = str(child)
+                    return evidence
+                entries += 1
+                files_count += 1
+                if entries > MAX_COPY_ENTRIES:
+                    evidence["error"] = "COPY_TOO_MANY_ENTRIES"
+                    evidence["entries"] = entries
+                    return evidence
+
+                size = child.stat().st_size
+                total_bytes += size
+                if total_bytes > MAX_COPY_BYTES:
+                    evidence["error"] = "COPY_TOO_LARGE"
+                    evidence["total_bytes"] = total_bytes
+                    return evidence
+
+                relative = child.relative_to(path).as_posix()
+                content_sha256 = self._file_sha256(child)
+                manifest_lines.append(
+                    f"F\\0{relative}\\0{size}\\0{content_sha256}"
+                )
+
+        manifest = "\\n".join(manifest_lines).encode("utf-8")
+        evidence.update(
+            {
+                "allowed": True,
+                "kind": "directory",
+                "files": files_count,
+                "directories": directories_count,
+                "entries": entries,
+                "total_bytes": total_bytes,
+                "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+            }
+        )
+        return evidence
+
+    def preview_copy_path(
+        self,
+        raw_source: str,
+        raw_destination: str,
+    ) -> dict[str, object]:
+        source = self.resolve(raw_source)
+        destination = self.resolve(raw_destination)
+        destination_parent = destination.parent
+
+        manifest = self.copy_manifest(raw_source)
+        evidence: dict[str, object] = {
+            "source": str(source),
+            "destination": str(destination),
+            "destination_exists": destination.exists(),
+            "destination_parent": str(destination_parent),
+            "destination_parent_exists": destination_parent.exists(),
+            "destination_parent_is_directory": destination_parent.is_dir(),
+            "source_protected_system_path": self.is_protected_system_path(raw_source),
+            "destination_protected_system_path": self.is_protected_system_path(
+                raw_destination
+            ),
+            "allowed": False,
+        }
+
+        if not bool(manifest.get("allowed")):
+            evidence["error"] = str(
+                manifest.get("error", "COPY_SOURCE_REJECTED")
+            )
+            evidence["source_manifest"] = manifest
+            return evidence
+        if source == destination:
+            evidence["error"] = "SOURCE_EQUALS_DESTINATION"
+            return evidence
+        if destination.exists():
+            evidence["error"] = "DESTINATION_ALREADY_EXISTS"
+            return evidence
+        if not destination_parent.exists() or not destination_parent.is_dir():
+            evidence["error"] = "DESTINATION_PARENT_NOT_DIRECTORY"
+            return evidence
+        if source.is_dir() and source in destination.parents:
+            evidence["error"] = "DESTINATION_INSIDE_SOURCE"
+            return evidence
+
+        evidence.update(
+            {
+                "allowed": True,
+                "source_kind": str(manifest["kind"]),
+                "files": int(manifest["files"]),
+                "directories": int(manifest["directories"]),
+                "entries": int(manifest["entries"]),
+                "total_bytes": int(manifest["total_bytes"]),
+                "source_manifest_sha256": str(manifest["manifest_sha256"]),
+            }
+        )
+        return evidence
+
+    def copy_path(
+        self,
+        raw_source: str,
+        raw_destination: str,
+        *,
+        expected_source: str,
+        expected_destination: str,
+        expected_source_manifest_sha256: str,
+    ) -> dict[str, object]:
+        preview = self.preview_copy_path(raw_source, raw_destination)
+        if not bool(preview.get("allowed")):
+            raise ValueError(str(preview.get("error", "COPY_REJECTED")))
+        if str(preview["source"]) != expected_source:
+            raise RuntimeError("COPY_TARGET_CHANGED")
+        if str(preview["destination"]) != expected_destination:
+            raise RuntimeError("COPY_TARGET_CHANGED")
+        if (
+            str(preview["source_manifest_sha256"])
+            != expected_source_manifest_sha256
+        ):
+            raise RuntimeError("COPY_SOURCE_CHANGED")
+        if bool(preview["destination_exists"]):
+            raise RuntimeError("COPY_TARGET_CHANGED")
+
+        source = Path(str(preview["source"]))
+        destination = Path(str(preview["destination"]))
+        source_kind = str(preview["source_kind"])
+        temporary_path: Path | None = None
+
+        try:
+            if source_kind == "file":
+                descriptor, temporary_name = tempfile.mkstemp(
+                    dir=destination.parent,
+                    prefix=f".{destination.name}.",
+                    suffix=".theos-copy.tmp",
+                )
+                os.close(descriptor)
+                temporary_path = Path(temporary_name)
+                shutil.copy2(source, temporary_path)
+            else:
+                temporary_path = Path(
+                    tempfile.mkdtemp(
+                        dir=destination.parent,
+                        prefix=f".{destination.name}.theos-copy-",
+                    )
+                )
+                temporary_path.rmdir()
+                shutil.copytree(source, temporary_path)
+
+            source_after = self.copy_manifest(raw_source)
+            copied = self.copy_manifest(str(temporary_path))
+            if not bool(source_after.get("allowed")):
+                raise RuntimeError("COPY_SOURCE_CHANGED")
+            if (
+                str(source_after.get("manifest_sha256"))
+                != expected_source_manifest_sha256
+            ):
+                raise RuntimeError("COPY_SOURCE_CHANGED")
+            if not bool(copied.get("allowed")):
+                raise RuntimeError("COPY_VERIFICATION_FAILED")
+            if (
+                str(copied.get("manifest_sha256"))
+                != expected_source_manifest_sha256
+            ):
+                raise RuntimeError("COPY_VERIFICATION_FAILED")
+            if destination.exists():
+                raise RuntimeError("COPY_TARGET_CHANGED")
+
+            os.replace(temporary_path, destination)
+            temporary_path = None
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                if temporary_path.is_dir():
+                    shutil.rmtree(temporary_path, ignore_errors=True)
+                else:
+                    temporary_path.unlink(missing_ok=True)
+
+        final_manifest = self.copy_manifest(str(destination))
+        if (
+            not bool(final_manifest.get("allowed"))
+            or str(final_manifest.get("manifest_sha256"))
+            != expected_source_manifest_sha256
+        ):
+            raise RuntimeError("COPY_VERIFICATION_FAILED")
+
+        return {
+            "source": str(source),
+            "destination": str(destination),
+            "kind": source_kind,
+            "source_preserved": source.exists(),
+            "destination_present": destination.exists(),
+            "files": int(preview["files"]),
+            "directories": int(preview["directories"]),
+            "entries": int(preview["entries"]),
+            "total_bytes": int(preview["total_bytes"]),
+            "manifest_sha256": expected_source_manifest_sha256,
+            "copy_verified": True,
+            "destination_published_after_verification": True,
         }
 
     def preview_move_path(
