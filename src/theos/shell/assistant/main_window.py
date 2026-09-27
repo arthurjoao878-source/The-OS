@@ -323,6 +323,10 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _action_subject(request: ActionRequest) -> str:
+        pid = request.arguments.get("pid")
+        if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+            return f"PID {pid}"
+
         for key in (
             "application",
             "path",

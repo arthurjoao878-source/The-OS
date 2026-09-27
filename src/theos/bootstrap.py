@@ -12,7 +12,7 @@ from theos.core.actions.file_system import (
     WriteTextFileAction,
 )
 from theos.core.actions.open_application import OpenApplicationAction
-from theos.core.actions.processes import ProcessSnapshotAction
+from theos.core.actions.processes import ProcessSnapshotAction, TerminateProcessAction
 from theos.core.actions.registry import ActionRegistry
 from theos.core.actions.system_status import SystemStatusAction
 from theos.core.applications.registry import ApplicationRegistry
@@ -45,6 +45,7 @@ def build_action_registry() -> ActionRegistry:
     move_path = MovePathAction(windows_files)
     trash_path = TrashPathAction(windows_files)
     process_snapshot = ProcessSnapshotAction(windows_processes)
+    terminate_process = TerminateProcessAction(windows_processes)
     system_status = SystemStatusAction(windows_system)
 
     registry = ActionRegistry()
@@ -113,6 +114,12 @@ def build_action_registry() -> ActionRegistry:
         process_snapshot.execute,
         risk=process_snapshot.risk,
         confirmation_preview=process_snapshot.confirmation_preview,
+    )
+    registry.register(
+        terminate_process.name,
+        terminate_process.execute,
+        risk=terminate_process.risk,
+        confirmation_preview=terminate_process.confirmation_preview,
     )
     return registry
 

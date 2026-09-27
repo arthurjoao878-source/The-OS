@@ -293,6 +293,30 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="terminate_process",
+            description=(
+                "Encerra um único processo local identificado por PID quando o usuário "
+                "pedir explicitamente para fechar ou parar esse processo. Nunca adivinhe "
+                "um PID: use apenas um PID conhecido. Processos protegidos são bloqueados "
+                "localmente e a ação exige prévia e confirmação destrutiva."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato do processo a encerrar.",
+                    }
+                },
+                "required": ["pid"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_pid,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
@@ -324,6 +348,17 @@ def _validate_no_arguments(arguments: Mapping[str, object]) -> dict[str, object]
     if arguments:
         raise ToolValidationError("tool does not accept arguments")
     return {}
+
+
+def _validate_pid(arguments: Mapping[str, object]) -> dict[str, object]:
+    if set(arguments) != {"pid"}:
+        raise ToolValidationError("terminate_process requires only 'pid'")
+
+    pid = arguments.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+
+    return {"pid": pid}
 
 
 def _validate_open_application(arguments: Mapping[str, object]) -> dict[str, object]:

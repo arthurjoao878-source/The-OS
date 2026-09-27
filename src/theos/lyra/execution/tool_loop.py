@@ -409,6 +409,9 @@ class ToolLoopExecutor:
             return "Coletando status do sistema..."
         if request.action == "process_snapshot":
             return "Inspecionando processos em execução..."
+        if request.action == "terminate_process":
+            pid = request.arguments.get("pid", "desconhecido")
+            return f"Encerrando processo PID {pid}..."
         return f"Executando {request.action}..."
 
     @staticmethod
