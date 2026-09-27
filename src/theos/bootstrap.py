@@ -13,12 +13,14 @@ from theos.core.actions.file_system import (
 )
 from theos.core.actions.open_application import OpenApplicationAction
 from theos.core.actions.registry import ActionRegistry
+from theos.core.actions.system_status import SystemStatusAction
 from theos.core.applications.registry import ApplicationRegistry
 from theos.core.tools import ToolCatalog, build_default_tool_catalog
 from theos.integrations.ai import AIProvider
 from theos.integrations.ai import build_ai_provider as create_ai_provider
 from theos.integrations.windows.applications import WindowsApplicationAdapter
 from theos.integrations.windows.file_system import WindowsFileSystemAdapter
+from theos.integrations.windows.system_status import WindowsSystemStatusAdapter
 from theos.lyra.memory.service import MemoryService
 from theos.lyra.memory.sqlite_store import SQLiteMemoryStore
 
@@ -27,6 +29,7 @@ def build_action_registry() -> ActionRegistry:
     applications = ApplicationRegistry()
     windows_applications = WindowsApplicationAdapter()
     windows_files = WindowsFileSystemAdapter()
+    windows_system = WindowsSystemStatusAdapter()
 
     open_application = OpenApplicationAction(applications, windows_applications)
     inspect_path = InspectPathAction(windows_files)
@@ -38,6 +41,7 @@ def build_action_registry() -> ActionRegistry:
     copy_path = CopyPathAction(windows_files)
     move_path = MovePathAction(windows_files)
     trash_path = TrashPathAction(windows_files)
+    system_status = SystemStatusAction(windows_system)
 
     registry = ActionRegistry()
     registry.register(
@@ -94,6 +98,11 @@ def build_action_registry() -> ActionRegistry:
         trash_path.execute,
         risk=trash_path.risk_for,
         confirmation_preview=trash_path.confirmation_preview,
+    )
+    registry.register(
+        system_status.name,
+        system_status.execute,
+        risk=system_status.risk,
     )
     return registry
 

@@ -405,6 +405,8 @@ class ToolLoopExecutor:
         if request.action == "trash_path":
             target = str(request.arguments.get("path", "caminho"))
             return f"Enviando {target} para a Lixeira..."
+        if request.action == "system_status":
+            return "Coletando status do sistema..."
         return f"Executando {request.action}..."
 
     @staticmethod

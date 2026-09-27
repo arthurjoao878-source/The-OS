@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves thirteen boundaries:
+The repository currently proves fourteen boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -19,6 +19,7 @@ The repository currently proves thirteen boundaries:
 11. **Previewed text-file mutation** — LYRA can create or fully replace a text file of at most 16 KiB only after THE OS prepares a local preview/diff and the user explicitly approves it. Existing files are `DESTRUCTIVE`; sensitive or executable/script-like paths are `PRIVILEGED`.
 12. **Controlled path mutation** — LYRA can create one directory, move/rename a path without overwriting the destination, and send a path to the Windows Recycle Bin. Every mutation uses a local preview plus explicit approval; move/trash operations are `DESTRUCTIVE`, sensitive locations are `PRIVILEGED`, and protected Windows system paths cannot be moved or trashed.
 13. **Bounded verified copy** — LYRA can copy a file or a directory tree while preserving the source. Copy is locally bounded to 256 entries and 64 MiB, refuses links/junctions and existing destinations, previews counts/size before approval, and verifies a content manifest before publishing the destination.
+14. **Read-only system status** — LYRA can collect a bounded snapshot of current CPU, memory, system-disk, and battery state through a local Windows adapter. The action is read-only, performs no process enumeration, and does not mutate system configuration.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
@@ -33,6 +34,8 @@ Filesystem search is intentionally bounded: name search starts only from the roo
 Approval carries a local execution guard containing the resolved path and hashes from the preview. If the target or proposed content changes between preview and execution, the write is blocked. Successful writes use a same-directory temporary file plus `os.replace`, then verify the resulting SHA-256. The tool never creates missing parent directories.
 
 Copy is also bounded and verified. `copy_path` supports ordinary files and recursive directory trees up to 256 entries and 64 MiB total. Symbolic links and Windows junctions are rejected, existing destinations are never overwritten, and a content manifest is recalculated before and after the copy. The copied result is built at a temporary sibling path and published to the requested destination only after verification. Ordinary copies are `CONFIRM`; sensitive/executable or protected-system locations are `PRIVILEGED`.
+
+System status is deliberately narrow. `system_status` reports a single read-only resource snapshot: CPU utilization, logical/physical CPU counts, memory usage, the Windows system-drive usage, and battery percentage/power state when the hardware exposes it. It does not list processes, inspect windows, read arbitrary environment variables, change power settings, or perform any other system mutation.
 
 Path mutation is intentionally bounded. `create_directory` creates only one level and never creates missing parent directories. `move_path` refuses existing destinations and blocks moving protected Windows system sources or moving a directory inside itself. `trash_path` uses the Windows Recycle Bin rather than permanent deletion, refuses protected system paths, and verifies that the original path disappeared after the shell operation. Mutation previews carry local path/signature guards so a changed source is blocked before execution.
 

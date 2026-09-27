@@ -261,6 +261,22 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="system_status",
+            description=(
+                "Coleta um snapshot local e somente leitura do uso atual do computador: "
+                "CPU, memória, disco e bateria quando disponível. Use quando o usuário "
+                "perguntar como está o PC, consumo de recursos ou status geral da máquina."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
@@ -286,6 +302,12 @@ def build_default_tool_catalog() -> ToolCatalog:
         _validate_write_text_file,
     )
     return catalog
+
+
+def _validate_no_arguments(arguments: Mapping[str, object]) -> dict[str, object]:
+    if arguments:
+        raise ToolValidationError("tool does not accept arguments")
+    return {}
 
 
 def _validate_open_application(arguments: Mapping[str, object]) -> dict[str, object]:
