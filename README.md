@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves nine boundaries:
+The repository currently proves ten boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -15,12 +15,15 @@ The repository currently proves nine boundaries:
 7. **Local risk policy + confirmation gate** — action risk is resolved by THE OS, not by the model. `READ_ONLY` and `NORMAL` actions may proceed automatically; `CONFIRM`, `DESTRUCTIVE`, and `PRIVILEGED` actions pause before side effects and require explicit user approval.
 8. **Cooperative task control** — conversational/tool tasks expose Pause, Resume, and Cancel controls. Pause blocks at safe execution checkpoints; Cancel prevents later local side effects and provider continuations after the next checkpoint.
 9. **Bounded file/folder actions** — LYRA can inspect local path metadata, search names inside a user-specified root, and ask Windows to open an existing file or folder. Files with potentially executable/script suffixes are locally upgraded to `CONFIRM`.
+10. **Controlled text-file reading** — LYRA can read at most 16 KiB from a local text file after explicit user confirmation. Binary-looking files are rejected; sensitive credential/key filenames are locally upgraded to `PRIVILEGED`.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
 Risk classification is also local authority. Launching shells or administrative system tools through `open_application` is classified as `CONFIRM`, while ordinary applications such as Notepad remain `NORMAL`. For `open_path`, executable, script, shortcut, installer, and similar suffixes are also classified as `CONFIRM`.
 
-Filesystem search is intentionally bounded: name search starts only from the root explicitly supplied to the tool, is depth-limited, and caps the number of matches. `inspect_path` returns metadata and a bounded directory listing; it does not read file contents.
+Filesystem search is intentionally bounded: name search starts only from the root explicitly supplied to the tool, is depth-limited, and caps the number of matches. `inspect_path` returns metadata and a bounded directory listing.
+
+`read_text_file` is deliberately not automatic even though it is read-only at the filesystem level. File contents are returned to the configured AI provider as tool data, so every read requires local confirmation before the file is touched. Known credential/key paths such as `.env`, private-key names, `.pem`, `.key`, `.p12`, and `.pfx` are classified as `PRIVILEGED`. The tool reads at most 16 KiB, rejects binary-looking data, and marks returned content as untrusted data so text inside a file is not authority to execute more actions.
 
 `open_path` verifies that the target exists before handing it to the Windows shell. For generic files and folders, THE OS can verify the local target and that the shell-open request was submitted, but it does not claim that the associated GUI rendered successfully. Live visual acceptance remains the final check for that handoff.
 

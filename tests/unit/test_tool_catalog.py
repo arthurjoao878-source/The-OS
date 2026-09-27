@@ -43,6 +43,12 @@ def test_tool_catalog_builds_file_system_requests() -> None:
             arguments={"path": r" C:\Projetos\TheOS "},
         )
     )
+    read_request = catalog.build_action_request(
+        ToolCall(
+            name="read_text_file",
+            arguments={"path": r" C:\Projetos\TheOS\README.md "},
+        )
+    )
 
     assert inspect_request.arguments == {"path": r"C:\Projetos\TheOS"}
     assert find_request.arguments == {
@@ -50,6 +56,7 @@ def test_tool_catalog_builds_file_system_requests() -> None:
         "query": "README",
     }
     assert open_request.arguments == {"path": r"C:\Projetos\TheOS"}
+    assert read_request.arguments == {"path": r"C:\Projetos\TheOS\README.md"}
 
 
 def test_tool_catalog_rejects_unknown_tool() -> None:

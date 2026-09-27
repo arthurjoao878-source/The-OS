@@ -36,6 +36,32 @@ _CONFIRM_OPEN_SUFFIXES = frozenset(
     }
 )
 
+_PRIVILEGED_READ_NAMES = frozenset(
+    {
+        ".env",
+        ".env.local",
+        ".env.production",
+        ".env.development",
+        "credentials",
+        "credentials.json",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ed25519",
+        "id_rsa",
+        "known_hosts",
+        "secrets.json",
+    }
+)
+
+_PRIVILEGED_READ_SUFFIXES = frozenset(
+    {
+        ".key",
+        ".p12",
+        ".pfx",
+        ".pem",
+    }
+)
+
 
 class InspectPathAction:
     name = "inspect_path"
@@ -50,7 +76,7 @@ class InspectPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="O caminho estÃ¡ vazio.",
+                message="O caminho está vazio.",
                 error_code="ACTION_VALIDATION_FAILED",
             )
 
@@ -60,7 +86,7 @@ class InspectPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="NÃ£o consegui inspecionar esse caminho.",
+                message="Não consegui inspecionar esse caminho.",
                 evidence={"exception": type(exc).__name__},
                 error_code="PATH_INSPECTION_FAILED",
             )
@@ -69,7 +95,7 @@ class InspectPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message=f"NÃ£o encontrei o caminho {raw_path}.",
+                message=f"Não encontrei o caminho {raw_path}.",
                 evidence=evidence,
                 error_code="PATH_NOT_FOUND",
             )
@@ -103,7 +129,7 @@ class FindPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="A pasta raiz e o termo de busca sÃ£o obrigatÃ³rios.",
+                message="A pasta raiz e o termo de busca são obrigatórios.",
                 error_code="ACTION_VALIDATION_FAILED",
             )
 
@@ -113,7 +139,7 @@ class FindPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="NÃ£o consegui pesquisar nesse caminho.",
+                message="Não consegui pesquisar nesse caminho.",
                 evidence={"exception": type(exc).__name__},
                 error_code="PATH_SEARCH_FAILED",
             )
@@ -122,7 +148,7 @@ class FindPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message=f"NÃ£o encontrei a pasta raiz {raw_root}.",
+                message=f"Não encontrei a pasta raiz {raw_root}.",
                 evidence=evidence,
                 error_code="PATH_NOT_FOUND",
             )
@@ -131,7 +157,7 @@ class FindPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message=f"O caminho raiz nÃ£o Ã© uma pasta: {raw_root}.",
+                message=f"O caminho raiz não é uma pasta: {raw_root}.",
                 evidence=evidence,
                 error_code="PATH_NOT_DIRECTORY",
             )
@@ -139,9 +165,9 @@ class FindPathAction:
         matches = evidence.get("matches", [])
         count = len(matches) if isinstance(matches, list) else 0
         if count == 0:
-            message = f"Pesquisa concluÃ­da: nenhum resultado para {query}."
+            message = f"Pesquisa concluída: nenhum resultado para {query}."
         else:
-            message = f"Pesquisa concluÃ­da: {count} resultado(s) para {query}."
+            message = f"Pesquisa concluída: {count} resultado(s) para {query}."
 
         return ActionResult(
             request_id=request.request_id,
@@ -172,7 +198,7 @@ class OpenPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="O caminho estÃ¡ vazio.",
+                message="O caminho está vazio.",
                 error_code="ACTION_VALIDATION_FAILED",
             )
 
@@ -182,7 +208,7 @@ class OpenPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="O Windows nÃ£o aceitou a solicitaÃ§Ã£o de abertura.",
+                message="O Windows não aceitou a solicitação de abertura.",
                 evidence={"exception": type(exc).__name__},
                 error_code="PATH_OPEN_FAILED",
             )
@@ -191,7 +217,7 @@ class OpenPathAction:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message=f"NÃ£o encontrei o caminho {raw_path}.",
+                message=f"Não encontrei o caminho {raw_path}.",
                 evidence=evidence,
                 error_code="PATH_NOT_FOUND",
             )
@@ -200,6 +226,85 @@ class OpenPathAction:
         return ActionResult(
             request_id=request.request_id,
             success=True,
-            message=f"SolicitaÃ§Ã£o de abertura enviada ao Windows para {resolved.name or resolved}.",
+            message=f"Solicitação de abertura enviada ao Windows para {resolved.name or resolved}.",
+            evidence=evidence,
+        )
+
+
+class ReadTextFileAction:
+    name = "read_text_file"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        path = Path(raw_path)
+        name = path.name.casefold()
+        suffix = path.suffix.casefold()
+        if (
+            name in _PRIVILEGED_READ_NAMES
+            or name.startswith(".env.")
+            or suffix in _PRIVILEGED_READ_SUFFIXES
+        ):
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.CONFIRM
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if not raw_path:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O caminho está vazio.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.read_text(raw_path)
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui ler esse arquivo.",
+                evidence={"exception": type(exc).__name__},
+                error_code="FILE_READ_FAILED",
+            )
+
+        if not bool(evidence.get("exists")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"Não encontrei o arquivo {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FOUND",
+            )
+
+        if not bool(evidence.get("is_file")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"O caminho não é um arquivo: {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FILE",
+            )
+
+        if not bool(evidence.get("text")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O arquivo não parece ser texto compatível com a leitura controlada.",
+                evidence=evidence,
+                error_code="FILE_NOT_TEXT",
+            )
+
+        resolved = Path(str(evidence["path"]))
+        suffix = " (leitura parcial)" if bool(evidence.get("truncated")) else ""
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=f"Arquivo lido: {resolved.name or resolved}{suffix}.",
             evidence=evidence,
         )

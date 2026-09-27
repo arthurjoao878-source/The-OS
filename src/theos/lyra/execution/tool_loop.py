@@ -385,6 +385,9 @@ class ToolLoopExecutor:
         if request.action == "open_path":
             target = str(request.arguments.get("path", "caminho"))
             return f"Abrindo {target}..."
+        if request.action == "read_text_file":
+            target = str(request.arguments.get("path", "arquivo"))
+            return f"Lendo {target}..."
         return f"Executando {request.action}..."
 
     @staticmethod
