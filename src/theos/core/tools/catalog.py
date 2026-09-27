@@ -365,6 +365,37 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="restore_window",
+            description=(
+                "Restaura para o tamanho normal uma janela visível já identificada por "
+                "PID e pelo título limitado retornado por window_snapshot. Use somente um "
+                "par PID+título conhecido; nunca invente o alvo. A operação é verificada "
+                "localmente e não fecha a janela nem envia teclas."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                },
+                "required": ["pid", "title"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_window_target,
+    )
+    catalog.register(
+        ToolDefinition(
             name="maximize_window",
             description=(
                 "Maximiza uma janela visível já identificada por PID e pelo título "

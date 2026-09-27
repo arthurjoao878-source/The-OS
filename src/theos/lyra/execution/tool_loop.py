@@ -417,6 +417,9 @@ class ToolLoopExecutor:
         if request.action == "activate_window":
             title = str(request.arguments.get("title", "janela"))
             return f"Ativando janela {title}..."
+        if request.action == "restore_window":
+            title = str(request.arguments.get("title", "janela"))
+            return f"Restaurando janela {title} para o tamanho normal..."
         if request.action == "maximize_window":
             title = str(request.arguments.get("title", "janela"))
             return f"Maximizando janela {title}..."
