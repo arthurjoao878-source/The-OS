@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from theos.integrations.ai.contracts import AIProviderError, AIReply
+from theos.lyra.context import ConversationTurn
 
 _SYSTEM_INSTRUCTIONS = """\
 Você é LYRA, a assistente central do THE OS.
@@ -50,15 +51,34 @@ class OpenAIResponsesProvider:
     def model(self) -> str:
         return self._model
 
-    def reply(self, text: str) -> AIReply:
+    def reply(
+        self,
+        text: str,
+        *,
+        history: tuple[ConversationTurn, ...] = (),
+    ) -> AIReply:
         normalized = text.strip()
         if not normalized:
             raise ValueError("text must not be blank")
 
+        input_value: str | list[dict[str, str]]
+        if history:
+            input_value = [
+                {
+                    "role": turn.role.value,
+                    "content": turn.text,
+                }
+                for turn in history
+            ]
+            input_value.append({"role": "user", "content": normalized})
+        else:
+            input_value = normalized
+
         payload = {
             "model": self._model,
             "instructions": _SYSTEM_INSTRUCTIONS,
-            "input": normalized,
+            "input": input_value,
+            "store": False,
         }
         headers = {
             "Authorization": f"Bearer {self._api_key}",

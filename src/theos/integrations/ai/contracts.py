@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from theos.lyra.context import ConversationTurn
+
 
 class AIProviderError(RuntimeError):
     """Safe provider failure that can be shown to the LYRA shell."""
@@ -28,7 +30,12 @@ class AIProvider(Protocol):
     @property
     def provider_id(self) -> str: ...
 
-    def reply(self, text: str) -> AIReply: ...
+    def reply(
+        self,
+        text: str,
+        *,
+        history: tuple[ConversationTurn, ...] = (),
+    ) -> AIReply: ...
 
 
 class UnavailableAIProvider:
@@ -40,9 +47,15 @@ class UnavailableAIProvider:
             raise ValueError("reason must not be blank")
         self._reason = normalized
 
-    def reply(self, text: str) -> AIReply:
+    def reply(
+        self,
+        text: str,
+        *,
+        history: tuple[ConversationTurn, ...] = (),
+    ) -> AIReply:
         if not isinstance(text, str) or not text.strip():
             raise ValueError("text must not be blank")
+        _ = history
         return AIReply(
             text=self._reason,
             provider_id=self.provider_id,

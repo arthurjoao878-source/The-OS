@@ -6,6 +6,7 @@ import httpx
 
 from theos.integrations.ai import OpenAIResponsesProvider, UnavailableAIProvider
 from theos.integrations.ai.provider_factory import build_ai_provider
+from theos.lyra.context import ConversationRole, ConversationTurn
 
 
 def test_ai_provider_is_disabled_without_configuration() -> None:
@@ -68,5 +69,53 @@ def test_openai_responses_provider_extracts_text_without_real_network() -> None:
             "Não invente memórias. Memória persistente é fornecida separadamente pelo THE OS.\n"
         ),
         "input": "Quem é você?",
+        "store": False,
+    }
+    client.close()
+
+
+def test_openai_responses_provider_sends_bounded_session_history() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json={"output_text": "Aurora."})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = OpenAIResponsesProvider(
+        api_key="test-key",
+        model="test-model",
+        client=client,
+    )
+    history = (
+        ConversationTurn(
+            role=ConversationRole.USER,
+            text="O codinome temporário é Aurora.",
+        ),
+        ConversationTurn(
+            role=ConversationRole.ASSISTANT,
+            text="Entendido.",
+        ),
+    )
+
+    reply = provider.reply("Qual é o codinome?", history=history)
+
+    assert reply.text == "Aurora."
+    assert captured["body"] == {
+        "model": "test-model",
+        "instructions": (
+            "Você é LYRA, a assistente central do THE OS.\n"
+            "Responda em português do Brasil por padrão.\n"
+            "Seja natural, objetiva, clara e útil.\n"
+            "Não afirme que executou uma ação no computador quando você não recebeu "
+            "evidência de execução.\n"
+            "Não invente memórias. Memória persistente é fornecida separadamente pelo THE OS.\n"
+        ),
+        "input": [
+            {"role": "user", "content": "O codinome temporário é Aurora."},
+            {"role": "assistant", "content": "Entendido."},
+            {"role": "user", "content": "Qual é o codinome?"},
+        ],
+        "store": False,
     }
     client.close()
