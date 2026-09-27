@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
 )
 
 from theos.core.actions.registry import ActionRegistry
-from theos.integrations.ai import AIProvider, AIProviderError
+from theos.core.tools import ToolCall, ToolCatalog, ToolDefinition, ToolValidationError
+from theos.integrations.ai import AIProvider, AIProviderError, AIReply
 from theos.lyra.context import ConversationTurn, SessionContext
 from theos.lyra.memory.intent import MemoryIntentKind
 from theos.lyra.memory.service import MemoryService
@@ -43,23 +44,29 @@ class AIWorker(QRunnable):
         provider: AIProvider,
         text: str,
         history: tuple[ConversationTurn, ...],
+        tools: tuple[ToolDefinition, ...],
     ) -> None:
         super().__init__()
         self.provider = provider
         self.text = text
         self.history = history
+        self.tools = tools
         self.signals = WorkerSignals()
 
     def run(self) -> None:
         try:
-            reply = self.provider.reply(self.text, history=self.history)
+            response = self.provider.respond(
+                self.text,
+                history=self.history,
+                tools=self.tools,
+            )
         except AIProviderError as exception:
             self.signals.failed.emit(str(exception))
             return
         except (TypeError, ValueError):
             self.signals.failed.emit("O provedor de IA retornou uma resposta inválida.")
             return
-        self.signals.finished.emit(reply)
+        self.signals.finished.emit(response)
 
 
 class MainWindow(QMainWindow):
@@ -68,11 +75,13 @@ class MainWindow(QMainWindow):
         action_registry: ActionRegistry,
         memory_service: MemoryService,
         ai_provider: AIProvider,
+        tool_catalog: ToolCatalog,
     ) -> None:
         super().__init__()
         self._actions = action_registry
         self._memory = memory_service
         self._ai = ai_provider
+        self._tools = tool_catalog
         self._planner = LyraPlanner()
         self._context = SessionContext(max_turns=12)
         self._pool = QThreadPool.globalInstance()
@@ -118,6 +127,13 @@ class MainWindow(QMainWindow):
         self.send.setEnabled(not busy)
         if not busy:
             self.input.setFocus()
+
+    def _available_ai_tools(self) -> tuple[ToolDefinition, ...]:
+        return tuple(
+            definition
+            for definition in self._tools.definitions()
+            if self._actions.contains(definition.name)
+        )
 
     def _submit(self) -> None:
         text = self.input.text().strip()
@@ -166,26 +182,56 @@ class MainWindow(QMainWindow):
 
             app = str(request.arguments.get("application", "aplicativo"))
             self._lyra(f"Abrindo {app}...")
-            self._set_busy(True)
-
-            worker = ActionWorker(self._actions, request)
-            worker.signals.finished.connect(self._on_action_result)
-            self._pool.start(worker)
+            self._start_action(request)
             return
 
         self._lyra("Pensando...")
         self._set_busy(True)
-        worker = AIWorker(self._ai, text, history)
-        worker.signals.finished.connect(self._on_ai_result)
+        worker = AIWorker(
+            self._ai,
+            text,
+            history,
+            self._available_ai_tools(),
+        )
+        worker.signals.finished.connect(self._on_ai_response)
         worker.signals.failed.connect(self._on_ai_failure)
         self._pool.start(worker)
 
+    def _start_action(self, request: object) -> None:
+        self._set_busy(True)
+        worker = ActionWorker(self._actions, request)
+        worker.signals.finished.connect(self._on_action_result)
+        self._pool.start(worker)
+
+    def _on_ai_response(self, response: object) -> None:
+        if isinstance(response, AIReply):
+            self._lyra(response.text, remember_in_session=True)
+            self._set_busy(False)
+            return
+
+        if not isinstance(response, ToolCall):
+            self._lyra("A IA retornou um plano que não reconheço.")
+            self._set_busy(False)
+            return
+
+        if not self._actions.contains(response.name):
+            self._lyra("A IA propôs uma ação que não está registrada.")
+            self._set_busy(False)
+            return
+
+        try:
+            request = self._tools.build_action_request(response)
+        except ToolValidationError:
+            self._lyra("A IA propôs argumentos inválidos para a ação.")
+            self._set_busy(False)
+            return
+
+        app = str(request.arguments.get("application", "aplicativo"))
+        self._lyra(f"Abrindo {app}...")
+        self._start_action(request)
+
     def _on_action_result(self, result: object) -> None:
         self._lyra(result.message, remember_in_session=True)
-        self._set_busy(False)
-
-    def _on_ai_result(self, reply: object) -> None:
-        self._lyra(reply.text, remember_in_session=True)
         self._set_busy(False)
 
     def _on_ai_failure(self, message: str) -> None:

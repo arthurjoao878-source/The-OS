@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any
 
 import httpx
 
-from theos.integrations.ai.contracts import AIProviderError, AIReply
+from theos.core.tools import ToolCall, ToolDefinition
+from theos.integrations.ai.contracts import AIProviderError, AIReply, AIResponse
 from theos.lyra.context import ConversationTurn
 
 _SYSTEM_INSTRUCTIONS = """\
 Você é LYRA, a assistente central do THE OS.
 Responda em português do Brasil por padrão.
 Seja natural, objetiva, clara e útil.
-Não afirme que executou uma ação no computador quando você não recebeu evidência de execução.
+Quando ferramentas estiverem disponíveis, use uma ferramenta apenas se o pedido realmente
+exigir uma ação local no computador.
+Nunca afirme que uma ação foi executada antes de receber a evidência do THE OS.
 Não invente memórias. Memória persistente é fornecida separadamente pelo THE OS.
 """
 
@@ -51,12 +55,13 @@ class OpenAIResponsesProvider:
     def model(self) -> str:
         return self._model
 
-    def reply(
+    def respond(
         self,
         text: str,
         *,
         history: tuple[ConversationTurn, ...] = (),
-    ) -> AIReply:
+        tools: tuple[ToolDefinition, ...] = (),
+    ) -> AIResponse:
         normalized = text.strip()
         if not normalized:
             raise ValueError("text must not be blank")
@@ -74,12 +79,16 @@ class OpenAIResponsesProvider:
         else:
             input_value = normalized
 
-        payload = {
+        payload: dict[str, object] = {
             "model": self._model,
             "instructions": _SYSTEM_INSTRUCTIONS,
             "input": input_value,
             "store": False,
         }
+        if tools:
+            payload["tools"] = [_encode_tool(definition) for definition in tools]
+            payload["tool_choice"] = "auto"
+
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -110,15 +119,78 @@ class OpenAIResponsesProvider:
         except ValueError as exception:
             raise AIProviderError("O provedor de IA retornou uma resposta inválida.") from exception
 
+        tool_call = _extract_tool_call(body)
+        if tool_call is not None:
+            return tool_call
+
         answer = _extract_output_text(body)
         if answer is None:
-            raise AIProviderError("O provedor de IA não retornou texto utilizável.")
+            raise AIProviderError("O provedor de IA não retornou texto nem ferramenta utilizável.")
 
         return AIReply(
             text=answer,
             provider_id=self.provider_id,
             model=self._model,
         )
+
+    def reply(
+        self,
+        text: str,
+        *,
+        history: tuple[ConversationTurn, ...] = (),
+    ) -> AIReply:
+        response = self.respond(text, history=history)
+        if not isinstance(response, AIReply):
+            raise AIProviderError("O provedor retornou uma ferramenta em modo de conversa.")
+        return response
+
+
+def _encode_tool(definition: ToolDefinition) -> dict[str, object]:
+    return {
+        "type": "function",
+        "name": definition.name,
+        "description": definition.description,
+        "parameters": definition.parameters,
+        "strict": True,
+    }
+
+
+def _extract_tool_call(body: object) -> ToolCall | None:
+    if not isinstance(body, Mapping):
+        return None
+
+    output = body.get("output")
+    if not isinstance(output, list):
+        return None
+
+    calls: list[ToolCall] = []
+    for item in output:
+        if not isinstance(item, Mapping) or item.get("type") != "function_call":
+            continue
+
+        name = item.get("name")
+        raw_arguments = item.get("arguments")
+        if not isinstance(name, str) or not name.strip() or not isinstance(raw_arguments, str):
+            raise AIProviderError("O provedor retornou uma chamada de ferramenta inválida.")
+
+        try:
+            decoded = json.loads(raw_arguments)
+        except json.JSONDecodeError as exception:
+            raise AIProviderError(
+                "O provedor retornou argumentos de ferramenta inválidos."
+            ) from exception
+
+        if not isinstance(decoded, dict) or not all(isinstance(key, str) for key in decoded):
+            raise AIProviderError("Os argumentos da ferramenta precisam ser um objeto JSON.")
+
+        calls.append(ToolCall(name=name, arguments=decoded))
+
+    if len(calls) > 1:
+        raise AIProviderError(
+            "A LYRA recebeu mais de uma ação simultânea; esta versão executa uma por vez."
+        )
+
+    return calls[0] if calls else None
 
 
 def _extract_output_text(body: object) -> str | None:

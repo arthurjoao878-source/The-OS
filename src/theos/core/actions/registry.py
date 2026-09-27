@@ -14,6 +14,12 @@ class ActionRegistry:
             raise ValueError(f"Action already registered: {name}")
         self._handlers[name] = handler
 
+    def contains(self, name: str) -> bool:
+        return name in self._handlers
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(self._handlers)
+
     def execute(self, request: ActionRequest) -> ActionResult:
         handler = self._handlers.get(request.action)
         if handler is None:

@@ -4,7 +4,12 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from theos.bootstrap import build_action_registry, build_ai_provider, build_memory_service
+from theos.bootstrap import (
+    build_action_registry,
+    build_ai_provider,
+    build_memory_service,
+    build_tool_catalog,
+)
 from theos.shell.assistant.main_window import MainWindow
 
 
@@ -14,6 +19,7 @@ def main() -> int:
         build_action_registry(),
         build_memory_service(),
         build_ai_provider(),
+        build_tool_catalog(),
     )
     window.show()
     return app.exec()

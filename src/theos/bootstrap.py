@@ -3,6 +3,7 @@ from __future__ import annotations
 from theos.core.actions.open_application import OpenApplicationAction
 from theos.core.actions.registry import ActionRegistry
 from theos.core.applications.registry import ApplicationRegistry
+from theos.core.tools import ToolCatalog, build_default_tool_catalog
 from theos.integrations.ai import AIProvider
 from theos.integrations.ai import build_ai_provider as create_ai_provider
 from theos.integrations.windows.applications import WindowsApplicationAdapter
@@ -19,6 +20,10 @@ def build_action_registry() -> ActionRegistry:
     registry = ActionRegistry()
     registry.register(open_application.name, open_application.execute)
     return registry
+
+
+def build_tool_catalog() -> ToolCatalog:
+    return build_default_tool_catalog()
 
 
 def build_memory_service() -> MemoryService:

@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+import pytest
+
+from theos.core.tools import ToolCall, ToolValidationError, build_default_tool_catalog
+
+
+def test_tool_catalog_builds_allowlisted_action_request() -> None:
+    catalog = build_default_tool_catalog()
+
+    request = catalog.build_action_request(
+        ToolCall(
+            name="open_application",
+            arguments={"application": "  Bloco de Notas  "},
+        )
+    )
+
+    assert request.action == "open_application"
+    assert request.arguments == {"application": "Bloco de Notas"}
+
+
+def test_tool_catalog_rejects_unknown_tool() -> None:
+    catalog = build_default_tool_catalog()
+
+    with pytest.raises(ToolValidationError):
+        catalog.build_action_request(
+            ToolCall(
+                name="run_arbitrary_command",
+                arguments={"command": "whoami"},
+            )
+        )
+
+
+def test_tool_catalog_rejects_extra_arguments() -> None:
+    catalog = build_default_tool_catalog()
+
+    with pytest.raises(ToolValidationError):
+        catalog.build_action_request(
+            ToolCall(
+                name="open_application",
+                arguments={
+                    "application": "Notepad",
+                    "unexpected": "value",
+                },
+            )
+        )

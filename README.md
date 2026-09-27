@@ -4,12 +4,15 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves four independent boundaries:
+The repository currently proves five boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
-3. **Provider-neutral AI conversation boundary** — deterministic actions/memory stay local; unmatched conversation can fall through to a configured AI provider.
-4. **Bounded session context + planner routing** — visible user/LYRA turns are kept only in memory for the current process, while a planner preserves memory -> action -> conversation priority.
+3. **Provider-neutral AI conversation** — unmatched conversation can fall through to a configured AI provider.
+4. **Bounded session context + planner routing** — visible user/LYRA turns are kept in memory for the current process.
+5. **AI tool planning with local authority** — the model may propose only tools advertised by THE OS; THE OS validates the proposal, converts it to a registered `ActionRequest`, executes locally, and reports verified results.
+
+The model never receives arbitrary shell execution. A model tool call is only a proposal. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
 The session context is intentionally separate from persistent memory. Normal conversation is not automatically written to SQLite.
 
