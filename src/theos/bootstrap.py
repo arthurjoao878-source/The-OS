@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from theos.core.actions.desktop_windows import ActivateWindowAction, WindowSnapshotAction
+from theos.core.actions.desktop_windows import (
+    ActivateWindowAction,
+    CloseWindowAction,
+    WindowSnapshotAction,
+)
 from theos.core.actions.file_system import (
     CopyPathAction,
     CreateDirectoryAction,
@@ -51,6 +55,7 @@ def build_action_registry() -> ActionRegistry:
     terminate_process = TerminateProcessAction(windows_processes)
     window_snapshot = WindowSnapshotAction(windows_desktop)
     activate_window = ActivateWindowAction(windows_desktop)
+    close_window = CloseWindowAction(windows_desktop)
     system_status = SystemStatusAction(windows_system)
 
     registry = ActionRegistry()
@@ -136,6 +141,12 @@ def build_action_registry() -> ActionRegistry:
         activate_window.name,
         activate_window.execute,
         risk=activate_window.risk,
+    )
+    registry.register(
+        close_window.name,
+        close_window.execute,
+        risk=close_window.risk,
+        confirmation_preview=close_window.confirmation_preview,
     )
     return registry
 
