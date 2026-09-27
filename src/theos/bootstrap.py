@@ -12,6 +12,7 @@ from theos.core.actions.file_system import (
     WriteTextFileAction,
 )
 from theos.core.actions.open_application import OpenApplicationAction
+from theos.core.actions.processes import ProcessSnapshotAction
 from theos.core.actions.registry import ActionRegistry
 from theos.core.actions.system_status import SystemStatusAction
 from theos.core.applications.registry import ApplicationRegistry
@@ -20,6 +21,7 @@ from theos.integrations.ai import AIProvider
 from theos.integrations.ai import build_ai_provider as create_ai_provider
 from theos.integrations.windows.applications import WindowsApplicationAdapter
 from theos.integrations.windows.file_system import WindowsFileSystemAdapter
+from theos.integrations.windows.processes import WindowsProcessAdapter
 from theos.integrations.windows.system_status import WindowsSystemStatusAdapter
 from theos.lyra.memory.service import MemoryService
 from theos.lyra.memory.sqlite_store import SQLiteMemoryStore
@@ -29,6 +31,7 @@ def build_action_registry() -> ActionRegistry:
     applications = ApplicationRegistry()
     windows_applications = WindowsApplicationAdapter()
     windows_files = WindowsFileSystemAdapter()
+    windows_processes = WindowsProcessAdapter()
     windows_system = WindowsSystemStatusAdapter()
 
     open_application = OpenApplicationAction(applications, windows_applications)
@@ -41,6 +44,7 @@ def build_action_registry() -> ActionRegistry:
     copy_path = CopyPathAction(windows_files)
     move_path = MovePathAction(windows_files)
     trash_path = TrashPathAction(windows_files)
+    process_snapshot = ProcessSnapshotAction(windows_processes)
     system_status = SystemStatusAction(windows_system)
 
     registry = ActionRegistry()
@@ -103,6 +107,12 @@ def build_action_registry() -> ActionRegistry:
         system_status.name,
         system_status.execute,
         risk=system_status.risk,
+    )
+    registry.register(
+        process_snapshot.name,
+        process_snapshot.execute,
+        risk=process_snapshot.risk,
+        confirmation_preview=process_snapshot.confirmation_preview,
     )
     return registry
 

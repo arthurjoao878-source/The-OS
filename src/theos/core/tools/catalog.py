@@ -277,6 +277,22 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="process_snapshot",
+            description=(
+                "Inspeciona de forma limitada os processos em execução para identificar "
+                "os que usam mais memória. O resultado inclui somente nome, PID e RSS, "
+                "é limitado a 12 processos e exige confirmação local antes da coleta."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "

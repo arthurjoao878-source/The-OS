@@ -407,6 +407,8 @@ class ToolLoopExecutor:
             return f"Enviando {target} para a Lixeira..."
         if request.action == "system_status":
             return "Coletando status do sistema..."
+        if request.action == "process_snapshot":
+            return "Inspecionando processos em execução..."
         return f"Executando {request.action}..."
 
     @staticmethod
