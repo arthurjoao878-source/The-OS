@@ -334,6 +334,37 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="activate_window",
+            description=(
+                "Traz para o primeiro plano uma janela visível já identificada por PID "
+                "e pelo título limitado retornado por window_snapshot. Use somente um par "
+                "PID+título conhecido; nunca invente o alvo. A ativação é bloqueada se o "
+                "alvo não existir ou se houver mais de uma correspondência."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                },
+                "required": ["pid", "title"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_window_target,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
@@ -365,6 +396,31 @@ def _validate_no_arguments(arguments: Mapping[str, object]) -> dict[str, object]
     if arguments:
         raise ToolValidationError("tool does not accept arguments")
     return {}
+
+
+def _validate_window_target(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"pid", "title"}:
+        raise ToolValidationError(
+            "activate_window requires only 'pid' and 'title'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+    }
 
 
 def _validate_pid(arguments: Mapping[str, object]) -> dict[str, object]:

@@ -414,6 +414,9 @@ class ToolLoopExecutor:
             return f"Encerrando processo PID {pid}..."
         if request.action == "window_snapshot":
             return "Inspecionando janelas visíveis..."
+        if request.action == "activate_window":
+            title = str(request.arguments.get("title", "janela"))
+            return f"Ativando janela {title}..."
         return f"Executando {request.action}..."
 
     @staticmethod
