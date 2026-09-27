@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves seven boundaries:
+The repository currently proves eight boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -13,10 +13,13 @@ The repository currently proves seven boundaries:
 5. **AI tool planning with local authority** — the model may propose only tools advertised by THE OS; THE OS validates the proposal, converts it to a registered `ActionRequest`, executes locally, and reports verified results.
 6. **Verified multi-step tool loop** — after each successful local action, THE OS returns the verified result to the model so it can continue the same request with the next required action. The loop is capped at four local actions and stops immediately on failure.
 7. **Local risk policy + confirmation gate** — action risk is resolved by THE OS, not by the model. `READ_ONLY` and `NORMAL` actions may proceed automatically; `CONFIRM`, `DESTRUCTIVE`, and `PRIVILEGED` actions pause before side effects and require explicit user approval.
+8. **Cooperative task control** — conversational/tool tasks expose Pause, Resume, and Cancel controls. Pause blocks at safe execution checkpoints; Cancel prevents later local side effects and provider continuations after the next checkpoint.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
-Risk classification is also local authority. In the first M7 policy, launching shells or administrative system tools through `open_application` is classified as `CONFIRM`, while ordinary applications such as Notepad remain `NORMAL`.
+Risk classification is also local authority. Launching shells or administrative system tools through `open_application` is classified as `CONFIRM`, while ordinary applications such as Notepad remain `NORMAL`.
+
+Task cancellation is cooperative. THE OS does not forcibly kill a provider HTTP request or a local action that is already in progress. Instead, cancellation is checked before provider work, before local side effects, after each verified action, and before the next step. Pause follows the same safe checkpoints.
 
 For the OpenAI Responses adapter, tool calls are deliberately serial (`parallel_tool_calls: false`). THE OS executes at most one model-proposed action at a time, verifies it locally, returns its `function_call_output`, and only then allows the model to propose the next step.
 

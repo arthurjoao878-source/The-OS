@@ -9,7 +9,7 @@ from theos.integrations.ai import (
     AIToolResult,
     AIToolTurn,
 )
-from theos.lyra.execution import ToolLoopExecutor
+from theos.lyra.execution import ExecutionControl, ToolLoopExecutor
 
 
 class TwoStepProvider:
@@ -244,5 +244,61 @@ def test_cancelled_confirmation_never_executes_or_continues_provider() -> None:
     assert cancelled.success is False
     assert cancelled.completed_steps == 0
     assert cancelled.error == "Ação cancelada pelo usuário."
+    assert executed == []
+    assert provider.continuations == 0
+
+
+def test_control_cancel_after_first_step_blocks_next_provider_turn() -> None:
+    executed: list[str] = []
+    registry = ActionRegistry()
+    _register_open_application(registry, executed)
+    provider = TwoStepProvider()
+    executor = ToolLoopExecutor(
+        provider,
+        registry,
+        build_default_tool_catalog(),
+    )
+    control = ExecutionControl()
+
+    def progress(message: str) -> None:
+        if message == "Etapa 1: Notepad aberto.":
+            control.cancel()
+
+    result = executor.execute(
+        "Abra dois aplicativos.",
+        tools=build_default_tool_catalog().definitions(),
+        control=control,
+        progress=progress,
+    )
+
+    assert result.success is False
+    assert result.completed_steps == 1
+    assert result.error == "Tarefa cancelada pelo usuário."
+    assert executed == ["Notepad"]
+    assert provider.continuations == 0
+
+
+def test_control_cancel_before_start_prevents_provider_call() -> None:
+    executed: list[str] = []
+    registry = ActionRegistry()
+    _register_open_application(registry, executed)
+    provider = TwoStepProvider()
+    executor = ToolLoopExecutor(
+        provider,
+        registry,
+        build_default_tool_catalog(),
+    )
+    control = ExecutionControl()
+    control.cancel()
+
+    result = executor.execute(
+        "Abra dois aplicativos.",
+        tools=build_default_tool_catalog().definitions(),
+        control=control,
+    )
+
+    assert result.success is False
+    assert result.completed_steps == 0
+    assert result.error == "Tarefa cancelada pelo usuário."
     assert executed == []
     assert provider.continuations == 0

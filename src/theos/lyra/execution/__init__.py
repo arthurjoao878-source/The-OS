@@ -1,3 +1,4 @@
+from theos.lyra.execution.control import ExecutionControl, ExecutionStatus
 from theos.lyra.execution.sequence import (
     MAX_ACTION_SEQUENCE_STEPS,
     ActionSequenceResult,
@@ -14,6 +15,8 @@ __all__ = [
     "MAX_ACTION_SEQUENCE_STEPS",
     "MAX_TOOL_LOOP_STEPS",
     "ActionSequenceResult",
+    "ExecutionControl",
+    "ExecutionStatus",
     "PendingActionConfirmation",
     "SequentialActionExecutor",
     "ToolLoopExecutor",

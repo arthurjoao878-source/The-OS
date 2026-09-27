@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from theos.core.actions.contracts import ActionRequest, ActionRisk
@@ -15,8 +16,10 @@ from theos.integrations.ai import (
     AIToolTurn,
 )
 from theos.lyra.context import ConversationTurn
+from theos.lyra.execution.control import ExecutionControl
 
 MAX_TOOL_LOOP_STEPS = 4
+ProgressCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +85,17 @@ class ToolLoopExecutor:
         *,
         history: tuple[ConversationTurn, ...] = (),
         tools: tuple[ToolDefinition, ...] = (),
+        control: ExecutionControl | None = None,
+        progress: ProgressCallback | None = None,
     ) -> ToolLoopResult:
+        cancelled = self._checkpoint(
+            control,
+            completed_steps=0,
+            messages=[],
+        )
+        if cancelled is not None:
+            return cancelled
+
         try:
             response = self._provider.respond(text, history=history, tools=tools)
         except AIProviderError as exception:
@@ -92,6 +105,8 @@ class ToolLoopExecutor:
             response,
             completed_steps=0,
             messages=[],
+            control=control,
+            progress=progress,
         )
 
     def resume(
@@ -99,6 +114,8 @@ class ToolLoopExecutor:
         pending: PendingActionConfirmation,
         *,
         approved: bool,
+        control: ExecutionControl | None = None,
+        progress: ProgressCallback | None = None,
     ) -> ToolLoopResult:
         if not approved:
             return ToolLoopResult(
@@ -109,9 +126,18 @@ class ToolLoopExecutor:
                 error="Ação cancelada pelo usuário.",
             )
 
+        cancelled = self._checkpoint(
+            control,
+            completed_steps=pending.completed_steps,
+            messages=[],
+        )
+        if cancelled is not None:
+            return cancelled
+
         result = self._execute_request(
             pending.request,
             completed_steps=pending.completed_steps,
+            progress=progress,
         )
         messages = list(result.messages)
         if result.action_result is None:
@@ -131,6 +157,14 @@ class ToolLoopExecutor:
                 completed_steps=result.completed_steps,
                 error="Plano interrompido porque uma ação falhou na verificação.",
             )
+
+        cancelled = self._checkpoint(
+            control,
+            completed_steps=result.completed_steps,
+            messages=messages,
+        )
+        if cancelled is not None:
+            return cancelled
 
         output = self._tool_output(
             pending.call,
@@ -154,6 +188,8 @@ class ToolLoopExecutor:
             response,
             completed_steps=result.completed_steps,
             messages=messages,
+            control=control,
+            progress=progress,
         )
 
     def _drive(
@@ -162,8 +198,21 @@ class ToolLoopExecutor:
         *,
         completed_steps: int,
         messages: list[str],
+        control: ExecutionControl | None,
+        progress: ProgressCallback | None,
     ) -> ToolLoopResult:
-        while isinstance(response, AIToolTurn):
+        while True:
+            cancelled = self._checkpoint(
+                control,
+                completed_steps=completed_steps,
+                messages=messages,
+            )
+            if cancelled is not None:
+                return cancelled
+
+            if not isinstance(response, AIToolTurn):
+                break
+
             if completed_steps >= self._max_steps:
                 return ToolLoopResult(
                     success=False,
@@ -209,9 +258,18 @@ class ToolLoopExecutor:
                     ),
                 )
 
+            cancelled = self._checkpoint(
+                control,
+                completed_steps=completed_steps,
+                messages=messages,
+            )
+            if cancelled is not None:
+                return cancelled
+
             result = self._execute_request(
                 prepared,
                 completed_steps=completed_steps,
+                progress=progress,
             )
             messages.extend(result.messages)
             completed_steps = result.completed_steps
@@ -233,6 +291,14 @@ class ToolLoopExecutor:
                     completed_steps=completed_steps,
                     error="Plano interrompido porque uma ação falhou na verificação.",
                 )
+
+            cancelled = self._checkpoint(
+                control,
+                completed_steps=completed_steps,
+                messages=messages,
+            )
+            if cancelled is not None:
+                return cancelled
 
             output = self._tool_output(call, result.action_result)
             try:
@@ -288,16 +354,19 @@ class ToolLoopExecutor:
         request: ActionRequest,
         *,
         completed_steps: int,
+        progress: ProgressCallback | None,
     ) -> _Execution:
         app = str(request.arguments.get("application", "aplicativo"))
-        messages = [f"Abrindo {app}..."]
+        opening = f"Abrindo {app}..."
+        self._emit_progress(progress, opening)
 
         action_result = self._actions.execute(request)
         completed_steps += 1
-        messages.append(f"Etapa {completed_steps}: {action_result.message}")
+        completed = f"Etapa {completed_steps}: {action_result.message}"
+        self._emit_progress(progress, completed)
 
         return self._Execution(
-            messages=tuple(messages),
+            messages=(opening, completed),
             completed_steps=completed_steps,
             action_result=action_result,
         )
@@ -318,6 +387,31 @@ class ToolLoopExecutor:
             call_id=call.call_id,
             output=output,
         )
+
+    @staticmethod
+    def _checkpoint(
+        control: ExecutionControl | None,
+        *,
+        completed_steps: int,
+        messages: list[str],
+    ) -> ToolLoopResult | None:
+        if control is None or control.checkpoint():
+            return None
+        return ToolLoopResult(
+            success=False,
+            messages=tuple(messages),
+            final_reply=None,
+            completed_steps=completed_steps,
+            error="Tarefa cancelada pelo usuário.",
+        )
+
+    @staticmethod
+    def _emit_progress(
+        progress: ProgressCallback | None,
+        message: str,
+    ) -> None:
+        if progress is not None:
+            progress(message)
 
     @staticmethod
     def _failure(message: str, *, completed_steps: int) -> ToolLoopResult:

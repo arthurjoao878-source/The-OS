@@ -20,6 +20,8 @@ from theos.core.tools import ToolCatalog, ToolDefinition
 from theos.integrations.ai import AIProvider
 from theos.lyra.context import ConversationTurn, SessionContext
 from theos.lyra.execution import (
+    ExecutionControl,
+    ExecutionStatus,
     PendingActionConfirmation,
     ToolLoopExecutor,
     ToolLoopResult,
@@ -32,6 +34,7 @@ from theos.lyra.planning import LyraPlanner, PlanKind
 class WorkerSignals(QObject):
     finished = Signal(object)
     failed = Signal(str)
+    progress = Signal(str)
 
 
 class ActionWorker(QRunnable):
@@ -53,12 +56,14 @@ class ToolLoopWorker(QRunnable):
         text: str,
         history: tuple[ConversationTurn, ...],
         tools: tuple[ToolDefinition, ...],
+        control: ExecutionControl,
     ) -> None:
         super().__init__()
         self.executor = executor
         self.text = text
         self.history = history
         self.tools = tools
+        self.control = control
         self.signals = WorkerSignals()
 
     def run(self) -> None:
@@ -67,6 +72,8 @@ class ToolLoopWorker(QRunnable):
                 self.text,
                 history=self.history,
                 tools=self.tools,
+                control=self.control,
+                progress=self.signals.progress.emit,
             )
         except (TypeError, ValueError):
             self.signals.failed.emit("O loop de ferramentas retornou um estado inválido.")
@@ -79,12 +86,14 @@ class ToolLoopResumeWorker(QRunnable):
         self,
         executor: ToolLoopExecutor,
         pending: PendingActionConfirmation,
+        control: ExecutionControl,
         *,
         approved: bool,
     ) -> None:
         super().__init__()
         self.executor = executor
         self.pending = pending
+        self.control = control
         self.approved = approved
         self.signals = WorkerSignals()
 
@@ -93,6 +102,8 @@ class ToolLoopResumeWorker(QRunnable):
             result = self.executor.resume(
                 self.pending,
                 approved=self.approved,
+                control=self.control,
+                progress=self.signals.progress.emit,
             )
         except (TypeError, ValueError):
             self.signals.failed.emit("Não consegui retomar a ação após a confirmação.")
@@ -121,9 +132,10 @@ class MainWindow(QMainWindow):
             tool_catalog,
         )
         self._pool = QThreadPool.globalInstance()
+        self._active_control: ExecutionControl | None = None
 
         self.setWindowTitle("THE OS — LYRA")
-        self.resize(760, 560)
+        self.resize(760, 600)
 
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -135,19 +147,34 @@ class MainWindow(QMainWindow):
         self.input.setPlaceholderText("Diga algo...")
         self.send = QPushButton("Enviar")
 
+        self.pause_task = QPushButton("Pausar")
+        self.resume_task = QPushButton("Retomar")
+        self.cancel_task = QPushButton("Cancelar")
+
         composer = QHBoxLayout()
         composer.addWidget(self.input, 1)
         composer.addWidget(self.send)
 
+        controls = QHBoxLayout()
+        controls.addWidget(self.pause_task)
+        controls.addWidget(self.resume_task)
+        controls.addWidget(self.cancel_task)
+        controls.addStretch(1)
+
         layout.addWidget(header)
         layout.addWidget(self.chat, 1)
         layout.addLayout(composer)
+        layout.addLayout(controls)
 
         self.setCentralWidget(root)
 
         self.send.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)
+        self.pause_task.clicked.connect(self._pause_active_task)
+        self.resume_task.clicked.connect(self._resume_active_task)
+        self.cancel_task.clicked.connect(self._cancel_active_task)
 
+        self._update_task_controls(None)
         self._lyra("Pronta.")
 
     def _you(self, text: str) -> None:
@@ -163,6 +190,16 @@ class MainWindow(QMainWindow):
         self.send.setEnabled(not busy)
         if not busy:
             self.input.setFocus()
+
+    def _update_task_controls(
+        self,
+        status: ExecutionStatus | None,
+    ) -> None:
+        self.pause_task.setEnabled(status is ExecutionStatus.RUNNING)
+        self.resume_task.setEnabled(status is ExecutionStatus.PAUSED)
+        self.cancel_task.setEnabled(
+            status in {ExecutionStatus.RUNNING, ExecutionStatus.PAUSED}
+        )
 
     def _available_ai_tools(self) -> tuple[ToolDefinition, ...]:
         return tuple(
@@ -218,17 +255,57 @@ class MainWindow(QMainWindow):
             self._handle_direct_action(request)
             return
 
+        self._start_tool_task(
+            text,
+            history,
+        )
+
+    def _start_tool_task(
+        self,
+        text: str,
+        history: tuple[ConversationTurn, ...],
+    ) -> None:
         self._lyra("Pensando...")
         self._set_busy(True)
+
+        control = ExecutionControl()
+        self._active_control = control
+        self._update_task_controls(control.status)
+
         worker = ToolLoopWorker(
             self._tool_loop,
             text,
             history,
             self._available_ai_tools(),
+            control,
         )
+        worker.signals.progress.connect(self._on_tool_progress)
         worker.signals.finished.connect(self._on_tool_loop_result)
         worker.signals.failed.connect(self._on_ai_failure)
         self._pool.start(worker)
+
+    def _pause_active_task(self) -> None:
+        control = self._active_control
+        if control is not None and control.pause():
+            self._update_task_controls(control.status)
+            self._lyra("Tarefa pausada.")
+
+    def _resume_active_task(self) -> None:
+        control = self._active_control
+        if control is not None and control.resume():
+            self._update_task_controls(control.status)
+            self._lyra("Tarefa retomada.")
+
+    def _cancel_active_task(self) -> None:
+        control = self._active_control
+        if control is not None and control.cancel():
+            self._update_task_controls(control.status)
+            self._lyra("Cancelamento solicitado.")
+
+    def _finish_tool_task(self) -> None:
+        self._active_control = None
+        self._update_task_controls(None)
+        self._set_busy(False)
 
     def _handle_direct_action(self, request: ActionRequest) -> None:
         risk = self._actions.risk_for(request)
@@ -269,14 +346,14 @@ class MainWindow(QMainWindow):
         self._lyra(result.message, remember_in_session=True)
         self._set_busy(False)
 
+    def _on_tool_progress(self, message: str) -> None:
+        self._lyra(message, remember_in_session=True)
+
     def _on_tool_loop_result(self, result: object) -> None:
         if not isinstance(result, ToolLoopResult):
             self._lyra("O loop de ferramentas retornou um resultado inválido.")
-            self._set_busy(False)
+            self._finish_tool_task()
             return
-
-        for message in result.messages:
-            self._lyra(message, remember_in_session=True)
 
         pending = result.pending_confirmation
         if pending is not None:
@@ -293,7 +370,7 @@ class MainWindow(QMainWindow):
         if result.error is not None:
             self._lyra(result.error, remember_in_session=True)
 
-        self._set_busy(False)
+        self._finish_tool_task()
 
     def _resume_tool_loop(
         self,
@@ -301,15 +378,23 @@ class MainWindow(QMainWindow):
         *,
         approved: bool,
     ) -> None:
+        control = self._active_control
+        if control is None:
+            self._lyra("Não há uma tarefa ativa para retomar.")
+            self._finish_tool_task()
+            return
+
         worker = ToolLoopResumeWorker(
             self._tool_loop,
             pending,
+            control,
             approved=approved,
         )
+        worker.signals.progress.connect(self._on_tool_progress)
         worker.signals.finished.connect(self._on_tool_loop_result)
         worker.signals.failed.connect(self._on_ai_failure)
         self._pool.start(worker)
 
     def _on_ai_failure(self, message: str) -> None:
         self._lyra(message)
-        self._set_busy(False)
+        self._finish_tool_task()
