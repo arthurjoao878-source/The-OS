@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves twenty-three boundaries:
+The repository currently proves twenty-four boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -29,6 +29,7 @@ The repository currently proves twenty-three boundaries:
 21. **Verified visible-window maximization** — LYRA can maximize one already-known visible top-level window using its exact PID plus bounded title. The action is normal, blocks LYRA's own window, and verifies locally that the selected window entered the maximized state.
 22. **Verified visible-window restore** — LYRA can return one already-known visible top-level window from minimized or maximized state to normal size using its exact PID plus bounded title. The action is normal, blocks LYRA's own window, and verifies that the target is neither minimized nor maximized before reporting success.
 23. **Confirmed bounded foreground text input** — LYRA can submit at most 512 Unicode characters to one exact visible foreground window after a local preview and explicit confirmation. Enter, Tab, shortcuts, special keys, control characters, clipboard use, and typing into LYRA itself are blocked. THE OS verifies SendInput event submission and that the same target remains foreground, but does not inspect the application's content to claim that the text landed in a particular control.
+24. **Confirmed bounded foreground key input** — LYRA can press only ENTER on one exact visible window after a local preview and explicit confirmation. The approved PID, bounded title, and key are execution-guarded; the target is reactivated after the confirmation dialog and foreground is verified before and after SendInput. No other key, shortcut, clipboard operation, or implicit content inspection is allowed.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
@@ -53,6 +54,8 @@ Process termination is intentionally narrow and destructive. `terminate_process`
 Visible-window inspection is privacy-gated. `window_snapshot` performs no desktop enumeration during its confirmation preview. After approval, it inspects only visible top-level windows that have non-empty titles, preserves Windows z-order, truncates each title to 160 characters, and returns at most 12 entries containing title, process name, and PID. It does not capture pixels, window contents, keyboard input, hidden-window titles, executable paths, command lines, usernames, or environment data.
 
 Visible-window activation is intentionally narrow. `activate_window` accepts only an exact PID plus a non-empty title of at most 160 characters, matching the bounded title representation produced by `window_snapshot`. THE OS resolves only visible top-level windows, blocks zero or multiple matches, restores a minimized target when needed, requests foreground activation, and verifies that the selected window actually became the Windows foreground window. Window handles are kept local and are never returned to the AI provider. This action is `NORMAL`: it changes focus but does not modify files, terminate processes, type input, or interact with controls inside the window.
+
+Foreground key input is deliberately confirmation-gated and allowlisted. `press_key` accepts an exact PID plus bounded title from `window_snapshot`, and currently accepts only `ENTER`. Its static preview warns that ENTER may confirm, submit, or activate the currently focused control and carries a PID/title/key execution guard. Because the confirmation dialog can take focus, execution re-resolves the exact approved target, restores it if minimized, reactivates it, and verifies foreground before sending one virtual-key down/up pair with `SendInput`. Success means Windows accepted both events and the same target remained foreground. THE OS does not read application contents or claim what ENTER caused inside the target.
 
 Foreground text input is deliberately confirmation-gated. `type_text` accepts an exact PID plus bounded title from `window_snapshot` and a literal body of at most 512 Unicode characters. Its static local preview shows the exact target and text and carries a PID/title/content-hash execution guard. Because the confirmation dialog itself can take foreground focus, execution re-resolves the exact approved target, restores it if minimized, requests foreground activation, and verifies that same window before input. THE OS emits only `SendInput` Unicode key events and rejects Enter, Tab, other control characters, shortcuts, and special keys; it does not use the clipboard and blocks LYRA's own window. Success means Windows accepted the complete input event sequence and the same target remained foreground. THE OS intentionally does not read window/control contents, so it does not claim that the application inserted the characters into a specific field.
 

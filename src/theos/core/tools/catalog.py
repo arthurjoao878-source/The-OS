@@ -365,6 +365,43 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="press_key",
+            description=(
+                "Pressiona uma tecla permitida em uma janela visível exata já conhecida "
+                "por PID e título. Nesta etapa somente ENTER é permitido. Use somente "
+                "quando o usuário pedir explicitamente essa tecla. Exige confirmação local; "
+                "depois da confirmação, o THE OS reativa e verifica o alvo exato antes do "
+                "envio. O efeito interno do aplicativo não é lido nem inferido."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                    "key": {
+                        "type": "string",
+                        "enum": ["ENTER"],
+                        "description": "Tecla explicitamente permitida nesta etapa.",
+                    },
+                },
+                "required": ["pid", "title", "key"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_key_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="type_text",
             description=(
                 "Envia texto Unicode limitado para uma janela visível exata já conhecida "
@@ -559,6 +596,36 @@ def _validate_no_arguments(arguments: Mapping[str, object]) -> dict[str, object]
     if arguments:
         raise ToolValidationError("tool does not accept arguments")
     return {}
+
+
+def _validate_key_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"pid", "title", "key"}:
+        raise ToolValidationError(
+            "press_key requires only 'pid', 'title', and 'key'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    key = arguments.get("key")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+
+    if key != "ENTER":
+        raise ToolValidationError("key must be ENTER")
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+        "key": "ENTER",
+    }
 
 
 def _validate_text_input(

@@ -417,6 +417,10 @@ class ToolLoopExecutor:
         if request.action == "activate_window":
             title = str(request.arguments.get("title", "janela"))
             return f"Ativando janela {title}..."
+        if request.action == "press_key":
+            title = str(request.arguments.get("title", "janela"))
+            key = str(request.arguments.get("key", "tecla"))
+            return f"Enviando tecla {key} para a janela {title}..."
         if request.action == "type_text":
             title = str(request.arguments.get("title", "janela"))
             return f"Enviando texto para a janela {title}..."

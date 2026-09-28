@@ -140,10 +140,183 @@ class ActivateWindowAction:
             evidence=evidence,
         )
 
+_EXPECTED_KEY_PID = "_theos_expected_key_pid"
+_EXPECTED_KEY_TITLE = "_theos_expected_key_title"
+_EXPECTED_KEY_NAME = "_theos_expected_key_name"
 _EXPECTED_TEXT_PID = "_theos_expected_text_pid"
 _EXPECTED_TEXT_TITLE = "_theos_expected_text_title"
 _EXPECTED_TEXT_SHA256 = "_theos_expected_text_sha256"
 MAX_TEXT_INPUT_CHARS = 512
+
+
+class PressKeyAction:
+    name = "press_key"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        key = request.arguments.get("key")
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or key != "ENTER"
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Entrada de tecla bloqueada antes da confirmação: argumentos inválidos.",
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "PRESSIONAR TECLA EM JANELA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                "Tecla: ENTER\n"
+                "A tecla ENTER pode confirmar, enviar ou ativar o controle atualmente "
+                "focado no aplicativo. Após a confirmação, o THE OS reativará somente "
+                "a janela exata aprovada e verificará que ela está em primeiro plano "
+                "antes de enviar a tecla. O THE OS verifica o envio dos eventos e o foco, "
+                "mas não lê o conteúdo ou o estado interno do aplicativo para afirmar "
+                "qual efeito a tecla produziu."
+            ),
+            execution_guard={
+                _EXPECTED_KEY_PID: pid,
+                _EXPECTED_KEY_TITLE: normalized_title,
+                _EXPECTED_KEY_NAME: "ENTER",
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        key = request.arguments.get("key")
+        expected_pid = request.arguments.get(_EXPECTED_KEY_PID)
+        expected_title = request.arguments.get(_EXPECTED_KEY_TITLE)
+        expected_key = request.arguments.get(_EXPECTED_KEY_NAME)
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or key != "ENTER"
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_key != key
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A entrada de tecla não possui uma prévia local aprovada.",
+                error_code="KEY_INPUT_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.press_key(pid, title.strip(), key)
+        except RuntimeError as exc:
+            reason = str(exc)
+            if reason == "SELF_WINDOW_KEY_INPUT_BLOCKED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="A LYRA bloqueou entrada de tecla na própria janela.",
+                    evidence={"reason": reason},
+                    error_code="SELF_WINDOW_KEY_INPUT_BLOCKED",
+                )
+            if reason == "WINDOW_TARGET_NOT_FOUND":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Não encontrei essa janela visível.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_NOT_FOUND",
+                )
+            if reason == "WINDOW_TARGET_AMBIGUOUS":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "a entrada de tecla foi bloqueada."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_AMBIGUOUS",
+                )
+            if reason == "KEY_INPUT_TARGET_ACTIVATION_NOT_VERIFIED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O Windows não confirmou a janela alvo em primeiro plano "
+                        "após a confirmação; a tecla não foi enviada."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="KEY_INPUT_TARGET_ACTIVATION_NOT_VERIFIED",
+                )
+            if reason == "KEY_INPUT_FOREGROUND_CHANGED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O foco mudou durante a entrada; não posso confirmar "
+                        "que os eventos permaneceram no alvo."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="KEY_INPUT_FOREGROUND_CHANGED",
+                )
+            if reason == "KEY_INPUT_NOT_ALLOWED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Essa tecla não está permitida nesta etapa.",
+                    evidence={"reason": reason},
+                    error_code="KEY_INPUT_NOT_ALLOWED",
+                )
+            if reason == "KEY_INPUT_NOT_ACCEPTED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O Windows não confirmou o envio completo da tecla.",
+                    evidence={"reason": reason},
+                    error_code="KEY_INPUT_NOT_ACCEPTED",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar a tecla para essa janela.",
+                evidence={"reason": reason},
+                error_code="KEY_INPUT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar a tecla para essa janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="KEY_INPUT_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Tecla ENTER enviada ao alvo: {evidence['title']} "
+                f"(PID {evidence['pid']}); eventos e foco verificados, "
+                "efeito interno não inspecionado."
+            ),
+            evidence=evidence,
+        )
 
 
 class TypeTextAction:
