@@ -32,9 +32,12 @@ class _FakeShortcutAdapter:
             "input_submission_verified": True,
             "content_effect_verified": False,
             "verification": "sendinput_count_and_foreground_only",
-            "input_method": "SendInput_CTRL_A",
+            "input_method": f"SendInput_{shortcut}",
             "clipboard_used": False,
-            "shortcut_allowlist": ["CTRL_A"],
+            "clipboard_api_used_by_theos": False,
+            "clipboard_effect_expected": shortcut == "CTRL_C",
+            "clipboard_effect_verified": False,
+            "shortcut_allowlist": ["CTRL_A", "CTRL_C"],
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
@@ -63,7 +66,7 @@ def test_press_shortcut_requires_preview_guard() -> None:
     assert preview.allowed is True
     assert "PRESSIONAR ATALHO EM JANELA" in preview.text
     assert "Atalho: CTRL+A" in preview.text
-    assert "Somente CTRL+A está permitido" in preview.text
+    assert "Somente CTRL+A e CTRL+C estão permitidos" in preview.text
     assert "área de transferência" in preview.text
     assert adapter.calls == []
 
@@ -106,7 +109,7 @@ def test_catalog_builds_ctrl_a_shortcut_request() -> None:
 def test_catalog_rejects_unlisted_shortcuts() -> None:
     catalog = build_default_tool_catalog()
 
-    for shortcut in ("CTRL_C", "CTRL_V", "ALT_F4"):
+    for shortcut in ("CTRL_V", "CTRL_X", "ALT_F4"):
         try:
             catalog.build_action_request(
                 ToolCall(
@@ -123,3 +126,54 @@ def test_catalog_rejects_unlisted_shortcuts() -> None:
             pass
         else:
             raise AssertionError(f"{shortcut} must remain blocked")
+
+def test_catalog_builds_ctrl_c_shortcut_request() -> None:
+    catalog = build_default_tool_catalog()
+
+    request = catalog.build_action_request(
+        ToolCall(
+            name="press_shortcut",
+            arguments={
+                "pid": 4321,
+                "title": "Bloco de Notas",
+                "target_token": "d" * 64,
+                "shortcut": "CTRL_C",
+            },
+        )
+    )
+
+    assert request.action == "press_shortcut"
+    assert request.arguments["shortcut"] == "CTRL_C"
+
+
+def test_ctrl_c_preview_guard_executes_exact_copy_shortcut() -> None:
+    adapter = _FakeShortcutAdapter()
+    action = PressShortcutAction(adapter)
+    request = ActionRequest(
+        action="press_shortcut",
+        arguments={
+            "pid": 8765,
+            "title": "Sem título - Bloco de Notas",
+            "target_token": "e" * 64,
+            "shortcut": "CTRL_C",
+        },
+    )
+
+    preview = action.confirmation_preview(request)
+    assert preview.allowed is True
+    assert "Atalho: CTRL+C" in preview.text
+    assert "ATENÇÃO: CTRL+C pode substituir" in preview.text
+    assert "não lê a área de transferência" in preview.text
+    assert adapter.calls == []
+
+    request.arguments.update(preview.execution_guard)
+    result = action.execute(request)
+
+    assert result.success is True
+    assert adapter.calls == [
+        (8765, "Sem título - Bloco de Notas", "e" * 64, "CTRL_C")
+    ]
+    assert result.evidence["input_method"] == "SendInput_CTRL_C"
+    assert result.evidence["clipboard_api_used_by_theos"] is False
+    assert result.evidence["clipboard_effect_expected"] is True
+    assert result.evidence["clipboard_effect_verified"] is False

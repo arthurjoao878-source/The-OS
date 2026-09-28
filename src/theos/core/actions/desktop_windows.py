@@ -492,6 +492,17 @@ class PressShortcutAction:
             )
 
         normalized_title = title.strip()
+        shortcut_label = "CTRL+A" if shortcut == "CTRL_A" else "CTRL+C"
+        shortcut_effect = (
+            "CTRL+A pode selecionar conteúdo dependendo do controle em foco. "
+            "Nenhum conteúdo da área de transferência é lido ou escrito por esse atalho."
+            if shortcut == "CTRL_A"
+            else (
+                "ATENÇÃO: CTRL+C pode substituir o conteúdo atual da área de transferência "
+                "pelo conteúdo selecionado no aplicativo. O THE OS não lê a área de "
+                "transferência e não verifica semanticamente o que foi copiado."
+            )
+        )
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -499,14 +510,12 @@ class PressShortcutAction:
                 f"Janela: {normalized_title}\n"
                 f"PID: {pid}\n"
                 f"Alvo opaco: {target_token[:12]}...\n"
-                "Atalho: CTRL+A\n"
-                "Somente CTRL+A está permitido nesta etapa. O atalho pode selecionar "
-                "conteúdo dependendo do controle em foco, mas o THE OS não lê o conteúdo "
-                "nem afirma o efeito sem verificação semântica. Nenhum conteúdo da área "
-                "de transferência é lido ou escrito. Após a confirmação, o THE OS "
-                "reativará somente a janela exata aprovada, verificará o primeiro plano, "
-                "enviará CTRL+A como uma sequência fixa de quatro eventos e verificará "
-                "novamente o foco."
+                f"Atalho: {shortcut_label}\n"
+                "Somente CTRL+A e CTRL+C estão permitidos nesta etapa. "
+                f"{shortcut_effect} "
+                "Após a confirmação, o THE OS reativará somente a janela exata aprovada, "
+                "verificará o primeiro plano, enviará o atalho como uma sequência fixa "
+                "de quatro eventos e verificará novamente o foco."
             ),
             execution_guard={
                 _EXPECTED_SHORTCUT_PID: pid,
@@ -646,11 +655,12 @@ class PressShortcutAction:
                 error_code="SHORTCUT_INPUT_FAILED",
             )
 
+        shortcut_label = "CTRL+A" if shortcut == "CTRL_A" else "CTRL+C"
         return ActionResult(
             request_id=request.request_id,
             success=True,
             message=(
-                f"Atalho CTRL+A enviado ao alvo: {evidence['title']} "
+                f"Atalho {shortcut_label} enviado ao alvo: {evidence['title']} "
                 f"(PID {evidence['pid']}); eventos e foco verificados, "
                 "efeito interno não inspecionado."
             ),

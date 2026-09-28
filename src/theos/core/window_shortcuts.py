@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-ALLOWED_WINDOW_SHORTCUTS: tuple[str, ...] = ("CTRL_A",)
+ALLOWED_WINDOW_SHORTCUTS: tuple[str, ...] = (
+    "CTRL_A",
+    "CTRL_C",
+)
 
 
 def is_allowed_window_shortcut(value: object) -> bool:

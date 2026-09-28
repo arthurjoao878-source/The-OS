@@ -7,9 +7,10 @@ from theos.core.window_shortcuts import (
 
 
 def test_window_shortcut_allowlist_is_exact_and_bounded() -> None:
-    assert ALLOWED_WINDOW_SHORTCUTS == ("CTRL_A",)
+    assert ALLOWED_WINDOW_SHORTCUTS == ("CTRL_A", "CTRL_C")
     assert is_allowed_window_shortcut("CTRL_A") is True
-    assert is_allowed_window_shortcut("CTRL_C") is False
+    assert is_allowed_window_shortcut("CTRL_C") is True
     assert is_allowed_window_shortcut("CTRL_V") is False
+    assert is_allowed_window_shortcut("CTRL_X") is False
     assert is_allowed_window_shortcut("ctrl_a") is False
     assert is_allowed_window_shortcut(None) is False

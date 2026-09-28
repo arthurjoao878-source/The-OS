@@ -49,6 +49,7 @@ VK_DOWN = 0x28
 VK_DELETE = 0x2E
 VK_CONTROL = 0x11
 VK_A = 0x41
+VK_C = 0x43
 _WINDOW_KEY_VK_CODES = {
     "ENTER": VK_RETURN,
     "ESCAPE": VK_ESCAPE,
@@ -66,6 +67,7 @@ _WINDOW_KEY_VK_CODES = {
 }
 _WINDOW_SHORTCUT_VK_PAIRS = {
     "CTRL_A": (VK_CONTROL, VK_A),
+    "CTRL_C": (VK_CONTROL, VK_C),
 }
 SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
@@ -853,8 +855,11 @@ class WindowsDesktopWindowAdapter:
             "input_submission_verified": True,
             "content_effect_verified": False,
             "verification": "sendinput_count_and_foreground_only",
-            "input_method": "SendInput_CTRL_A",
+            "input_method": f"SendInput_{shortcut}",
             "clipboard_used": False,
+            "clipboard_api_used_by_theos": False,
+            "clipboard_effect_expected": shortcut == "CTRL_C",
+            "clipboard_effect_verified": False,
             "shortcut_allowlist": list(ALLOWED_WINDOW_SHORTCUTS),
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
