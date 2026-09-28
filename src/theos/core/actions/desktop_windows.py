@@ -8,7 +8,10 @@ from theos.core.actions.contracts import (
     ActionRisk,
     ConfirmationPreview,
 )
-from theos.core.window_keys import is_allowed_window_key
+from theos.core.window_keys import (
+    is_allowed_window_key,
+    is_destructive_window_key,
+)
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -248,6 +251,13 @@ class PressKeyAction:
         self._windows = windows
 
     @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        key = request.arguments.get("key")
+        if is_destructive_window_key(key):
+            return ActionRisk.DESTRUCTIVE
+        return ActionRisk.CONFIRM
+
+    @staticmethod
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
@@ -268,6 +278,16 @@ class PressKeyAction:
             )
 
         normalized_title = title.strip()
+        key_effect = (
+            "ATENÇÃO: BACKSPACE e DELETE podem remover texto, itens ou outros dados "
+            "dependendo do controle que estiver em foco. O efeito interno do aplicativo "
+            "não será inspecionado."
+            if is_destructive_window_key(key)
+            else (
+                "A tecla pertence à allowlist de confirmação para navegação ou controle "
+                "pontual da janela."
+            )
+        )
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -276,11 +296,13 @@ class PressKeyAction:
                 f"PID: {pid}\n"
                 f"Alvo opaco: {target_token[:12]}...\n"
                 f"Tecla: {key}\n"
+                f"{key_effect}\n"
                 "ENTER pode confirmar/enviar, ESCAPE pode cancelar/fechar um estado "
                 "transitório, TAB pode mover o foco entre controles, UP/DOWN/LEFT/RIGHT "
-                "podem navegar direcionalmente e HOME/END/PAGE_UP/PAGE_DOWN podem navegar "
-                "por limites ou páginas no aplicativo. Após a confirmação, o THE OS "
-                "reativará somente a janela exata aprovada e verificará que ela "
+                "podem navegar direcionalmente, HOME/END/PAGE_UP/PAGE_DOWN podem navegar "
+                "por limites ou páginas e BACKSPACE/DELETE são teclas de edição destrutiva. "
+                "Após a confirmação, o THE OS reativará somente a janela exata aprovada e "
+                "verificará que ela "
                 "está em primeiro plano antes de enviar a tecla. O THE OS verifica o envio "
                 "dos eventos e o foco, mas não lê o conteúdo ou o estado interno do "
                 "aplicativo para afirmar qual efeito a tecla produziu."

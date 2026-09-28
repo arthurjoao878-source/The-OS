@@ -16,6 +16,8 @@ def test_window_key_allowlist_is_exact_and_bounded() -> None:
         "END",
         "PAGE_UP",
         "PAGE_DOWN",
+        "BACKSPACE",
+        "DELETE",
     )
     assert is_allowed_window_key("ENTER") is True
     assert is_allowed_window_key("ESCAPE") is True
@@ -28,6 +30,8 @@ def test_window_key_allowlist_is_exact_and_bounded() -> None:
     assert is_allowed_window_key("END") is True
     assert is_allowed_window_key("PAGE_UP") is True
     assert is_allowed_window_key("PAGE_DOWN") is True
-    assert is_allowed_window_key("DELETE") is False
+    assert is_allowed_window_key("BACKSPACE") is True
+    assert is_allowed_window_key("DELETE") is True
+    assert is_allowed_window_key("F1") is False
     assert is_allowed_window_key("enter") is False
     assert is_allowed_window_key(None) is False

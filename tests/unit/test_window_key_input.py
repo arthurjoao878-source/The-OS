@@ -46,6 +46,8 @@ class _FakeKeyInputAdapter:
                 "END",
                 "PAGE_UP",
                 "PAGE_DOWN",
+                "BACKSPACE",
+                "DELETE",
             ],
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
@@ -100,6 +102,8 @@ def test_press_key_requires_preview_guard_for_allowlisted_key() -> None:
         "END",
         "PAGE_UP",
         "PAGE_DOWN",
+        "BACKSPACE",
+        "DELETE",
     ]
 
 
@@ -156,7 +160,7 @@ def test_catalog_rejects_non_allowlisted_key() -> None:
                     "pid": 4321,
                     "title": "Bloco de Notas",
                     "target_token": "c" * 64,
-                    "key": "DELETE",
+                    "key": "F1",
                 },
             )
         )
@@ -307,3 +311,66 @@ def test_home_preview_guard_executes_exact_home() -> None:
         (8765, "Sem título - Bloco de Notas", "2" * 64, "HOME")
     ]
     assert result.evidence["input_method"] == "SendInput_VK_HOME"
+
+def test_catalog_accepts_destructive_editing_keys() -> None:
+    catalog = build_default_tool_catalog()
+
+    for key in ("BACKSPACE", "DELETE"):
+        request = catalog.build_action_request(
+            ToolCall(
+                name="press_key",
+                arguments={
+                    "pid": 4321,
+                    "title": "Bloco de Notas",
+                    "target_token": "3" * 64,
+                    "key": key,
+                },
+            )
+        )
+        assert request.arguments["key"] == key
+
+
+def test_editing_key_preview_and_risk_are_destructive() -> None:
+    adapter = _FakeKeyInputAdapter()
+    action = PressKeyAction(adapter)
+    request = ActionRequest(
+        action="press_key",
+        arguments={
+            "pid": 8765,
+            "title": "Sem título - Bloco de Notas",
+            "target_token": "4" * 64,
+            "key": "BACKSPACE",
+        },
+    )
+
+    assert action.risk_for(request) is ActionRisk.DESTRUCTIVE
+
+    preview = action.confirmation_preview(request)
+    assert preview.allowed is True
+    assert "Tecla: BACKSPACE" in preview.text
+    assert "ATENÇÃO" in preview.text
+    assert "podem remover texto, itens ou outros dados" in preview.text
+    assert adapter.calls == []
+
+    request.arguments.update(preview.execution_guard)
+    result = action.execute(request)
+
+    assert result.success is True
+    assert adapter.calls == [
+        (8765, "Sem título - Bloco de Notas", "4" * 64, "BACKSPACE")
+    ]
+    assert result.evidence["input_method"] == "SendInput_VK_BACKSPACE"
+
+
+def test_navigation_key_risk_remains_confirm() -> None:
+    request = ActionRequest(
+        action="press_key",
+        arguments={
+            "pid": 8765,
+            "title": "Sem título - Bloco de Notas",
+            "target_token": "5" * 64,
+            "key": "HOME",
+        },
+    )
+
+    assert PressKeyAction.risk_for(request) is ActionRisk.CONFIRM

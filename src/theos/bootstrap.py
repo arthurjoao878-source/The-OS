@@ -155,7 +155,7 @@ def build_action_registry() -> ActionRegistry:
     registry.register(
         press_key.name,
         press_key.execute,
-        risk=press_key.risk,
+        risk=press_key.risk_for,
         confirmation_preview=press_key.confirmation_preview,
     )
     registry.register(
