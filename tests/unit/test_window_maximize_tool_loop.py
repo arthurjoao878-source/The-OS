@@ -19,7 +19,11 @@ class MaximizeWindowProvider:
             calls=(
                 ToolCall(
                     name="maximize_window",
-                    arguments={"pid": 4321, "title": "Calculadora"},
+                    arguments={
+                        "pid": 4321,
+                        "title": "Calculadora",
+                        "target_token": "d" * 64,
+                    },
                     call_id="maximize_window_1",
                 ),
             ),
@@ -47,13 +51,15 @@ def test_maximize_window_normal_action_executes_without_confirmation() -> None:
     def handler(request: ActionRequest) -> ActionResult:
         nonlocal calls
         calls += 1
+        assert request.arguments["target_token"] == "d" * 64
         return ActionResult(
             request_id=request.request_id,
             success=True,
-            message="Janela maximizada e verificada.",
+            message="Janela exata maximizada e verificada.",
             evidence={
                 "pid": 4321,
                 "title": "Calculadora",
+                "target_token": "d" * 64,
                 "maximized_verified": True,
             },
         )

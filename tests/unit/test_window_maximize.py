@@ -7,18 +7,24 @@ from theos.core.tools import ToolCall, ToolValidationError, build_default_tool_c
 
 class _FakeWindowAdapter:
     def __init__(self) -> None:
-        self.calls: list[tuple[int, str]] = []
+        self.calls: list[tuple[int, str, str]] = []
 
-    def maximize_window(self, pid: int, title: str) -> dict[str, object]:
-        self.calls.append((pid, title))
+    def maximize_window(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+    ) -> dict[str, object]:
+        self.calls.append((pid, title, target_token))
         return {
             "pid": pid,
             "title": title,
             "process_name": "CalculatorApp.exe",
+            "target_token": target_token,
             "maximized": True,
             "maximized_verified": True,
             "already_maximized": False,
-            "title_match": "bounded_title_exact",
+            "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
 
@@ -27,7 +33,11 @@ def test_maximize_window_uses_exact_known_target() -> None:
     action = MaximizeWindowAction(adapter)
     request = ActionRequest(
         action="maximize_window",
-        arguments={"pid": 4321, "title": "Calculadora"},
+        arguments={
+            "pid": 4321,
+            "title": "Calculadora",
+            "target_token": "a" * 64,
+        },
     )
 
     assert action.risk is ActionRisk.NORMAL
@@ -35,8 +45,12 @@ def test_maximize_window_uses_exact_known_target() -> None:
     result = action.execute(request)
 
     assert result.success is True
-    assert adapter.calls == [(4321, "Calculadora")]
+    assert adapter.calls == [(4321, "Calculadora", "a" * 64)]
+    assert result.evidence["target_token"] == "a" * 64
     assert result.evidence["maximized_verified"] is True
+    assert result.evidence["title_match"] == (
+        "pid_bounded_title_and_opaque_token_exact"
+    )
     assert "PID 4321" in result.message
 
 
@@ -46,25 +60,45 @@ def test_catalog_builds_maximize_window_request() -> None:
     request = catalog.build_action_request(
         ToolCall(
             name="maximize_window",
-            arguments={"pid": 4321, "title": " Calculadora "},
+            arguments={
+                "pid": 4321,
+                "title": " Calculadora ",
+                "target_token": "b" * 64,
+            },
         )
     )
 
     assert request.action == "maximize_window"
-    assert request.arguments == {"pid": 4321, "title": "Calculadora"}
+    assert request.arguments == {
+        "pid": 4321,
+        "title": "Calculadora",
+        "target_token": "b" * 64,
+    }
 
 
 def test_catalog_rejects_invalid_maximize_window_target() -> None:
     catalog = build_default_tool_catalog()
 
-    try:
-        catalog.build_action_request(
-            ToolCall(
-                name="maximize_window",
-                arguments={"pid": 0, "title": "Calculadora"},
+    for arguments in (
+        {
+            "pid": 0,
+            "title": "Calculadora",
+            "target_token": "c" * 64,
+        },
+        {
+            "pid": 4321,
+            "title": "Calculadora",
+            "target_token": "BAD",
+        },
+    ):
+        try:
+            catalog.build_action_request(
+                ToolCall(
+                    name="maximize_window",
+                    arguments=arguments,
+                )
             )
-        )
-    except ToolValidationError:
-        pass
-    else:
-        raise AssertionError("invalid PID must be rejected")
+        except ToolValidationError:
+            pass
+        else:
+            raise AssertionError("invalid maximize-window target must be rejected")
