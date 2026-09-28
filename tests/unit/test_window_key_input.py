@@ -42,6 +42,10 @@ class _FakeKeyInputAdapter:
                 "DOWN",
                 "LEFT",
                 "RIGHT",
+                "HOME",
+                "END",
+                "PAGE_UP",
+                "PAGE_DOWN",
             ],
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
@@ -92,6 +96,10 @@ def test_press_key_requires_preview_guard_for_allowlisted_key() -> None:
         "DOWN",
         "LEFT",
         "RIGHT",
+        "HOME",
+        "END",
+        "PAGE_UP",
+        "PAGE_DOWN",
     ]
 
 
@@ -252,3 +260,50 @@ def test_right_arrow_preview_guard_executes_exact_right() -> None:
         (8765, "Sem título - Bloco de Notas", "f" * 64, "RIGHT")
     ]
     assert result.evidence["input_method"] == "SendInput_VK_RIGHT"
+
+
+def test_catalog_accepts_boundary_and_page_navigation_keys() -> None:
+    catalog = build_default_tool_catalog()
+
+    for key in ("HOME", "END", "PAGE_UP", "PAGE_DOWN"):
+        request = catalog.build_action_request(
+            ToolCall(
+                name="press_key",
+                arguments={
+                    "pid": 4321,
+                    "title": "Bloco de Notas",
+                    "target_token": "1" * 64,
+                    "key": key,
+                },
+            )
+        )
+        assert request.arguments["key"] == key
+
+
+def test_home_preview_guard_executes_exact_home() -> None:
+    adapter = _FakeKeyInputAdapter()
+    action = PressKeyAction(adapter)
+    request = ActionRequest(
+        action="press_key",
+        arguments={
+            "pid": 8765,
+            "title": "Sem título - Bloco de Notas",
+            "target_token": "2" * 64,
+            "key": "HOME",
+        },
+    )
+
+    preview = action.confirmation_preview(request)
+    assert preview.allowed is True
+    assert "Tecla: HOME" in preview.text
+    assert "HOME/END/PAGE_UP/PAGE_DOWN" in preview.text
+    assert adapter.calls == []
+
+    request.arguments.update(preview.execution_guard)
+    result = action.execute(request)
+
+    assert result.success is True
+    assert adapter.calls == [
+        (8765, "Sem título - Bloco de Notas", "2" * 64, "HOME")
+    ]
+    assert result.evidence["input_method"] == "SendInput_VK_HOME"

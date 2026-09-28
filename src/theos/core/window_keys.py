@@ -8,6 +8,10 @@ ALLOWED_WINDOW_KEYS: tuple[str, ...] = (
     "DOWN",
     "LEFT",
     "RIGHT",
+    "HOME",
+    "END",
+    "PAGE_UP",
+    "PAGE_DOWN",
 )
 
 

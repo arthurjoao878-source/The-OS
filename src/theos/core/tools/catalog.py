@@ -403,8 +403,9 @@ def build_default_tool_catalog() -> ToolCatalog:
             description=(
                 "Pressiona uma tecla permitida em uma janela visível exata já conhecida "
                 "por PID, título e target_token retornados pelo mesmo window_snapshot. "
-                "Somente ENTER, ESCAPE, TAB, UP, DOWN, LEFT e RIGHT são permitidas. Use "
-                "somente quando o usuário pedir explicitamente uma dessas teclas. Exige "
+                "Somente ENTER, ESCAPE, TAB, UP, DOWN, LEFT, RIGHT, HOME, END, PAGE_UP "
+                "e PAGE_DOWN são permitidas. Use somente quando o usuário pedir "
+                "explicitamente uma dessas teclas. Exige "
                 "confirmação local; depois "
                 "da confirmação, o THE OS reativa e verifica o alvo exato antes do envio. "
                 "O efeito interno do aplicativo não é lido nem inferido."
