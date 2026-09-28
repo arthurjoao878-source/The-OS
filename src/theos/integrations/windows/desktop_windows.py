@@ -792,9 +792,16 @@ class WindowsDesktopWindowAdapter:
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
-    def restore_window(self, pid: int, title: str) -> dict[str, object]:
+    def restore_window(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+    ) -> dict[str, object]:
         if pid == os.getpid():
             raise RuntimeError("SELF_WINDOW_RESTORE_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
         if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
             raise RuntimeError("WINDOWS_API_UNAVAILABLE")
 
@@ -863,7 +870,15 @@ class WindowsDesktopWindowAdapter:
                 return True
 
             bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title == title:
+            if bounded_title != title:
+                return True
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+            if candidate_token == target_token:
                 matches.append((int(hwnd), full_title))
             return True
 
@@ -907,12 +922,13 @@ class WindowsDesktopWindowAdapter:
             "pid": pid,
             "title": full_title[:MAX_WINDOW_TITLE_CHARS],
             "process_name": process_name,
+            "target_token": target_token,
             "restored": True,
             "restored_verified": True,
             "was_minimized": was_minimized,
             "was_maximized": was_maximized,
             "state": "normal",
-            "title_match": "bounded_title_exact",
+            "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
     def maximize_window(

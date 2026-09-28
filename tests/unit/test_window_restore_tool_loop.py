@@ -19,7 +19,11 @@ class RestoreWindowProvider:
             calls=(
                 ToolCall(
                     name="restore_window",
-                    arguments={"pid": 4321, "title": "Calculadora"},
+                    arguments={
+                        "pid": 4321,
+                        "title": "Calculadora",
+                        "target_token": "d" * 64,
+                    },
                     call_id="restore_window_1",
                 ),
             ),
@@ -47,13 +51,15 @@ def test_restore_window_normal_action_executes_without_confirmation() -> None:
     def handler(request: ActionRequest) -> ActionResult:
         nonlocal calls
         calls += 1
+        assert request.arguments["target_token"] == "d" * 64
         return ActionResult(
             request_id=request.request_id,
             success=True,
-            message="Janela restaurada e verificada em tamanho normal.",
+            message="Janela exata restaurada e verificada em tamanho normal.",
             evidence={
                 "pid": 4321,
                 "title": "Calculadora",
+                "target_token": "d" * 64,
                 "restored_verified": True,
                 "state": "normal",
             },
