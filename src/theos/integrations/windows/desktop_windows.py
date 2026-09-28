@@ -11,6 +11,7 @@ from ctypes import wintypes
 import psutil
 
 from theos.core.window_keys import ALLOWED_WINDOW_KEYS
+from theos.core.window_shortcuts import ALLOWED_WINDOW_SHORTCUTS
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -46,6 +47,8 @@ VK_UP = 0x26
 VK_RIGHT = 0x27
 VK_DOWN = 0x28
 VK_DELETE = 0x2E
+VK_CONTROL = 0x11
+VK_A = 0x41
 _WINDOW_KEY_VK_CODES = {
     "ENTER": VK_RETURN,
     "ESCAPE": VK_ESCAPE,
@@ -60,6 +63,9 @@ _WINDOW_KEY_VK_CODES = {
     "PAGE_DOWN": VK_PAGE_DOWN,
     "BACKSPACE": VK_BACK,
     "DELETE": VK_DELETE,
+}
+_WINDOW_SHORTCUT_VK_PAIRS = {
+    "CTRL_A": (VK_CONTROL, VK_A),
 }
 SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
@@ -586,6 +592,270 @@ class WindowsDesktopWindowAdapter:
             "input_method": f"SendInput_VK_{key}",
             "clipboard_used": False,
             "key_allowlist": list(ALLOWED_WINDOW_KEYS),
+            "title_match": "pid_bounded_title_and_opaque_token_exact",
+        }
+
+
+    def press_shortcut(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+        shortcut: str,
+    ) -> dict[str, object]:
+        if pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_SHORTCUT_INPUT_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        if shortcut not in ALLOWED_WINDOW_SHORTCUTS:
+            raise RuntimeError("SHORTCUT_INPUT_NOT_ALLOWED")
+
+        modifier_key, primary_key = _WINDOW_SHORTCUT_VK_PAIRS[shortcut]
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindow.restype = wintypes.BOOL
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.SetForegroundWindow.restype = wintypes.BOOL
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.SendInput.argtypes = [
+            wintypes.UINT,
+            ctypes.POINTER(_Input),
+            ctypes.c_int,
+        ]
+        user32.SendInput.restype = wintypes.UINT
+
+        matches: list[tuple[int, str]] = []
+
+        def visit_window(hwnd: int, _lparam: int) -> bool:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(
+                hwnd,
+                ctypes.byref(process_id),
+            )
+            if int(process_id.value) != pid:
+                return True
+
+            title_length = int(user32.GetWindowTextLengthW(hwnd))
+            if title_length <= 0:
+                return True
+
+            buffer = ctypes.create_unicode_buffer(title_length + 1)
+            copied = int(
+                user32.GetWindowTextW(
+                    hwnd,
+                    buffer,
+                    title_length + 1,
+                )
+            )
+            if copied <= 0:
+                return True
+
+            full_title = buffer.value.strip()
+            if not full_title:
+                return True
+
+            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
+            if bounded_title != title:
+                return True
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+            if candidate_token == target_token:
+                matches.append((int(hwnd), full_title))
+            return True
+
+        callback = callback_type(visit_window)
+        if not user32.EnumWindows(callback, 0):
+            error_code = ctypes.get_last_error()
+            raise OSError(error_code, "EnumWindows failed")
+
+        if not matches:
+            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
+        if len(matches) != 1:
+            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
+
+        hwnd_value, full_title = matches[0]
+        hwnd = wintypes.HWND(hwnd_value)
+
+        foreground = user32.GetForegroundWindow()
+        already_foreground = bool(foreground and int(foreground) == hwnd_value)
+        was_minimized = bool(user32.IsIconic(hwnd))
+        if was_minimized:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+
+        if not already_foreground:
+            user32.SetForegroundWindow(hwnd)
+
+        deadline = time.monotonic() + FOREGROUND_VERIFY_TIMEOUT_SECONDS
+        foreground_verified_before = False
+        while time.monotonic() <= deadline:
+            current_foreground = user32.GetForegroundWindow()
+            if current_foreground and int(current_foreground) == hwnd_value:
+                foreground_verified_before = True
+                break
+            time.sleep(FOREGROUND_VERIFY_INTERVAL_SECONDS)
+
+        if not foreground_verified_before:
+            raise RuntimeError("SHORTCUT_INPUT_TARGET_ACTIVATION_NOT_VERIFIED")
+
+        events = (
+            _Input(
+                type=INPUT_KEYBOARD,
+                data=_InputUnion(
+                    ki=_KeyboardInput(
+                        wVk=modifier_key,
+                        wScan=0,
+                        dwFlags=0,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                ),
+            ),
+            _Input(
+                type=INPUT_KEYBOARD,
+                data=_InputUnion(
+                    ki=_KeyboardInput(
+                        wVk=primary_key,
+                        wScan=0,
+                        dwFlags=0,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                ),
+            ),
+            _Input(
+                type=INPUT_KEYBOARD,
+                data=_InputUnion(
+                    ki=_KeyboardInput(
+                        wVk=primary_key,
+                        wScan=0,
+                        dwFlags=KEYEVENTF_KEYUP,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                ),
+            ),
+            _Input(
+                type=INPUT_KEYBOARD,
+                data=_InputUnion(
+                    ki=_KeyboardInput(
+                        wVk=modifier_key,
+                        wScan=0,
+                        dwFlags=KEYEVENTF_KEYUP,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                ),
+            ),
+        )
+        event_array_type = _Input * len(events)
+        event_array = event_array_type(*events)
+        submitted = int(
+            user32.SendInput(
+                len(events),
+                event_array,
+                ctypes.sizeof(_Input),
+            )
+        )
+
+        if submitted != len(events):
+            release_events = (
+                _Input(
+                    type=INPUT_KEYBOARD,
+                    data=_InputUnion(
+                        ki=_KeyboardInput(
+                            wVk=primary_key,
+                            wScan=0,
+                            dwFlags=KEYEVENTF_KEYUP,
+                            time=0,
+                            dwExtraInfo=0,
+                        )
+                    ),
+                ),
+                _Input(
+                    type=INPUT_KEYBOARD,
+                    data=_InputUnion(
+                        ki=_KeyboardInput(
+                            wVk=modifier_key,
+                            wScan=0,
+                            dwFlags=KEYEVENTF_KEYUP,
+                            time=0,
+                            dwExtraInfo=0,
+                        )
+                    ),
+                ),
+            )
+            release_array_type = _Input * len(release_events)
+            release_array = release_array_type(*release_events)
+            user32.SendInput(
+                len(release_events),
+                release_array,
+                ctypes.sizeof(_Input),
+            )
+            raise RuntimeError("SHORTCUT_INPUT_NOT_ACCEPTED")
+
+        foreground_after = user32.GetForegroundWindow()
+        if not foreground_after or int(foreground_after) != hwnd_value:
+            raise RuntimeError("SHORTCUT_INPUT_FOREGROUND_CHANGED")
+
+        try:
+            process_name = psutil.Process(pid).name()
+        except psutil.Error:
+            process_name = "processo-indisponivel"
+
+        return {
+            "pid": pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "process_name": process_name,
+            "target_token": target_token,
+            "shortcut": shortcut,
+            "input_events_submitted": submitted,
+            "foreground_verified_before": True,
+            "foreground_verified_after": True,
+            "target_activation_verified": True,
+            "foreground_reacquired_before_input": not already_foreground,
+            "restored_from_minimized": was_minimized,
+            "input_submission_verified": True,
+            "content_effect_verified": False,
+            "verification": "sendinput_count_and_foreground_only",
+            "input_method": "SendInput_CTRL_A",
+            "clipboard_used": False,
+            "shortcut_allowlist": list(ALLOWED_WINDOW_SHORTCUTS),
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 

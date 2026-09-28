@@ -12,6 +12,7 @@ from theos.core.window_keys import (
     is_allowed_window_key,
     is_destructive_window_key,
 )
+from theos.core.window_shortcuts import is_allowed_window_shortcut
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -236,6 +237,10 @@ _EXPECTED_KEY_PID = "_theos_expected_key_pid"
 _EXPECTED_KEY_TITLE = "_theos_expected_key_title"
 _EXPECTED_KEY_TARGET_TOKEN = "_theos_expected_key_target_token"
 _EXPECTED_KEY_NAME = "_theos_expected_key_name"
+_EXPECTED_SHORTCUT_PID = "_theos_expected_shortcut_pid"
+_EXPECTED_SHORTCUT_TITLE = "_theos_expected_shortcut_title"
+_EXPECTED_SHORTCUT_TARGET_TOKEN = "_theos_expected_shortcut_target_token"
+_EXPECTED_SHORTCUT_NAME = "_theos_expected_shortcut_name"
 _EXPECTED_TEXT_PID = "_theos_expected_text_pid"
 _EXPECTED_TEXT_TITLE = "_theos_expected_text_title"
 _EXPECTED_TEXT_TARGET_TOKEN = "_theos_expected_text_target_token"
@@ -448,6 +453,204 @@ class PressKeyAction:
             success=True,
             message=(
                 f"Tecla {key} enviada ao alvo: {evidence['title']} "
+                f"(PID {evidence['pid']}); eventos e foco verificados, "
+                "efeito interno não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
+
+
+class PressShortcutAction:
+    name = "press_shortcut"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        shortcut = request.arguments.get("shortcut")
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or not is_allowed_window_shortcut(shortcut)
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Atalho de teclado bloqueado antes da confirmação: "
+                    "argumentos inválidos."
+                ),
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "PRESSIONAR ATALHO EM JANELA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                "Atalho: CTRL+A\n"
+                "Somente CTRL+A está permitido nesta etapa. O atalho pode selecionar "
+                "conteúdo dependendo do controle em foco, mas o THE OS não lê o conteúdo "
+                "nem afirma o efeito sem verificação semântica. Nenhum conteúdo da área "
+                "de transferência é lido ou escrito. Após a confirmação, o THE OS "
+                "reativará somente a janela exata aprovada, verificará o primeiro plano, "
+                "enviará CTRL+A como uma sequência fixa de quatro eventos e verificará "
+                "novamente o foco."
+            ),
+            execution_guard={
+                _EXPECTED_SHORTCUT_PID: pid,
+                _EXPECTED_SHORTCUT_TITLE: normalized_title,
+                _EXPECTED_SHORTCUT_TARGET_TOKEN: target_token,
+                _EXPECTED_SHORTCUT_NAME: shortcut,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        shortcut = request.arguments.get("shortcut")
+        expected_pid = request.arguments.get(_EXPECTED_SHORTCUT_PID)
+        expected_title = request.arguments.get(_EXPECTED_SHORTCUT_TITLE)
+        expected_target_token = request.arguments.get(
+            _EXPECTED_SHORTCUT_TARGET_TOKEN
+        )
+        expected_shortcut = request.arguments.get(_EXPECTED_SHORTCUT_NAME)
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or not is_allowed_window_shortcut(shortcut)
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_target_token != target_token
+            or expected_shortcut != shortcut
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O atalho não possui uma prévia local aprovada.",
+                error_code="SHORTCUT_INPUT_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.press_shortcut(
+                pid,
+                title.strip(),
+                target_token,
+                shortcut,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            if reason == "SELF_WINDOW_SHORTCUT_INPUT_BLOCKED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="A LYRA bloqueou atalho de teclado na própria janela.",
+                    evidence={"reason": reason},
+                    error_code="SELF_WINDOW_SHORTCUT_INPUT_BLOCKED",
+                )
+            if reason == "WINDOW_TARGET_NOT_FOUND":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Não encontrei essa janela visível exata.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_NOT_FOUND",
+                )
+            if reason == "WINDOW_TARGET_AMBIGUOUS":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "Mais de uma janela correspondeu ao alvo opaco; "
+                        "o atalho foi bloqueado."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_AMBIGUOUS",
+                )
+            if reason == "WINDOW_TARGET_TOKEN_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O identificador opaco da janela é inválido.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_TOKEN_INVALID",
+                )
+            if reason == "SHORTCUT_INPUT_TARGET_ACTIVATION_NOT_VERIFIED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O Windows não confirmou a janela alvo em primeiro plano "
+                        "após a confirmação; o atalho não foi enviado."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="SHORTCUT_INPUT_TARGET_ACTIVATION_NOT_VERIFIED",
+                )
+            if reason == "SHORTCUT_INPUT_FOREGROUND_CHANGED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O foco mudou durante o atalho; não posso confirmar "
+                        "que os eventos permaneceram no alvo."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="SHORTCUT_INPUT_FOREGROUND_CHANGED",
+                )
+            if reason == "SHORTCUT_INPUT_NOT_ALLOWED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Esse atalho não está permitido nesta etapa.",
+                    evidence={"reason": reason},
+                    error_code="SHORTCUT_INPUT_NOT_ALLOWED",
+                )
+            if reason == "SHORTCUT_INPUT_NOT_ACCEPTED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O Windows não confirmou o envio completo do atalho.",
+                    evidence={"reason": reason},
+                    error_code="SHORTCUT_INPUT_NOT_ACCEPTED",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar o atalho para essa janela.",
+                evidence={"reason": reason},
+                error_code="SHORTCUT_INPUT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar o atalho para essa janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="SHORTCUT_INPUT_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Atalho CTRL+A enviado ao alvo: {evidence['title']} "
                 f"(PID {evidence['pid']}); eventos e foco verificados, "
                 "efeito interno não inspecionado."
             ),
