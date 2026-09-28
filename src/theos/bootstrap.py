@@ -6,6 +6,7 @@ from theos.core.actions.desktop_windows import (
     MaximizeWindowAction,
     MinimizeWindowAction,
     RestoreWindowAction,
+    TypeTextAction,
     WindowSnapshotAction,
 )
 from theos.core.actions.file_system import (
@@ -58,6 +59,7 @@ def build_action_registry() -> ActionRegistry:
     terminate_process = TerminateProcessAction(windows_processes)
     window_snapshot = WindowSnapshotAction(windows_desktop)
     activate_window = ActivateWindowAction(windows_desktop)
+    type_text = TypeTextAction(windows_desktop)
     restore_window = RestoreWindowAction(windows_desktop)
     maximize_window = MaximizeWindowAction(windows_desktop)
     minimize_window = MinimizeWindowAction(windows_desktop)
@@ -147,6 +149,12 @@ def build_action_registry() -> ActionRegistry:
         activate_window.name,
         activate_window.execute,
         risk=activate_window.risk,
+    )
+    registry.register(
+        type_text.name,
+        type_text.execute,
+        risk=type_text.risk,
+        confirmation_preview=type_text.confirmation_preview,
     )
     registry.register(
         restore_window.name,

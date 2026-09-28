@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from theos.core.actions.contracts import (
     ActionRequest,
     ActionResult,
@@ -137,6 +139,209 @@ class ActivateWindowAction:
             ),
             evidence=evidence,
         )
+
+_EXPECTED_TEXT_PID = "_theos_expected_text_pid"
+_EXPECTED_TEXT_TITLE = "_theos_expected_text_title"
+_EXPECTED_TEXT_SHA256 = "_theos_expected_text_sha256"
+MAX_TEXT_INPUT_CHARS = 512
+
+
+class TypeTextAction:
+    name = "type_text"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        text = request.arguments.get("text")
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not isinstance(text, str)
+            or not text
+            or len(text) > MAX_TEXT_INPUT_CHARS
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in text)
+            or any(0xD800 <= ord(character) <= 0xDFFF for character in text)
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Entrada de texto bloqueada antes da confirmação: argumentos inválidos.",
+            )
+
+        normalized_title = title.strip()
+        text_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "DIGITAR TEXTO EM JANELA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Caracteres: {len(text)}\n"
+                f"Texto exato:\n{text}\n"
+                "A LYRA enviará somente caracteres Unicode comuns para a janela alvo. "
+                "Enter, Tab, atalhos, teclas especiais e caracteres de controle não são "
+                "permitidos. Após a confirmação, o THE OS reativará somente a "
+                "janela exata aprovada e verificará que ela está em primeiro plano antes "
+                "de enviar o texto. O THE OS verifica o envio dos eventos e o foco, mas "
+                "não lê o conteúdo "
+                "da janela para afirmar onde o texto apareceu."
+            ),
+            execution_guard={
+                _EXPECTED_TEXT_PID: pid,
+                _EXPECTED_TEXT_TITLE: normalized_title,
+                _EXPECTED_TEXT_SHA256: text_sha256,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        text = request.arguments.get("text")
+        expected_pid = request.arguments.get(_EXPECTED_TEXT_PID)
+        expected_title = request.arguments.get(_EXPECTED_TEXT_TITLE)
+        expected_sha256 = request.arguments.get(_EXPECTED_TEXT_SHA256)
+
+        valid_text = (
+            isinstance(text, str)
+            and bool(text)
+            and len(text) <= MAX_TEXT_INPUT_CHARS
+            and not any(
+                ord(character) < 0x20 or ord(character) == 0x7F
+                for character in text
+            )
+            and not any(0xD800 <= ord(character) <= 0xDFFF for character in text)
+        )
+        current_sha256 = (
+            hashlib.sha256(text.encode("utf-8")).hexdigest()
+            if valid_text
+            else None
+        )
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not valid_text
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_sha256 != current_sha256
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A entrada de texto não possui uma prévia local aprovada.",
+                error_code="TEXT_INPUT_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.type_text(pid, title.strip(), text)
+        except RuntimeError as exc:
+            reason = str(exc)
+            if reason == "SELF_WINDOW_TEXT_INPUT_BLOCKED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="A LYRA bloqueou entrada de texto na própria janela.",
+                    evidence={"reason": reason},
+                    error_code="SELF_WINDOW_TEXT_INPUT_BLOCKED",
+                )
+            if reason == "WINDOW_TARGET_NOT_FOUND":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Não encontrei essa janela visível.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_NOT_FOUND",
+                )
+            if reason == "WINDOW_TARGET_AMBIGUOUS":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "a entrada de texto foi bloqueada."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_AMBIGUOUS",
+                )
+            if reason == "TEXT_INPUT_TARGET_ACTIVATION_NOT_VERIFIED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O Windows não confirmou a janela alvo em primeiro plano "
+                        "após a confirmação; a entrada de texto foi bloqueada."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="TEXT_INPUT_TARGET_ACTIVATION_NOT_VERIFIED",
+                )
+            if reason == "TEXT_INPUT_FOREGROUND_CHANGED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O foco mudou durante a entrada; não posso confirmar "
+                        "que todos os eventos permaneceram no alvo."
+                    ),
+                    evidence={"reason": reason},
+                    error_code="TEXT_INPUT_FOREGROUND_CHANGED",
+                )
+            if reason in {
+                "TEXT_INPUT_INVALID",
+                "TEXT_INPUT_CONTROL_CHAR_BLOCKED",
+                "TEXT_INPUT_INVALID_UNICODE",
+            }:
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O texto solicitado não é permitido para esta ação.",
+                    evidence={"reason": reason},
+                    error_code="TEXT_INPUT_INVALID",
+                )
+            if reason == "TEXT_INPUT_NOT_ACCEPTED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O Windows não confirmou o envio de todos os eventos de texto.",
+                    evidence={"reason": reason},
+                    error_code="TEXT_INPUT_NOT_ACCEPTED",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar o texto para essa janela.",
+                evidence={"reason": reason},
+                error_code="TEXT_INPUT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar o texto para essa janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="TEXT_INPUT_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Entrada de texto enviada ao alvo: {evidence['title']} "
+                f"(PID {evidence['pid']}); eventos e foco verificados, "
+                "conteúdo interno não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
 
 class RestoreWindowAction:
     name = "restore_window"

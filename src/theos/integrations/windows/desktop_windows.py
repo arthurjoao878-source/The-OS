@@ -19,11 +19,60 @@ WINDOW_MAXIMIZE_VERIFY_TIMEOUT_SECONDS = 0.75
 WINDOW_MAXIMIZE_VERIFY_INTERVAL_SECONDS = 0.05
 WINDOW_RESTORE_VERIFY_TIMEOUT_SECONDS = 0.75
 WINDOW_RESTORE_VERIFY_INTERVAL_SECONDS = 0.05
+MAX_TEXT_INPUT_CHARS = 512
+INPUT_KEYBOARD = 1
+KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_UNICODE = 0x0004
 SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
 SW_RESTORE = 9
 WM_SYSCOMMAND = 0x0112
 SC_CLOSE = 0xF060
+
+
+class _MouseInput(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_size_t),
+    ]
+
+
+class _KeyboardInput(ctypes.Structure):
+    _fields_ = [
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.c_size_t),
+    ]
+
+
+class _HardwareInput(ctypes.Structure):
+    _fields_ = [
+        ("uMsg", wintypes.DWORD),
+        ("wParamL", wintypes.WORD),
+        ("wParamH", wintypes.WORD),
+    ]
+
+
+class _InputUnion(ctypes.Union):
+    _fields_ = [
+        ("mi", _MouseInput),
+        ("ki", _KeyboardInput),
+        ("hi", _HardwareInput),
+    ]
+
+
+class _Input(ctypes.Structure):
+    _anonymous_ = ("data",)
+    _fields_ = [
+        ("type", wintypes.DWORD),
+        ("data", _InputUnion),
+    ]
 
 
 class WindowsDesktopWindowAdapter:
@@ -237,6 +286,217 @@ class WindowsDesktopWindowAdapter:
             "activated": True,
             "foreground_verified": True,
             "restored_from_minimized": was_minimized,
+            "title_match": "bounded_title_exact",
+        }
+
+    def type_text(
+        self,
+        pid: int,
+        title: str,
+        text: str,
+    ) -> dict[str, object]:
+        if pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_TEXT_INPUT_BLOCKED")
+        if not text or len(text) > MAX_TEXT_INPUT_CHARS:
+            raise RuntimeError("TEXT_INPUT_INVALID")
+        if any(ord(character) < 0x20 or ord(character) == 0x7F for character in text):
+            raise RuntimeError("TEXT_INPUT_CONTROL_CHAR_BLOCKED")
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in text):
+            raise RuntimeError("TEXT_INPUT_INVALID_UNICODE")
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindow.restype = wintypes.BOOL
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.SetForegroundWindow.restype = wintypes.BOOL
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.SendInput.argtypes = [
+            wintypes.UINT,
+            ctypes.POINTER(_Input),
+            ctypes.c_int,
+        ]
+        user32.SendInput.restype = wintypes.UINT
+
+        matches: list[tuple[int, str]] = []
+
+        def visit_window(hwnd: int, _lparam: int) -> bool:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(
+                hwnd,
+                ctypes.byref(process_id),
+            )
+            if int(process_id.value) != pid:
+                return True
+
+            title_length = int(user32.GetWindowTextLengthW(hwnd))
+            if title_length <= 0:
+                return True
+
+            buffer = ctypes.create_unicode_buffer(title_length + 1)
+            copied = int(
+                user32.GetWindowTextW(
+                    hwnd,
+                    buffer,
+                    title_length + 1,
+                )
+            )
+            if copied <= 0:
+                return True
+
+            full_title = buffer.value.strip()
+            if not full_title:
+                return True
+
+            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
+            if bounded_title == title:
+                matches.append((int(hwnd), full_title))
+            return True
+
+        callback = callback_type(visit_window)
+        if not user32.EnumWindows(callback, 0):
+            error_code = ctypes.get_last_error()
+            raise OSError(error_code, "EnumWindows failed")
+
+        if not matches:
+            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
+        if len(matches) != 1:
+            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
+
+        hwnd_value, full_title = matches[0]
+        hwnd = wintypes.HWND(hwnd_value)
+
+        foreground = user32.GetForegroundWindow()
+        already_foreground = bool(foreground and int(foreground) == hwnd_value)
+        was_minimized = bool(user32.IsIconic(hwnd))
+        if was_minimized:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+
+        if not already_foreground:
+            user32.SetForegroundWindow(hwnd)
+
+        deadline = time.monotonic() + FOREGROUND_VERIFY_TIMEOUT_SECONDS
+        foreground_verified_before = False
+        while time.monotonic() <= deadline:
+            current_foreground = user32.GetForegroundWindow()
+            if current_foreground and int(current_foreground) == hwnd_value:
+                foreground_verified_before = True
+                break
+            time.sleep(FOREGROUND_VERIFY_INTERVAL_SECONDS)
+
+        if not foreground_verified_before:
+            raise RuntimeError("TEXT_INPUT_TARGET_ACTIVATION_NOT_VERIFIED")
+
+        try:
+            utf16 = text.encode("utf-16-le", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise RuntimeError("TEXT_INPUT_INVALID_UNICODE") from exc
+
+        units = [
+            int.from_bytes(utf16[index : index + 2], "little")
+            for index in range(0, len(utf16), 2)
+        ]
+        events: list[_Input] = []
+        for unit in units:
+            events.append(
+                _Input(
+                    type=INPUT_KEYBOARD,
+                    data=_InputUnion(
+                        ki=_KeyboardInput(
+                            wVk=0,
+                            wScan=unit,
+                            dwFlags=KEYEVENTF_UNICODE,
+                            time=0,
+                            dwExtraInfo=0,
+                        )
+                    ),
+                )
+            )
+            events.append(
+                _Input(
+                    type=INPUT_KEYBOARD,
+                    data=_InputUnion(
+                        ki=_KeyboardInput(
+                            wVk=0,
+                            wScan=unit,
+                            dwFlags=KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+                            time=0,
+                            dwExtraInfo=0,
+                        )
+                    ),
+                )
+            )
+
+        event_array_type = _Input * len(events)
+        event_array = event_array_type(*events)
+        submitted = int(
+            user32.SendInput(
+                len(events),
+                event_array,
+                ctypes.sizeof(_Input),
+            )
+        )
+        if submitted != len(events):
+            raise RuntimeError("TEXT_INPUT_NOT_ACCEPTED")
+
+        foreground_after = user32.GetForegroundWindow()
+        if not foreground_after or int(foreground_after) != hwnd_value:
+            raise RuntimeError("TEXT_INPUT_FOREGROUND_CHANGED")
+
+        try:
+            process_name = psutil.Process(pid).name()
+        except psutil.Error:
+            process_name = "processo-indisponivel"
+
+        return {
+            "pid": pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "process_name": process_name,
+            "text_chars": len(text),
+            "utf16_units": len(units),
+            "input_events_submitted": submitted,
+            "foreground_verified_before": True,
+            "foreground_verified_after": True,
+            "target_activation_verified": True,
+            "foreground_reacquired_before_input": not already_foreground,
+            "restored_from_minimized": was_minimized,
+            "input_submission_verified": True,
+            "content_effect_verified": False,
+            "verification": "sendinput_count_and_foreground_only",
+            "input_method": "SendInput_KEYEVENTF_UNICODE",
+            "clipboard_used": False,
+            "special_keys_used": False,
+            "control_characters_allowed": False,
             "title_match": "bounded_title_exact",
         }
 

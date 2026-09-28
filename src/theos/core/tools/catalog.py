@@ -365,6 +365,45 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="type_text",
+            description=(
+                "Envia texto Unicode limitado para uma janela visível exata já conhecida "
+                "por PID e título. Use somente quando o usuário pedir explicitamente para "
+                "digitar texto. Exige confirmação local; depois da confirmação, o THE OS "
+                "reativa e verifica o alvo exato antes do envio. Não envia Enter, Tab, "
+                "atalhos, teclas especiais nem caracteres de controle."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                    "text": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "description": (
+                            "Texto literal a enviar, sem Enter, Tab ou caracteres de controle."
+                        ),
+                    },
+                },
+                "required": ["pid", "title", "text"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_text_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="restore_window",
             description=(
                 "Restaura para o tamanho normal uma janela visível já identificada por "
@@ -520,6 +559,42 @@ def _validate_no_arguments(arguments: Mapping[str, object]) -> dict[str, object]
     if arguments:
         raise ToolValidationError("tool does not accept arguments")
     return {}
+
+
+def _validate_text_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"pid", "title", "text"}:
+        raise ToolValidationError(
+            "type_text requires only 'pid', 'title', and 'text'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    text = arguments.get("text")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+
+    if not isinstance(text, str) or not text:
+        raise ToolValidationError("text must be a non-empty string")
+    if len(text) > 512:
+        raise ToolValidationError("text exceeds the 512-character local limit")
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in text):
+        raise ToolValidationError("text contains blocked control characters")
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in text):
+        raise ToolValidationError("text contains invalid surrogate code points")
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+        "text": text,
+    }
 
 
 def _validate_window_target(
