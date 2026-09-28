@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from theos.core.actions.contracts import ActionRequest
 from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
 from theos.core.window_keys import ALLOWED_WINDOW_KEYS, is_allowed_window_key
-from theos.core.window_targets import is_window_target_token
+from theos.core.window_targets import (
+    MAX_WINDOW_QUERY_CHARS,
+    is_window_target_token,
+    normalize_window_query,
+)
 
 ArgumentValidator = Callable[[Mapping[str, object]], dict[str, object]]
 MAX_WRITE_CONTENT_BYTES = 16 * 1024
@@ -328,16 +332,30 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "Inspeciona de forma limitada as janelas de nível superior atualmente "
                 "visíveis no desktop. Retorna no máximo 12 entradas com título da janela, "
                 "nome do processo, PID e um target_token opaco local para seleção exata. "
-                "Exige confirmação local porque títulos de janelas "
-                "podem revelar atividade do usuário."
+                "Quando o usuário procura uma janela específica, forneça opcionalmente "
+                "query com um trecho conhecido do título ou nome do processo; o THE OS "
+                "filtra localmente todas as janelas visíveis antes de aplicar o limite "
+                "de 12, usando somente substring determinística sem regex ou fuzzy match. "
+                "Exige confirmação local porque títulos de janelas podem revelar "
+                "atividade do usuário."
             ),
             parameters={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "query": {
+                        "type": ["string", "null"],
+                        "maxLength": MAX_WINDOW_QUERY_CHARS,
+                        "description": (
+                            "Filtro local opcional: trecho literal conhecido do título "
+                            "da janela ou nome do processo; use null quando não houver filtro."
+                        ),
+                    },
+                },
+                "required": ["query"],
                 "additionalProperties": False,
             },
         ),
-        _validate_no_arguments,
+        _validate_window_snapshot,
     )
     catalog.register(
         ToolDefinition(
@@ -626,6 +644,28 @@ def build_default_tool_catalog() -> ToolCatalog:
         _validate_write_text_file,
     )
     return catalog
+
+
+def _validate_window_snapshot(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if not arguments:
+        return {}
+    if set(arguments) != {"query"}:
+        raise ToolValidationError(
+            "window_snapshot accepts only optional 'query'"
+        )
+
+    raw_query = arguments.get("query")
+    if raw_query is None:
+        return {}
+
+    normalized_query = normalize_window_query(raw_query)
+    if normalized_query is None:
+        raise ToolValidationError(
+            "query must be null or a non-blank string within the local limit"
+        )
+    return {"query": normalized_query}
 
 
 def _validate_no_arguments(arguments: Mapping[str, object]) -> dict[str, object]:

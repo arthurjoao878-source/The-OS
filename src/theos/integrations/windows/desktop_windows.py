@@ -11,7 +11,11 @@ from ctypes import wintypes
 import psutil
 
 from theos.core.window_keys import ALLOWED_WINDOW_KEYS
-from theos.core.window_targets import is_window_target_token
+from theos.core.window_targets import (
+    is_window_target_token,
+    normalize_window_query,
+    window_target_matches_query,
+)
 
 MAX_WINDOW_RESULTS = 12
 MAX_WINDOW_TITLE_CHARS = 160
@@ -100,7 +104,13 @@ class _Input(ctypes.Structure):
 
 
 class WindowsDesktopWindowAdapter:
-    def snapshot(self) -> dict[str, object]:
+    def snapshot(self, query: str | None = None) -> dict[str, object]:
+        normalized_query = None
+        if query is not None:
+            normalized_query = normalize_window_query(query)
+            if normalized_query is None:
+                raise RuntimeError("WINDOW_QUERY_INVALID")
+
         if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
             raise RuntimeError("WINDOWS_API_UNAVAILABLE")
 
@@ -188,13 +198,33 @@ class WindowsDesktopWindowAdapter:
             error_code = ctypes.get_last_error()
             raise OSError(error_code, "EnumWindows failed")
 
-        selected = rows[:MAX_WINDOW_RESULTS]
+        matching_rows = rows
+        if normalized_query is not None:
+            matching_rows = [
+                row
+                for row in rows
+                if window_target_matches_query(
+                    normalized_query,
+                    str(row["title"]),
+                    str(row["process_name"]),
+                )
+            ]
+
+        selected = matching_rows[:MAX_WINDOW_RESULTS]
         return {
             "observed_windows": len(rows),
+            "matched_windows": len(matching_rows),
             "returned_windows": len(selected),
             "max_results": MAX_WINDOW_RESULTS,
             "max_title_chars": MAX_WINDOW_TITLE_CHARS,
-            "order": "windows_z_order",
+            "filter_applied": normalized_query is not None,
+            "filter_query": normalized_query,
+            "filter_match": "casefold_substring_title_or_process_name",
+            "order": (
+                "windows_z_order_within_filter"
+                if normalized_query is not None
+                else "windows_z_order"
+            ),
             "fields": ["title", "pid", "process_name", "target_token"],
             "windows": selected,
         }

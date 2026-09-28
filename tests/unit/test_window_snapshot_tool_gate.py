@@ -50,6 +50,24 @@ def test_catalog_builds_window_snapshot_request() -> None:
     assert request.action == "window_snapshot"
     assert request.arguments == {}
 
+    unfiltered_null = catalog.build_action_request(
+        ToolCall(
+            name="window_snapshot",
+            arguments={"query": None},
+        )
+    )
+    assert unfiltered_null.action == "window_snapshot"
+    assert unfiltered_null.arguments == {}
+
+    filtered = catalog.build_action_request(
+        ToolCall(
+            name="window_snapshot",
+            arguments={"query": " Bloco de Notas "},
+        )
+    )
+    assert filtered.action == "window_snapshot"
+    assert filtered.arguments == {"query": "Bloco de Notas"}
+
 
 def test_window_snapshot_waits_for_confirmation_and_denial_does_not_enumerate() -> None:
     calls = 0

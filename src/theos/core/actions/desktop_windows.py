@@ -9,7 +9,10 @@ from theos.core.actions.contracts import (
     ConfirmationPreview,
 )
 from theos.core.window_keys import is_allowed_window_key
-from theos.core.window_targets import is_window_target_token
+from theos.core.window_targets import (
+    is_window_target_token,
+    normalize_window_query,
+)
 from theos.integrations.windows.desktop_windows import WindowsDesktopWindowAdapter
 
 
@@ -22,7 +25,30 @@ class WindowSnapshotAction:
 
     @staticmethod
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
-        _ = request
+        raw_query = request.arguments.get("query")
+        normalized_query = (
+            None
+            if raw_query is None
+            else normalize_window_query(raw_query)
+        )
+        if raw_query is not None and normalized_query is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Inspeção de janelas bloqueada: filtro local inválido.",
+            )
+
+        filter_text = (
+            "Sem filtro local: serão retornadas até as 12 primeiras janelas visíveis "
+            "na ordem Z."
+            if normalized_query is None
+            else (
+                f"Filtro local solicitado: {normalized_query}\n"
+                "Após a confirmação, todas as janelas visíveis com título serão "
+                "enumeradas localmente, mas somente correspondências determinísticas "
+                "desse texto no título limitado ou nome do processo poderão ser "
+                "retornadas, até o limite de 12."
+            )
+        )
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -30,6 +56,7 @@ class WindowSnapshotAction:
                 "A LYRA enumerará localmente janelas de nível superior que estão visíveis "
                 "e enviará ao provedor de IA somente título da janela, nome do processo, "
                 "PID e um token opaco de alvo gerado localmente.\n"
+                f"{filter_text}\n"
                 "Limite de saída: 12 janelas; títulos são limitados a 160 caracteres.\n"
                 "Não serão coletados conteúdo interno das janelas, teclas digitadas, "
                 "capturas de tela, caminhos de executáveis, handles brutos ou títulos "
@@ -38,10 +65,44 @@ class WindowSnapshotAction:
         )
 
     def execute(self, request: ActionRequest) -> ActionResult:
-        _ = request
+        raw_query = request.arguments.get("query")
+        normalized_query = (
+            None
+            if raw_query is None
+            else normalize_window_query(raw_query)
+        )
+        if raw_query is not None and normalized_query is None:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O filtro local de janelas é inválido.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
         try:
-            evidence = self._windows.snapshot()
-        except (OSError, RuntimeError) as exc:
+            evidence = (
+                self._windows.snapshot()
+                if normalized_query is None
+                else self._windows.snapshot(normalized_query)
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            if reason == "WINDOW_QUERY_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O filtro local de janelas é inválido.",
+                    evidence={"reason": reason},
+                    error_code="ACTION_VALIDATION_FAILED",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui inspecionar as janelas visíveis.",
+                evidence={"reason": reason},
+                error_code="WINDOW_SNAPSHOT_FAILED",
+            )
+        except OSError as exc:
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
@@ -52,15 +113,25 @@ class WindowSnapshotAction:
 
         observed = int(evidence["observed_windows"])
         returned = int(evidence["returned_windows"])
+        if bool(evidence.get("filter_applied")):
+            matched = int(evidence["matched_windows"])
+            message = (
+                f"Janelas inspecionadas: {observed} visíveis com título; "
+                f"{matched} corresponderam ao filtro local; {returned} retornadas."
+            )
+        else:
+            message = (
+                f"Janelas inspecionadas: {observed} visíveis com título; "
+                f"{returned} retornadas."
+            )
+
         return ActionResult(
             request_id=request.request_id,
             success=True,
-            message=(
-                f"Janelas inspecionadas: {observed} visíveis com título; "
-                f"{returned} retornadas."
-            ),
+            message=message,
             evidence=evidence,
         )
+
 
 class ActivateWindowAction:
     name = "activate_window"

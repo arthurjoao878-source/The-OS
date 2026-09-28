@@ -240,3 +240,43 @@ def test_openai_provider_replays_tool_result_and_can_request_next_action() -> No
     assert requests[1]["parallel_tool_calls"] is False
     assert requests[2]["parallel_tool_calls"] is False
     client.close()
+
+def test_openai_provider_tool_schemas_are_strict_compatible() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(200, json={"output_text": "ok"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = OpenAIResponsesProvider(
+        api_key="test-key",
+        model="test-model",
+        client=client,
+    )
+
+    reply = provider.respond(
+        "teste",
+        tools=build_default_tool_catalog().definitions(),
+    )
+
+    assert isinstance(reply, AIReply)
+    tools = captured["body"]["tools"]
+    assert isinstance(tools, list)
+
+    for tool in tools:
+        assert tool["strict"] is True
+        parameters = tool["parameters"]
+        assert parameters["type"] == "object"
+        assert parameters["additionalProperties"] is False
+        properties = parameters.get("properties", {})
+        required = parameters.get("required", [])
+        assert set(required) == set(properties)
+
+    window_snapshot = next(
+        tool for tool in tools if tool["name"] == "window_snapshot"
+    )
+    schema = window_snapshot["parameters"]
+    assert schema["required"] == ["query"]
+    assert schema["properties"]["query"]["type"] == ["string", "null"]
+    client.close()
