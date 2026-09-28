@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
+import hmac
 import os
+import secrets
 import time
 from ctypes import wintypes
 
 import psutil
+
+from theos.core.window_keys import ALLOWED_WINDOW_KEYS
+from theos.core.window_targets import is_window_target_token
 
 MAX_WINDOW_RESULTS = 12
 MAX_WINDOW_TITLE_CHARS = 160
@@ -23,12 +29,29 @@ MAX_TEXT_INPUT_CHARS = 512
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
+VK_TAB = 0x09
 VK_RETURN = 0x0D
+VK_ESCAPE = 0x1B
+_WINDOW_KEY_VK_CODES = {
+    "ENTER": VK_RETURN,
+    "ESCAPE": VK_ESCAPE,
+    "TAB": VK_TAB,
+}
 SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
 SW_RESTORE = 9
 WM_SYSCOMMAND = 0x0112
 SC_CLOSE = 0xF060
+_WINDOW_TARGET_TOKEN_KEY = secrets.token_bytes(32)
+
+
+def _window_target_token(hwnd: int, pid: int, bounded_title: str) -> str:
+    payload = f"{hwnd}\0{pid}\0{bounded_title}".encode()
+    return hmac.new(
+        _WINDOW_TARGET_TOKEN_KEY,
+        payload,
+        hashlib.sha256,
+    ).hexdigest()
 
 
 class _MouseInput(ctypes.Structure):
@@ -145,11 +168,17 @@ class WindowsDesktopWindowAdapter:
             except psutil.Error:
                 process_name = "processo-indisponivel"
 
+            bounded_title = title[:MAX_WINDOW_TITLE_CHARS]
             rows.append(
                 {
-                    "title": title[:MAX_WINDOW_TITLE_CHARS],
+                    "title": bounded_title,
                     "pid": pid,
                     "process_name": process_name,
+                    "target_token": _window_target_token(
+                        int(hwnd),
+                        pid,
+                        bounded_title,
+                    ),
                 }
             )
             return True
@@ -166,7 +195,7 @@ class WindowsDesktopWindowAdapter:
             "max_results": MAX_WINDOW_RESULTS,
             "max_title_chars": MAX_WINDOW_TITLE_CHARS,
             "order": "windows_z_order",
-            "fields": ["title", "pid", "process_name"],
+            "fields": ["title", "pid", "process_name", "target_token"],
             "windows": selected,
         }
 
@@ -294,12 +323,16 @@ class WindowsDesktopWindowAdapter:
         self,
         pid: int,
         title: str,
+        target_token: str,
         key: str,
     ) -> dict[str, object]:
         if pid == os.getpid():
             raise RuntimeError("SELF_WINDOW_KEY_INPUT_BLOCKED")
-        if key != "ENTER":
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        if key not in ALLOWED_WINDOW_KEYS:
             raise RuntimeError("KEY_INPUT_NOT_ALLOWED")
+        virtual_key = _WINDOW_KEY_VK_CODES[key]
         if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
             raise RuntimeError("WINDOWS_API_UNAVAILABLE")
 
@@ -376,7 +409,15 @@ class WindowsDesktopWindowAdapter:
                 return True
 
             bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title == title:
+            if bounded_title != title:
+                return True
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+            if candidate_token == target_token:
                 matches.append((int(hwnd), full_title))
             return True
 
@@ -419,7 +460,7 @@ class WindowsDesktopWindowAdapter:
                 type=INPUT_KEYBOARD,
                 data=_InputUnion(
                     ki=_KeyboardInput(
-                        wVk=VK_RETURN,
+                        wVk=virtual_key,
                         wScan=0,
                         dwFlags=0,
                         time=0,
@@ -431,7 +472,7 @@ class WindowsDesktopWindowAdapter:
                 type=INPUT_KEYBOARD,
                 data=_InputUnion(
                     ki=_KeyboardInput(
-                        wVk=VK_RETURN,
+                        wVk=virtual_key,
                         wScan=0,
                         dwFlags=KEYEVENTF_KEYUP,
                         time=0,
@@ -465,6 +506,7 @@ class WindowsDesktopWindowAdapter:
             "pid": pid,
             "title": full_title[:MAX_WINDOW_TITLE_CHARS],
             "process_name": process_name,
+            "target_token": target_token,
             "key": key,
             "input_events_submitted": submitted,
             "foreground_verified_before": True,
@@ -475,10 +517,10 @@ class WindowsDesktopWindowAdapter:
             "input_submission_verified": True,
             "content_effect_verified": False,
             "verification": "sendinput_count_and_foreground_only",
-            "input_method": "SendInput_VK_RETURN",
+            "input_method": f"SendInput_VK_{key}",
             "clipboard_used": False,
-            "key_allowlist": ["ENTER"],
-            "title_match": "bounded_title_exact",
+            "key_allowlist": list(ALLOWED_WINDOW_KEYS),
+            "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
     def type_text(

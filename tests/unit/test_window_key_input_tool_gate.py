@@ -22,6 +22,7 @@ class PressKeyProvider:
                     arguments={
                         "pid": 4321,
                         "title": "Sem título - Bloco de Notas",
+                        "target_token": "e" * 64,
                         "key": "ENTER",
                     },
                     call_id="press_key_1",

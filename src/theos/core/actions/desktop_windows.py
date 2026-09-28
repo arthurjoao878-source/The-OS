@@ -8,6 +8,8 @@ from theos.core.actions.contracts import (
     ActionRisk,
     ConfirmationPreview,
 )
+from theos.core.window_keys import is_allowed_window_key
+from theos.core.window_targets import is_window_target_token
 from theos.integrations.windows.desktop_windows import WindowsDesktopWindowAdapter
 
 
@@ -26,11 +28,12 @@ class WindowSnapshotAction:
             text=(
                 "INSPECIONAR JANELAS VISÍVEIS\n"
                 "A LYRA enumerará localmente janelas de nível superior que estão visíveis "
-                "e enviará ao provedor de IA somente título da janela, nome do processo "
-                "e PID.\n"
+                "e enviará ao provedor de IA somente título da janela, nome do processo, "
+                "PID e um token opaco de alvo gerado localmente.\n"
                 "Limite de saída: 12 janelas; títulos são limitados a 160 caracteres.\n"
                 "Não serão coletados conteúdo interno das janelas, teclas digitadas, "
-                "capturas de tela, caminhos de executáveis ou títulos de janelas ocultas."
+                "capturas de tela, caminhos de executáveis, handles brutos ou títulos "
+                "de janelas ocultas."
             ),
         )
 
@@ -142,6 +145,7 @@ class ActivateWindowAction:
 
 _EXPECTED_KEY_PID = "_theos_expected_key_pid"
 _EXPECTED_KEY_TITLE = "_theos_expected_key_title"
+_EXPECTED_KEY_TARGET_TOKEN = "_theos_expected_key_target_token"
 _EXPECTED_KEY_NAME = "_theos_expected_key_name"
 _EXPECTED_TEXT_PID = "_theos_expected_text_pid"
 _EXPECTED_TEXT_TITLE = "_theos_expected_text_title"
@@ -160,6 +164,7 @@ class PressKeyAction:
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         key = request.arguments.get("key")
         if (
             not isinstance(pid, int)
@@ -167,7 +172,8 @@ class PressKeyAction:
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
-            or key != "ENTER"
+            or not is_window_target_token(target_token)
+            or not is_allowed_window_key(key)
         ):
             return ConfirmationPreview(
                 allowed=False,
@@ -181,27 +187,31 @@ class PressKeyAction:
                 "PRESSIONAR TECLA EM JANELA\n"
                 f"Janela: {normalized_title}\n"
                 f"PID: {pid}\n"
-                "Tecla: ENTER\n"
-                "A tecla ENTER pode confirmar, enviar ou ativar o controle atualmente "
-                "focado no aplicativo. Após a confirmação, o THE OS reativará somente "
-                "a janela exata aprovada e verificará que ela está em primeiro plano "
-                "antes de enviar a tecla. O THE OS verifica o envio dos eventos e o foco, "
-                "mas não lê o conteúdo ou o estado interno do aplicativo para afirmar "
-                "qual efeito a tecla produziu."
+                f"Alvo opaco: {target_token[:12]}...\n"
+                f"Tecla: {key}\n"
+                "ENTER pode confirmar/enviar, ESCAPE pode cancelar/fechar um estado "
+                "transitório e TAB pode mover o foco entre controles. Após a confirmação, "
+                "o THE OS reativará somente a janela exata aprovada e verificará que ela "
+                "está em primeiro plano antes de enviar a tecla. O THE OS verifica o envio "
+                "dos eventos e o foco, mas não lê o conteúdo ou o estado interno do "
+                "aplicativo para afirmar qual efeito a tecla produziu."
             ),
             execution_guard={
                 _EXPECTED_KEY_PID: pid,
                 _EXPECTED_KEY_TITLE: normalized_title,
-                _EXPECTED_KEY_NAME: "ENTER",
+                _EXPECTED_KEY_TARGET_TOKEN: target_token,
+                _EXPECTED_KEY_NAME: key,
             },
         )
 
     def execute(self, request: ActionRequest) -> ActionResult:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         key = request.arguments.get("key")
         expected_pid = request.arguments.get(_EXPECTED_KEY_PID)
         expected_title = request.arguments.get(_EXPECTED_KEY_TITLE)
+        expected_target_token = request.arguments.get(_EXPECTED_KEY_TARGET_TOKEN)
         expected_key = request.arguments.get(_EXPECTED_KEY_NAME)
 
         if (
@@ -210,9 +220,11 @@ class PressKeyAction:
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
-            or key != "ENTER"
+            or not is_window_target_token(target_token)
+            or not is_allowed_window_key(key)
             or expected_pid != pid
             or expected_title != title.strip()
+            or expected_target_token != target_token
             or expected_key != key
         ):
             return ActionResult(
@@ -223,7 +235,12 @@ class PressKeyAction:
             )
 
         try:
-            evidence = self._windows.press_key(pid, title.strip(), key)
+            evidence = self._windows.press_key(
+                pid,
+                title.strip(),
+                target_token,
+                key,
+            )
         except RuntimeError as exc:
             reason = str(exc)
             if reason == "SELF_WINDOW_KEY_INPUT_BLOCKED":
@@ -238,7 +255,7 @@ class PressKeyAction:
                 return ActionResult(
                     request_id=request.request_id,
                     success=False,
-                    message="Não encontrei essa janela visível.",
+                    message="Não encontrei essa janela visível exata.",
                     evidence={"reason": reason},
                     error_code="WINDOW_TARGET_NOT_FOUND",
                 )
@@ -247,11 +264,19 @@ class PressKeyAction:
                     request_id=request.request_id,
                     success=False,
                     message=(
-                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "Mais de uma janela correspondeu ao alvo opaco; "
                         "a entrada de tecla foi bloqueada."
                     ),
                     evidence={"reason": reason},
                     error_code="WINDOW_TARGET_AMBIGUOUS",
+                )
+            if reason == "WINDOW_TARGET_TOKEN_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O identificador opaco da janela é inválido.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_TOKEN_INVALID",
                 )
             if reason == "KEY_INPUT_TARGET_ACTIVATION_NOT_VERIFIED":
                 return ActionResult(
@@ -311,7 +336,7 @@ class PressKeyAction:
             request_id=request.request_id,
             success=True,
             message=(
-                f"Tecla ENTER enviada ao alvo: {evidence['title']} "
+                f"Tecla {key} enviada ao alvo: {evidence['title']} "
                 f"(PID {evidence['pid']}); eventos e foco verificados, "
                 "efeito interno não inspecionado."
             ),

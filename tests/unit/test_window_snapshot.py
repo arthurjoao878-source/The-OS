@@ -16,22 +16,25 @@ class _FakeWindowAdapter:
             "max_results": 12,
             "max_title_chars": 160,
             "order": "windows_z_order",
-            "fields": ["title", "pid", "process_name"],
+            "fields": ["title", "pid", "process_name", "target_token"],
             "windows": [
                 {
                     "title": "Documento - Bloco de Notas",
                     "pid": 100,
                     "process_name": "notepad.exe",
+                    "target_token": "1" * 64,
                 },
                 {
                     "title": "ChatGPT",
                     "pid": 200,
                     "process_name": "ChatGPT.exe",
+                    "target_token": "2" * 64,
                 },
                 {
                     "title": "THE OS — LYRA",
                     "pid": 300,
                     "process_name": "python.exe",
+                    "target_token": "3" * 64,
                 },
             ],
         }
@@ -64,4 +67,9 @@ def test_window_snapshot_returns_bounded_evidence() -> None:
     assert adapter.snapshot_calls == 1
     assert result.evidence["returned_windows"] == 3
     assert result.evidence["max_results"] == 12
-    assert result.evidence["fields"] == ["title", "pid", "process_name"]
+    assert result.evidence["fields"] == [
+        "title",
+        "pid",
+        "process_name",
+        "target_token",
+    ]

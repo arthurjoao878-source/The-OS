@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 from theos.core.actions.contracts import ActionRequest
 from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
+from theos.core.window_keys import ALLOWED_WINDOW_KEYS, is_allowed_window_key
+from theos.core.window_targets import is_window_target_token
 
 ArgumentValidator = Callable[[Mapping[str, object]], dict[str, object]]
 MAX_WRITE_CONTENT_BYTES = 16 * 1024
@@ -325,7 +327,8 @@ def build_default_tool_catalog() -> ToolCatalog:
             description=(
                 "Inspeciona de forma limitada as janelas de nível superior atualmente "
                 "visíveis no desktop. Retorna no máximo 12 entradas com título da janela, "
-                "nome do processo e PID. Exige confirmação local porque títulos de janelas "
+                "nome do processo, PID e um target_token opaco local para seleção exata. "
+                "Exige confirmação local porque títulos de janelas "
                 "podem revelar atividade do usuário."
             ),
             parameters={
@@ -372,10 +375,11 @@ def build_default_tool_catalog() -> ToolCatalog:
             name="press_key",
             description=(
                 "Pressiona uma tecla permitida em uma janela visível exata já conhecida "
-                "por PID e título. Nesta etapa somente ENTER é permitido. Use somente "
-                "quando o usuário pedir explicitamente essa tecla. Exige confirmação local; "
-                "depois da confirmação, o THE OS reativa e verifica o alvo exato antes do "
-                "envio. O efeito interno do aplicativo não é lido nem inferido."
+                "por PID, título e target_token retornados pelo mesmo window_snapshot. "
+                "Somente ENTER, ESCAPE e TAB são permitidas. Use somente quando o usuário "
+                "pedir explicitamente uma dessas teclas. Exige confirmação local; depois "
+                "da confirmação, o THE OS reativa e verifica o alvo exato antes do envio. "
+                "O efeito interno do aplicativo não é lido nem inferido."
             ),
             parameters={
                 "type": "object",
@@ -392,13 +396,22 @@ def build_default_tool_catalog() -> ToolCatalog:
                             "Título limitado exato retornado por window_snapshot."
                         ),
                     },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot para esta janela."
+                        ),
+                    },
                     "key": {
                         "type": "string",
-                        "enum": ["ENTER"],
+                        "enum": list(ALLOWED_WINDOW_KEYS),
                         "description": "Tecla explicitamente permitida nesta etapa.",
                     },
                 },
-                "required": ["pid", "title", "key"],
+                "required": ["pid", "title", "target_token", "key"],
                 "additionalProperties": False,
             },
         ),
@@ -605,13 +618,14 @@ def _validate_no_arguments(arguments: Mapping[str, object]) -> dict[str, object]
 def _validate_key_input(
     arguments: Mapping[str, object],
 ) -> dict[str, object]:
-    if set(arguments) != {"pid", "title", "key"}:
+    if set(arguments) != {"pid", "title", "target_token", "key"}:
         raise ToolValidationError(
-            "press_key requires only 'pid', 'title', and 'key'"
+            "press_key requires only 'pid', 'title', 'target_token', and 'key'"
         )
 
     pid = arguments.get("pid")
     title = arguments.get("title")
+    target_token = arguments.get("target_token")
     key = arguments.get("key")
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         raise ToolValidationError("pid must be a positive integer")
@@ -621,14 +635,20 @@ def _validate_key_input(
     normalized_title = title.strip()
     if len(normalized_title) > 160:
         raise ToolValidationError("title exceeds the 160-character local limit")
-
-    if key != "ENTER":
-        raise ToolValidationError("key must be ENTER")
+    if not is_window_target_token(target_token):
+        raise ToolValidationError(
+            "target_token must be a 64-character lowercase hex token"
+        )
+    if not is_allowed_window_key(key):
+        raise ToolValidationError(
+            "key must be one of: " + ", ".join(ALLOWED_WINDOW_KEYS)
+        )
 
     return {
         "pid": pid,
         "title": normalized_title,
-        "key": "ENTER",
+        "target_token": target_token,
+        "key": key,
     }
 
 
