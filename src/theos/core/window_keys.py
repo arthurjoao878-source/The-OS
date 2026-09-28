@@ -4,6 +4,10 @@ ALLOWED_WINDOW_KEYS: tuple[str, ...] = (
     "ENTER",
     "ESCAPE",
     "TAB",
+    "UP",
+    "DOWN",
+    "LEFT",
+    "RIGHT",
 )
 
 

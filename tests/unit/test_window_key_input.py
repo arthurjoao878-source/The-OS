@@ -34,7 +34,15 @@ class _FakeKeyInputAdapter:
             "verification": "sendinput_count_and_foreground_only",
             "input_method": f"SendInput_VK_{key}",
             "clipboard_used": False,
-            "key_allowlist": ["ENTER", "ESCAPE", "TAB"],
+            "key_allowlist": [
+                "ENTER",
+                "ESCAPE",
+                "TAB",
+                "UP",
+                "DOWN",
+                "LEFT",
+                "RIGHT",
+            ],
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
@@ -76,7 +84,15 @@ def test_press_key_requires_preview_guard_for_allowlisted_key() -> None:
     ]
     assert result.evidence["input_submission_verified"] is True
     assert result.evidence["content_effect_verified"] is False
-    assert result.evidence["key_allowlist"] == ["ENTER", "ESCAPE", "TAB"]
+    assert result.evidence["key_allowlist"] == [
+        "ENTER",
+        "ESCAPE",
+        "TAB",
+        "UP",
+        "DOWN",
+        "LEFT",
+        "RIGHT",
+    ]
 
 
 def test_catalog_builds_press_key_request() -> None:
@@ -189,3 +205,50 @@ def test_escape_preview_guard_executes_exact_escape() -> None:
         (8765, "Calculadora", "d" * 64, "ESCAPE")
     ]
     assert result.evidence["input_method"] == "SendInput_VK_ESCAPE"
+
+
+def test_catalog_accepts_directional_navigation_keys() -> None:
+    catalog = build_default_tool_catalog()
+
+    for key in ("UP", "DOWN", "LEFT", "RIGHT"):
+        request = catalog.build_action_request(
+            ToolCall(
+                name="press_key",
+                arguments={
+                    "pid": 4321,
+                    "title": "Bloco de Notas",
+                    "target_token": "e" * 64,
+                    "key": key,
+                },
+            )
+        )
+        assert request.arguments["key"] == key
+
+
+def test_right_arrow_preview_guard_executes_exact_right() -> None:
+    adapter = _FakeKeyInputAdapter()
+    action = PressKeyAction(adapter)
+    request = ActionRequest(
+        action="press_key",
+        arguments={
+            "pid": 8765,
+            "title": "Sem título - Bloco de Notas",
+            "target_token": "f" * 64,
+            "key": "RIGHT",
+        },
+    )
+
+    preview = action.confirmation_preview(request)
+    assert preview.allowed is True
+    assert "Tecla: RIGHT" in preview.text
+    assert "UP/DOWN/LEFT/RIGHT" in preview.text
+    assert adapter.calls == []
+
+    request.arguments.update(preview.execution_guard)
+    result = action.execute(request)
+
+    assert result.success is True
+    assert adapter.calls == [
+        (8765, "Sem título - Bloco de Notas", "f" * 64, "RIGHT")
+    ]
+    assert result.evidence["input_method"] == "SendInput_VK_RIGHT"
