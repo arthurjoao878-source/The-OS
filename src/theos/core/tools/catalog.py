@@ -422,9 +422,10 @@ def build_default_tool_catalog() -> ToolCatalog:
             name="type_text",
             description=(
                 "Envia texto Unicode limitado para uma janela visível exata já conhecida "
-                "por PID e título. Use somente quando o usuário pedir explicitamente para "
-                "digitar texto. Exige confirmação local; depois da confirmação, o THE OS "
-                "reativa e verifica o alvo exato antes do envio. Não envia Enter, Tab, "
+                "por PID, título e target_token retornados pelo mesmo window_snapshot. "
+                "Use somente quando o usuário pedir explicitamente para digitar texto. "
+                "Exige confirmação local; depois da confirmação, o THE OS reativa e "
+                "verifica o alvo opaco exato antes do envio. Não envia Enter, Tab, "
                 "atalhos, teclas especiais nem caracteres de controle."
             ),
             parameters={
@@ -442,6 +443,15 @@ def build_default_tool_catalog() -> ToolCatalog:
                             "Título limitado exato retornado por window_snapshot."
                         ),
                     },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot para esta janela."
+                        ),
+                    },
                     "text": {
                         "type": "string",
                         "maxLength": 512,
@@ -450,7 +460,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                         ),
                     },
                 },
-                "required": ["pid", "title", "text"],
+                "required": ["pid", "title", "target_token", "text"],
                 "additionalProperties": False,
             },
         ),
@@ -655,13 +665,14 @@ def _validate_key_input(
 def _validate_text_input(
     arguments: Mapping[str, object],
 ) -> dict[str, object]:
-    if set(arguments) != {"pid", "title", "text"}:
+    if set(arguments) != {"pid", "title", "target_token", "text"}:
         raise ToolValidationError(
-            "type_text requires only 'pid', 'title', and 'text'"
+            "type_text requires only 'pid', 'title', 'target_token', and 'text'"
         )
 
     pid = arguments.get("pid")
     title = arguments.get("title")
+    target_token = arguments.get("target_token")
     text = arguments.get("text")
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         raise ToolValidationError("pid must be a positive integer")
@@ -671,6 +682,10 @@ def _validate_text_input(
     normalized_title = title.strip()
     if len(normalized_title) > 160:
         raise ToolValidationError("title exceeds the 160-character local limit")
+    if not is_window_target_token(target_token):
+        raise ToolValidationError(
+            "target_token must be a 64-character lowercase hex token"
+        )
 
     if not isinstance(text, str) or not text:
         raise ToolValidationError("text must be a non-empty string")
@@ -684,6 +699,7 @@ def _validate_text_input(
     return {
         "pid": pid,
         "title": normalized_title,
+        "target_token": target_token,
         "text": text,
     }
 

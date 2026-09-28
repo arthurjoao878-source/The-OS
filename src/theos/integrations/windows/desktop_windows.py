@@ -527,10 +527,13 @@ class WindowsDesktopWindowAdapter:
         self,
         pid: int,
         title: str,
+        target_token: str,
         text: str,
     ) -> dict[str, object]:
         if pid == os.getpid():
             raise RuntimeError("SELF_WINDOW_TEXT_INPUT_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
         if not text or len(text) > MAX_TEXT_INPUT_CHARS:
             raise RuntimeError("TEXT_INPUT_INVALID")
         if any(ord(character) < 0x20 or ord(character) == 0x7F for character in text):
@@ -613,7 +616,15 @@ class WindowsDesktopWindowAdapter:
                 return True
 
             bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title == title:
+            if bounded_title != title:
+                return True
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+            if candidate_token == target_token:
                 matches.append((int(hwnd), full_title))
             return True
 
@@ -716,6 +727,7 @@ class WindowsDesktopWindowAdapter:
             "pid": pid,
             "title": full_title[:MAX_WINDOW_TITLE_CHARS],
             "process_name": process_name,
+            "target_token": target_token,
             "text_chars": len(text),
             "utf16_units": len(units),
             "input_events_submitted": submitted,
@@ -731,7 +743,7 @@ class WindowsDesktopWindowAdapter:
             "clipboard_used": False,
             "special_keys_used": False,
             "control_characters_allowed": False,
-            "title_match": "bounded_title_exact",
+            "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
     def restore_window(self, pid: int, title: str) -> dict[str, object]:

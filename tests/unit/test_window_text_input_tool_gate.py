@@ -21,7 +21,8 @@ class TypeTextProvider:
                     name="type_text",
                     arguments={
                         "pid": 4321,
-                        "title": "M23-LIVE.txt - Bloco de Notas",
+                        "title": "M28-LIVE.txt - Bloco de Notas",
+                        "target_token": "d" * 64,
                         "text": "Olá, LYRA!",
                     },
                     call_id="type_text_1",
@@ -57,7 +58,8 @@ def test_type_text_waits_for_confirmation() -> None:
             message="Entrada de texto enviada.",
             evidence={
                 "pid": 4321,
-                "title": "M23-LIVE.txt - Bloco de Notas",
+                "title": "M28-LIVE.txt - Bloco de Notas",
+                "target_token": "d" * 64,
                 "input_submission_verified": True,
                 "content_effect_verified": False,
             },

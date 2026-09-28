@@ -149,6 +149,7 @@ _EXPECTED_KEY_TARGET_TOKEN = "_theos_expected_key_target_token"
 _EXPECTED_KEY_NAME = "_theos_expected_key_name"
 _EXPECTED_TEXT_PID = "_theos_expected_text_pid"
 _EXPECTED_TEXT_TITLE = "_theos_expected_text_title"
+_EXPECTED_TEXT_TARGET_TOKEN = "_theos_expected_text_target_token"
 _EXPECTED_TEXT_SHA256 = "_theos_expected_text_sha256"
 MAX_TEXT_INPUT_CHARS = 512
 
@@ -355,6 +356,7 @@ class TypeTextAction:
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         text = request.arguments.get("text")
         if (
             not isinstance(pid, int)
@@ -362,6 +364,7 @@ class TypeTextAction:
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
+            or not is_window_target_token(target_token)
             or not isinstance(text, str)
             or not text
             or len(text) > MAX_TEXT_INPUT_CHARS
@@ -381,19 +384,20 @@ class TypeTextAction:
                 "DIGITAR TEXTO EM JANELA\n"
                 f"Janela: {normalized_title}\n"
                 f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
                 f"Caracteres: {len(text)}\n"
                 f"Texto exato:\n{text}\n"
                 "A LYRA enviará somente caracteres Unicode comuns para a janela alvo. "
                 "Enter, Tab, atalhos, teclas especiais e caracteres de controle não são "
-                "permitidos. Após a confirmação, o THE OS reativará somente a "
-                "janela exata aprovada e verificará que ela está em primeiro plano antes "
-                "de enviar o texto. O THE OS verifica o envio dos eventos e o foco, mas "
-                "não lê o conteúdo "
-                "da janela para afirmar onde o texto apareceu."
+                "permitidos. Após a confirmação, o THE OS reativará somente a janela "
+                "exata aprovada pelo token opaco e verificará que ela está em primeiro "
+                "plano antes de enviar o texto. O THE OS verifica o envio dos eventos "
+                "e o foco, mas não lê o conteúdo da janela para afirmar onde o texto apareceu."
             ),
             execution_guard={
                 _EXPECTED_TEXT_PID: pid,
                 _EXPECTED_TEXT_TITLE: normalized_title,
+                _EXPECTED_TEXT_TARGET_TOKEN: target_token,
                 _EXPECTED_TEXT_SHA256: text_sha256,
             },
         )
@@ -401,9 +405,11 @@ class TypeTextAction:
     def execute(self, request: ActionRequest) -> ActionResult:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         text = request.arguments.get("text")
         expected_pid = request.arguments.get(_EXPECTED_TEXT_PID)
         expected_title = request.arguments.get(_EXPECTED_TEXT_TITLE)
+        expected_target_token = request.arguments.get(_EXPECTED_TEXT_TARGET_TOKEN)
         expected_sha256 = request.arguments.get(_EXPECTED_TEXT_SHA256)
 
         valid_text = (
@@ -428,9 +434,11 @@ class TypeTextAction:
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
+            or not is_window_target_token(target_token)
             or not valid_text
             or expected_pid != pid
             or expected_title != title.strip()
+            or expected_target_token != target_token
             or expected_sha256 != current_sha256
         ):
             return ActionResult(
@@ -441,7 +449,12 @@ class TypeTextAction:
             )
 
         try:
-            evidence = self._windows.type_text(pid, title.strip(), text)
+            evidence = self._windows.type_text(
+                pid,
+                title.strip(),
+                target_token,
+                text,
+            )
         except RuntimeError as exc:
             reason = str(exc)
             if reason == "SELF_WINDOW_TEXT_INPUT_BLOCKED":
@@ -456,7 +469,7 @@ class TypeTextAction:
                 return ActionResult(
                     request_id=request.request_id,
                     success=False,
-                    message="Não encontrei essa janela visível.",
+                    message="Não encontrei essa janela visível exata.",
                     evidence={"reason": reason},
                     error_code="WINDOW_TARGET_NOT_FOUND",
                 )
@@ -465,11 +478,19 @@ class TypeTextAction:
                     request_id=request.request_id,
                     success=False,
                     message=(
-                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "Mais de uma janela correspondeu ao alvo opaco; "
                         "a entrada de texto foi bloqueada."
                     ),
                     evidence={"reason": reason},
                     error_code="WINDOW_TARGET_AMBIGUOUS",
+                )
+            if reason == "WINDOW_TARGET_TOKEN_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O identificador opaco da janela é inválido.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_TOKEN_INVALID",
                 )
             if reason == "TEXT_INPUT_TARGET_ACTIVATION_NOT_VERIFIED":
                 return ActionResult(
