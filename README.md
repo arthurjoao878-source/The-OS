@@ -4,7 +4,7 @@ Assistant-first Windows environment centered on **LYRA**.
 
 ## Current vertical slices
 
-The repository currently proves twenty-four boundaries:
+The repository currently proves twenty-five boundaries:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.
@@ -30,10 +30,11 @@ The repository currently proves twenty-four boundaries:
 22. **Verified visible-window restore** — LYRA can return one already-known visible top-level window from minimized or maximized state to normal size using its exact PID plus bounded title. The action is normal, blocks LYRA's own window, and verifies that the target is neither minimized nor maximized before reporting success.
 23. **Confirmed bounded foreground text input** — LYRA can submit at most 512 Unicode characters to one exact visible foreground window after a local preview and explicit confirmation. Enter, Tab, shortcuts, special keys, control characters, clipboard use, and typing into LYRA itself are blocked. THE OS verifies SendInput event submission and that the same target remains foreground, but does not inspect the application's content to claim that the text landed in a particular control.
 24. **Confirmed bounded foreground key input** — LYRA can press only ENTER on one exact visible window after a local preview and explicit confirmation. The approved PID, bounded title, and key are execution-guarded; the target is reactivated after the confirmation dialog and foreground is verified before and after SendInput. No other key, shortcut, clipboard operation, or implicit content inspection is allowed.
+25. **Deterministic natural application-name normalization** — `open_application` accepts a small bounded set of Portuguese leading articles (`a`, `o`, `um`, `uma`) before an application name, so phrases such as `um bloco de notas` resolve through the same local application registry as `bloco de notas`. The same normalization is applied before local risk classification, so wrappers cannot downgrade confirmation requirements for shells or administrative tools. No fuzzy matching or model-provided executable path is introduced.
 
 The model never receives arbitrary shell execution. Tool calls are proposals only. The local `ToolCatalog` is an allowlist and `ActionRegistry` remains the execution authority.
 
-Risk classification is also local authority. Launching shells or administrative system tools through `open_application` is classified as `CONFIRM`, while ordinary applications such as Notepad remain `NORMAL`. For `open_path`, executable, script, shortcut, installer, and similar suffixes are also classified as `CONFIRM`.
+Risk classification is also local authority. Launching shells or administrative system tools through `open_application` is classified as `CONFIRM`, while ordinary applications such as Notepad remain `NORMAL`. Application-name normalization is deterministic and shared by resolution and risk classification: repeated whitespace is collapsed and at most one leading Portuguese article (`a`, `o`, `um`, `uma`) is removed before alias lookup or risk evaluation. This does not perform fuzzy matching or infer an application when only an article such as `um` is supplied. For `open_path`, executable, script, shortcut, installer, and similar suffixes are also classified as `CONFIRM`.
 
 Filesystem search is intentionally bounded: name search starts only from the root explicitly supplied to the tool, is depth-limited, and caps the number of matches. `inspect_path` returns metadata and a bounded directory listing.
 

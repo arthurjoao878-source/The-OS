@@ -59,7 +59,9 @@ def build_default_tool_catalog() -> ToolCatalog:
             name="open_application",
             description=(
                 "Abre um aplicativo instalado no computador Windows do usuário. "
-                "Use quando o usuário pedir para abrir, iniciar ou executar um aplicativo."
+                "Use quando o usuário pedir para abrir, iniciar ou executar um aplicativo. "
+                "Passe o nome real do aplicativo; artigos portugueses comuns como "
+                "'um', 'uma', 'o' e 'a' também são normalizados localmente."
             ),
             parameters={
                 "type": "object",

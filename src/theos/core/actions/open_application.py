@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from theos.core.actions.contracts import ActionRequest, ActionResult, ActionRisk
-from theos.core.applications.registry import ApplicationRegistry
+from theos.core.applications.registry import (
+    ApplicationRegistry,
+    normalize_application_name,
+)
 from theos.integrations.windows.applications import WindowsApplicationAdapter
 
 _CONFIRM_REQUIRED_APPLICATIONS = frozenset(
@@ -40,8 +43,9 @@ class OpenApplicationAction:
 
     @staticmethod
     def risk_for(request: ActionRequest) -> ActionRisk:
-        raw_name = str(request.arguments.get("application", "")).strip().casefold()
-        if raw_name in _CONFIRM_REQUIRED_APPLICATIONS:
+        raw_name = str(request.arguments.get("application", ""))
+        normalized_name = normalize_application_name(raw_name).casefold()
+        if normalized_name in _CONFIRM_REQUIRED_APPLICATIONS:
             return ActionRisk.CONFIRM
         return ActionRisk.NORMAL
 

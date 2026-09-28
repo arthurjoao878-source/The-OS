@@ -6,6 +6,24 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+_LEADING_PORTUGUESE_ARTICLES = frozenset({"a", "o", "um", "uma"})
+
+
+def normalize_application_name(raw_name: str) -> str:
+    normalized = " ".join(raw_name.strip().split())
+    if not normalized:
+        return ""
+
+    first, separator, remainder = normalized.partition(" ")
+    if (
+        separator
+        and first.casefold() in _LEADING_PORTUGUESE_ARTICLES
+        and remainder.strip()
+    ):
+        return remainder.strip()
+
+    return normalized
+
 
 @dataclass(frozen=True)
 class ResolvedApplication:
@@ -27,10 +45,14 @@ class ApplicationRegistry:
     }
 
     def resolve(self, raw_name: str) -> ResolvedApplication | None:
-        key = raw_name.strip().lower()
+        normalized_name = normalize_application_name(raw_name)
+        if not normalized_name:
+            return None
+
+        key = normalized_name.casefold()
         item = self._ALIASES.get(key)
         if item is None:
-            item = (raw_name.strip(), raw_name.strip())
+            item = (normalized_name, normalized_name)
 
         display_name, exe_name = item
 
