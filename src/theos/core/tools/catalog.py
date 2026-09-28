@@ -61,7 +61,9 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "Abre um aplicativo instalado no computador Windows do usuário. "
                 "Use quando o usuário pedir para abrir, iniciar ou executar um aplicativo. "
                 "Passe o nome real do aplicativo; artigos portugueses comuns como "
-                "'um', 'uma', 'o' e 'a' também são normalizados localmente."
+                "'um', 'uma', 'o' e 'a' também são normalizados localmente. "
+                "Aliases locais conhecidos incluem Bloco de Notas/Notepad e "
+                "Calculadora/Calculator."
             ),
             parameters={
                 "type": "object",

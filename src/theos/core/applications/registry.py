@@ -42,6 +42,9 @@ class ApplicationRegistry:
         "code": ("Visual Studio Code", "Code.exe"),
         "notepad": ("Notepad", "notepad.exe"),
         "bloco de notas": ("Notepad", "notepad.exe"),
+        "calculator": ("Calculator", "calc.exe"),
+        "calculadora": ("Calculator", "calc.exe"),
+        "calc": ("Calculator", "calc.exe"),
     }
 
     def resolve(self, raw_name: str) -> ResolvedApplication | None:
@@ -58,7 +61,14 @@ class ApplicationRegistry:
 
         from_path = shutil.which(exe_name)
         if from_path:
-            return ResolvedApplication(display_name, from_path, (Path(from_path).name,))
+            process_names = (Path(from_path).name,)
+            if exe_name.casefold() == "calc.exe":
+                process_names = (
+                    "calc.exe",
+                    "CalculatorApp.exe",
+                    "Calculator.exe",
+                )
+            return ResolvedApplication(display_name, from_path, process_names)
 
         if exe_name.lower() == "discord.exe":
             local = os.environ.get("LOCALAPPDATA")

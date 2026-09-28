@@ -50,3 +50,30 @@ def test_registry_resolves_natural_notepad_phrase(monkeypatch) -> None:
     assert app.target == r"C:\Windows\System32\notepad.exe"
     assert app.process_names == ("notepad.exe",)
     assert requested == ["notepad.exe"]
+
+
+def test_registry_resolves_calculator_alias_with_runtime_variants(monkeypatch) -> None:
+    requested: list[str] = []
+
+    def fake_which(name: str) -> str | None:
+        requested.append(name)
+        if name == "calc.exe":
+            return r"C:\Windows\System32\calc.exe"
+        return None
+
+    monkeypatch.setattr(
+        "theos.core.applications.registry.shutil.which",
+        fake_which,
+    )
+
+    app = ApplicationRegistry().resolve("a calculadora")
+
+    assert app is not None
+    assert app.name == "Calculator"
+    assert app.target == r"C:\Windows\System32\calc.exe"
+    assert app.process_names == (
+        "calc.exe",
+        "CalculatorApp.exe",
+        "Calculator.exe",
+    )
+    assert requested == ["calc.exe"]
