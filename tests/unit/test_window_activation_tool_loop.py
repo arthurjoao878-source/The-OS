@@ -22,6 +22,7 @@ class ActivateWindowProvider:
                     arguments={
                         "pid": 4321,
                         "title": "Documento - Bloco de Notas",
+                        "target_token": "e" * 64,
                     },
                     call_id="activate_window_1",
                 ),
@@ -57,6 +58,7 @@ def test_activate_window_normal_action_executes_without_confirmation() -> None:
             evidence={
                 "pid": 4321,
                 "title": "Documento - Bloco de Notas",
+                "target_token": "e" * 64,
                 "foreground_verified": True,
             },
         )

@@ -72,29 +72,43 @@ class ActivateWindowAction:
     def execute(self, request: ActionRequest) -> ActionResult:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         if (
             not isinstance(pid, int)
             or isinstance(pid, bool)
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
+            or not is_window_target_token(target_token)
         ):
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="PID e título exatos da janela são obrigatórios.",
+                message="PID, título e token opaco exatos da janela são obrigatórios.",
                 error_code="ACTION_VALIDATION_FAILED",
             )
 
         try:
-            evidence = self._windows.activate_window(pid, title.strip())
+            evidence = self._windows.activate_window(
+                pid,
+                title.strip(),
+                target_token,
+            )
         except RuntimeError as exc:
             reason = str(exc)
+            if reason == "WINDOW_TARGET_TOKEN_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O identificador opaco da janela é inválido.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_TOKEN_INVALID",
+                )
             if reason == "WINDOW_TARGET_NOT_FOUND":
                 return ActionResult(
                     request_id=request.request_id,
                     success=False,
-                    message="Não encontrei essa janela visível.",
+                    message="Não encontrei essa janela visível exata.",
                     evidence={"reason": reason},
                     error_code="WINDOW_TARGET_NOT_FOUND",
                 )
@@ -103,7 +117,7 @@ class ActivateWindowAction:
                     request_id=request.request_id,
                     success=False,
                     message=(
-                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "Mais de uma janela correspondeu ao alvo opaco; "
                         "a ativação foi bloqueada."
                     ),
                     evidence={"reason": reason},
@@ -142,6 +156,7 @@ class ActivateWindowAction:
             ),
             evidence=evidence,
         )
+
 
 _EXPECTED_KEY_PID = "_theos_expected_key_pid"
 _EXPECTED_KEY_TITLE = "_theos_expected_key_title"
