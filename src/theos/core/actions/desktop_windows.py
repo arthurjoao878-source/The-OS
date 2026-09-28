@@ -838,22 +838,28 @@ class MinimizeWindowAction:
     def execute(self, request: ActionRequest) -> ActionResult:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         if (
             not isinstance(pid, int)
             or isinstance(pid, bool)
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
+            or not is_window_target_token(target_token)
         ):
             return ActionResult(
                 request_id=request.request_id,
                 success=False,
-                message="PID e título exatos da janela são obrigatórios.",
+                message="PID, título e alvo opaco exatos da janela são obrigatórios.",
                 error_code="ACTION_VALIDATION_FAILED",
             )
 
         try:
-            evidence = self._windows.minimize_window(pid, title.strip())
+            evidence = self._windows.minimize_window(
+                pid,
+                title.strip(),
+                target_token,
+            )
         except RuntimeError as exc:
             reason = str(exc)
             if reason == "SELF_WINDOW_MINIMIZE_BLOCKED":
@@ -864,11 +870,19 @@ class MinimizeWindowAction:
                     evidence={"reason": reason},
                     error_code="SELF_WINDOW_MINIMIZE_BLOCKED",
                 )
+            if reason == "WINDOW_TARGET_TOKEN_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O identificador opaco da janela é inválido.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_TOKEN_INVALID",
+                )
             if reason == "WINDOW_TARGET_NOT_FOUND":
                 return ActionResult(
                     request_id=request.request_id,
                     success=False,
-                    message="Não encontrei essa janela visível.",
+                    message="Não encontrei essa janela visível exata.",
                     evidence={"reason": reason},
                     error_code="WINDOW_TARGET_NOT_FOUND",
                 )
@@ -877,7 +891,7 @@ class MinimizeWindowAction:
                     request_id=request.request_id,
                     success=False,
                     message=(
-                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "Mais de uma janela correspondeu ao alvo opaco; "
                         "a minimização foi bloqueada."
                     ),
                     evidence={"reason": reason},
@@ -887,7 +901,7 @@ class MinimizeWindowAction:
                 return ActionResult(
                     request_id=request.request_id,
                     success=False,
-                    message="O Windows não confirmou a janela como minimizada.",
+                    message="O Windows não confirmou a janela exata como minimizada.",
                     evidence={"reason": reason},
                     error_code="WINDOW_MINIMIZE_NOT_VERIFIED",
                 )
@@ -911,7 +925,7 @@ class MinimizeWindowAction:
             request_id=request.request_id,
             success=True,
             message=(
-                f"Janela minimizada e verificada: {evidence['title']} "
+                f"Janela exata minimizada e verificada: {evidence['title']} "
                 f"(PID {evidence['pid']})."
             ),
             evidence=evidence,

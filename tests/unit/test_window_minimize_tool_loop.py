@@ -19,7 +19,11 @@ class MinimizeWindowProvider:
             calls=(
                 ToolCall(
                     name="minimize_window",
-                    arguments={"pid": 4321, "title": "Calculadora"},
+                    arguments={
+                        "pid": 4321,
+                        "title": "Calculadora",
+                        "target_token": "d" * 64,
+                    },
                     call_id="minimize_window_1",
                 ),
             ),
@@ -47,13 +51,15 @@ def test_minimize_window_normal_action_executes_without_confirmation() -> None:
     def handler(request: ActionRequest) -> ActionResult:
         nonlocal calls
         calls += 1
+        assert request.arguments["target_token"] == "d" * 64
         return ActionResult(
             request_id=request.request_id,
             success=True,
-            message="Janela minimizada e verificada.",
+            message="Janela exata minimizada e verificada.",
             evidence={
                 "pid": 4321,
                 "title": "Calculadora",
+                "target_token": "d" * 64,
                 "minimized_verified": True,
             },
         )
