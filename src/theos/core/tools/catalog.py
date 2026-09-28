@@ -590,10 +590,11 @@ def build_default_tool_catalog() -> ToolCatalog:
         ToolDefinition(
             name="close_window",
             description=(
-                "Solicita o fechamento normal de uma janela visível já identificada por "
-                "PID e pelo título limitado retornado por window_snapshot. Use somente um "
-                "par PID+título conhecido; nunca invente o alvo. A ação exige confirmação "
-                "destrutiva e não usa encerramento forçado do processo."
+                "Solicita o fechamento normal de uma janela visível exata já identificada "
+                "por PID, título limitado e target_token retornados pelo mesmo "
+                "window_snapshot. Use somente esse alvo conhecido; nunca invente PID, "
+                "título ou token. A ação exige confirmação destrutiva, revalida o alvo "
+                "opaco após a aprovação e não usa encerramento forçado do processo."
             ),
             parameters={
                 "type": "object",
@@ -610,12 +611,21 @@ def build_default_tool_catalog() -> ToolCatalog:
                             "Título limitado exato retornado por window_snapshot."
                         ),
                     },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot para esta janela."
+                        ),
+                    },
                 },
-                "required": ["pid", "title"],
+                "required": ["pid", "title", "target_token"],
                 "additionalProperties": False,
             },
         ),
-        _validate_window_target,
+        _validate_exact_window_target,
     )
     catalog.register(
         ToolDefinition(

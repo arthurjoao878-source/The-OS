@@ -920,6 +920,7 @@ class MinimizeWindowAction:
 
 _EXPECTED_CLOSE_PID = "_theos_expected_close_pid"
 _EXPECTED_CLOSE_TITLE = "_theos_expected_close_title"
+_EXPECTED_CLOSE_TARGET_TOKEN = "_theos_expected_close_target_token"
 
 
 class CloseWindowAction:
@@ -933,12 +934,14 @@ class CloseWindowAction:
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         if (
             not isinstance(pid, int)
             or isinstance(pid, bool)
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
+            or not is_window_target_token(target_token)
         ):
             return ConfirmationPreview(
                 allowed=False,
@@ -952,22 +955,29 @@ class CloseWindowAction:
                 "FECHAR JANELA\n"
                 f"Janela: {normalized_title}\n"
                 f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
                 "Atenção: fechar a janela pode descartar trabalho não salvo ou fazer "
                 "o aplicativo exibir uma confirmação própria.\n"
                 "A LYRA enviará somente o comando normal de fechar a janela "
-                "(WM_SYSCOMMAND/SC_CLOSE); não haverá encerramento forçado do processo."
+                "(WM_SYSCOMMAND/SC_CLOSE) para o alvo exato aprovado; não haverá "
+                "encerramento forçado do processo."
             ),
             execution_guard={
                 _EXPECTED_CLOSE_PID: pid,
                 _EXPECTED_CLOSE_TITLE: normalized_title,
+                _EXPECTED_CLOSE_TARGET_TOKEN: target_token,
             },
         )
 
     def execute(self, request: ActionRequest) -> ActionResult:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
         expected_pid = request.arguments.get(_EXPECTED_CLOSE_PID)
         expected_title = request.arguments.get(_EXPECTED_CLOSE_TITLE)
+        expected_target_token = request.arguments.get(
+            _EXPECTED_CLOSE_TARGET_TOKEN
+        )
 
         if (
             not isinstance(pid, int)
@@ -975,8 +985,10 @@ class CloseWindowAction:
             or pid <= 0
             or not isinstance(title, str)
             or not title.strip()
+            or not is_window_target_token(target_token)
             or expected_pid != pid
             or expected_title != title.strip()
+            or expected_target_token != target_token
         ):
             return ActionResult(
                 request_id=request.request_id,
@@ -986,7 +998,11 @@ class CloseWindowAction:
             )
 
         try:
-            evidence = self._windows.close_window(pid, title.strip())
+            evidence = self._windows.close_window(
+                pid,
+                title.strip(),
+                target_token,
+            )
         except RuntimeError as exc:
             reason = str(exc)
             if reason == "SELF_WINDOW_CLOSE_BLOCKED":
@@ -997,12 +1013,51 @@ class CloseWindowAction:
                     evidence={"reason": reason},
                     error_code="SELF_WINDOW_CLOSE_BLOCKED",
                 )
+            if reason == "WINDOW_TARGET_TOKEN_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="O identificador opaco da janela é inválido.",
+                    evidence={"reason": reason},
+                    error_code="WINDOW_TARGET_TOKEN_INVALID",
+                )
+            if reason == "WINDOW_TARGET_TOKEN_STALE":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "A janela ainda existe com o mesmo PID e título, mas o token "
+                        "opaco mudou antes do fechamento; a ação foi bloqueada."
+                    ),
+                    evidence={
+                        "reason": reason,
+                        "diagnosis": "same_pid_title_but_target_token_changed",
+                    },
+                    error_code="WINDOW_TARGET_TOKEN_STALE",
+                )
+            if reason == "WINDOW_TARGET_TITLE_CHANGED":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O processo alvo ainda possui janela visível, mas o título "
+                        "mudou antes do fechamento; a ação foi bloqueada."
+                    ),
+                    evidence={
+                        "reason": reason,
+                        "diagnosis": "same_pid_but_bounded_title_changed",
+                    },
+                    error_code="WINDOW_TARGET_TITLE_CHANGED",
+                )
             if reason == "WINDOW_TARGET_NOT_FOUND":
                 return ActionResult(
                     request_id=request.request_id,
                     success=False,
-                    message="Não encontrei essa janela visível.",
-                    evidence={"reason": reason},
+                    message="Não encontrei mais uma janela visível para esse PID.",
+                    evidence={
+                        "reason": reason,
+                        "diagnosis": "no_visible_window_for_pid",
+                    },
                     error_code="WINDOW_TARGET_NOT_FOUND",
                 )
             if reason == "WINDOW_TARGET_AMBIGUOUS":
@@ -1010,7 +1065,7 @@ class CloseWindowAction:
                     request_id=request.request_id,
                     success=False,
                     message=(
-                        "Há mais de uma janela visível com esse mesmo PID e título; "
+                        "Mais de uma janela correspondeu ao alvo opaco; "
                         "o fechamento foi bloqueado."
                     ),
                     evidence={"reason": reason},
@@ -1021,8 +1076,8 @@ class CloseWindowAction:
                     request_id=request.request_id,
                     success=False,
                     message=(
-                        "O Windows recebeu a solicitação, mas a janela continuou aberta; "
-                        "pode haver uma confirmação do próprio aplicativo."
+                        "O Windows recebeu a solicitação, mas a janela exata continuou "
+                        "aberta; pode haver uma confirmação do próprio aplicativo."
                     ),
                     evidence={"reason": reason},
                     error_code="WINDOW_CLOSE_NOT_VERIFIED",
@@ -1047,7 +1102,7 @@ class CloseWindowAction:
             request_id=request.request_id,
             success=True,
             message=(
-                f"Janela fechada e verificada: {evidence['title']} "
+                f"Janela exata fechada e verificada: {evidence['title']} "
                 f"(PID {evidence['pid']})."
             ),
             evidence=evidence,

@@ -1147,9 +1147,16 @@ class WindowsDesktopWindowAdapter:
             "title_match": "bounded_title_exact",
         }
 
-    def close_window(self, pid: int, title: str) -> dict[str, object]:
+    def close_window(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+    ) -> dict[str, object]:
         if pid == os.getpid():
             raise RuntimeError("SELF_WINDOW_CLOSE_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
         if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
             raise RuntimeError("WINDOWS_API_UNAVAILABLE")
 
@@ -1188,8 +1195,12 @@ class WindowsDesktopWindowAdapter:
         user32.PostMessageW.restype = wintypes.BOOL
 
         matches: list[tuple[int, str]] = []
+        visible_pid_matches = 0
+        visible_pid_title_matches = 0
 
         def visit_window(hwnd: int, _lparam: int) -> bool:
+            nonlocal visible_pid_matches, visible_pid_title_matches
+
             if not user32.IsWindowVisible(hwnd):
                 return True
 
@@ -1200,6 +1211,8 @@ class WindowsDesktopWindowAdapter:
             )
             if int(process_id.value) != pid:
                 return True
+
+            visible_pid_matches += 1
 
             title_length = int(user32.GetWindowTextLengthW(hwnd))
             if title_length <= 0:
@@ -1221,7 +1234,17 @@ class WindowsDesktopWindowAdapter:
                 return True
 
             bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title == title:
+            if bounded_title != title:
+                return True
+
+            visible_pid_title_matches += 1
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+            if candidate_token == target_token:
                 matches.append((int(hwnd), full_title))
             return True
 
@@ -1231,6 +1254,10 @@ class WindowsDesktopWindowAdapter:
             raise OSError(error_code, "EnumWindows failed")
 
         if not matches:
+            if visible_pid_title_matches:
+                raise RuntimeError("WINDOW_TARGET_TOKEN_STALE")
+            if visible_pid_matches:
+                raise RuntimeError("WINDOW_TARGET_TITLE_CHANGED")
             raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
         if len(matches) != 1:
             raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
@@ -1259,11 +1286,13 @@ class WindowsDesktopWindowAdapter:
                     "pid": pid,
                     "title": full_title[:MAX_WINDOW_TITLE_CHARS],
                     "process_name": process_name,
+                    "target_token": target_token,
                     "close_requested": True,
                     "window_gone_verified": True,
-                    "verification": "original_window_destroyed_or_not_visible",
+                    "verification": "original_exact_window_destroyed_or_not_visible",
                     "close_method": "WM_SYSCOMMAND_SC_CLOSE",
                     "force_kill_used": False,
+                    "title_match": "pid_bounded_title_and_opaque_token_exact",
                 }
             time.sleep(WINDOW_CLOSE_VERIFY_INTERVAL_SECONDS)
 

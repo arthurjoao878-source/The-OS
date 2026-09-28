@@ -21,7 +21,8 @@ class CloseWindowProvider:
                     name="close_window",
                     arguments={
                         "pid": 4321,
-                        "title": "M19-LIVE.txt - Bloco de Notas",
+                        "title": "M31-LIVE - Bloco de Notas",
+                        "target_token": "c" * 64,
                     },
                     call_id="close_window_1",
                 ),
@@ -53,10 +54,11 @@ def test_close_window_waits_for_destructive_confirmation() -> None:
         return ActionResult(
             request_id=request.request_id,
             success=True,
-            message="Janela fechada e verificada.",
+            message="Janela exata fechada e verificada.",
             evidence={
                 "pid": 4321,
-                "title": "M19-LIVE.txt - Bloco de Notas",
+                "title": "M31-LIVE - Bloco de Notas",
+                "target_token": "c" * 64,
                 "window_gone_verified": True,
             },
         )
@@ -71,7 +73,7 @@ def test_close_window_waits_for_destructive_confirmation() -> None:
     executor = ToolLoopExecutor(provider, registry, catalog)
 
     waiting = executor.execute(
-        "Feche a janela do arquivo M19-LIVE.txt.",
+        "Feche a janela M31-LIVE do Bloco de Notas.",
         tools=catalog.definitions(),
     )
 
