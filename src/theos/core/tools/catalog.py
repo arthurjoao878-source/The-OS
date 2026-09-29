@@ -457,14 +457,14 @@ def build_default_tool_catalog() -> ToolCatalog:
             description=(
                 "Envia um atalho de teclado estritamente permitido para uma janela visível "
                 "exata já conhecida por PID, título e target_token retornados pelo mesmo "
-                "window_snapshot. Nesta etapa somente CTRL_A (Ctrl+A), CTRL_C (Ctrl+C) "
-                "e CTRL_X (Ctrl+X) são permitidos. Use somente quando o usuário pedir "
-                "explicitamente para selecionar tudo, copiar ou recortar. CTRL+A e CTRL+C "
-                "permanecem CONFIRM; CTRL+X é classificado localmente como DESTRUCTIVE "
-                "porque pode remover conteúdo selecionado. CTRL+C e CTRL+X podem substituir "
-                "o conteúdo atual da área de transferência, mas o THE OS não lê esse "
-                "conteúdo nem afirma semanticamente o resultado. CTRL+V, Alt+F4 e qualquer "
-                "outra combinação permanecem bloqueados."
+                "window_snapshot. Nesta etapa somente CTRL_A (Ctrl+A), CTRL_C (Ctrl+C), "
+                "CTRL_X (Ctrl+X) e CTRL_V (Ctrl+V) são permitidos. Use somente quando o "
+                "usuário pedir explicitamente para selecionar tudo, copiar, recortar ou "
+                "colar. CTRL+A e CTRL+C permanecem CONFIRM; CTRL+X é DESTRUCTIVE; CTRL+V "
+                "é PRIVILEGED porque pode enviar ao aplicativo alvo conteúdo não inspecionado "
+                "da área de transferência, inclusive dados sensíveis. O THE OS não lê nem "
+                "envia esse conteúdo ao provedor. Alt+F4, CTRL+Z e qualquer outra combinação "
+                "permanecem bloqueados."
             ),
             parameters={
                 "type": "object",

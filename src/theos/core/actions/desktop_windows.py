@@ -15,6 +15,7 @@ from theos.core.window_keys import (
 from theos.core.window_shortcuts import (
     is_allowed_window_shortcut,
     is_destructive_window_shortcut,
+    is_privileged_window_shortcut,
 )
 from theos.core.window_targets import (
     is_window_target_token,
@@ -474,6 +475,8 @@ class PressShortcutAction:
     @staticmethod
     def risk_for(request: ActionRequest) -> ActionRisk:
         shortcut = request.arguments.get("shortcut")
+        if is_privileged_window_shortcut(shortcut):
+            return ActionRisk.PRIVILEGED
         if is_destructive_window_shortcut(shortcut):
             return ActionRisk.DESTRUCTIVE
         return ActionRisk.CONFIRM
@@ -506,6 +509,7 @@ class PressShortcutAction:
             "CTRL_A": "CTRL+A",
             "CTRL_C": "CTRL+C",
             "CTRL_X": "CTRL+X",
+            "CTRL_V": "CTRL+V",
         }[shortcut]
         if shortcut == "CTRL_A":
             shortcut_effect = (
@@ -518,11 +522,18 @@ class PressShortcutAction:
                 "pelo conteúdo selecionado no aplicativo. O THE OS não lê a área de "
                 "transferência e não verifica semanticamente o que foi copiado."
             )
-        else:
+        elif shortcut == "CTRL_X":
             shortcut_effect = (
                 "ATENÇÃO: CTRL+X pode remover o conteúdo selecionado do aplicativo e "
                 "substituir o conteúdo atual da área de transferência. O THE OS não lê a "
                 "área de transferência e não verifica semanticamente o que foi recortado."
+            )
+        else:
+            shortcut_effect = (
+                "PRIVILEGIADO: CTRL+V pode inserir no aplicativo alvo o conteúdo atual da "
+                "área de transferência, que pode conter dados sensíveis. O THE OS não lê, "
+                "não mostra ao provedor e não pré-visualiza esse conteúdo; portanto não pode "
+                "inspecionar o que será colado antes do envio."
             )
         return ConfirmationPreview(
             allowed=True,
@@ -532,7 +543,7 @@ class PressShortcutAction:
                 f"PID: {pid}\n"
                 f"Alvo opaco: {target_token[:12]}...\n"
                 f"Atalho: {shortcut_label}\n"
-                "Somente CTRL+A, CTRL+C e CTRL+X estão permitidos nesta etapa. "
+                "Somente CTRL+A, CTRL+C, CTRL+X e CTRL+V estão permitidos nesta etapa. "
                 f"{shortcut_effect} "
                 "Após a confirmação, o THE OS reativará somente a janela exata aprovada, "
                 "verificará o primeiro plano, enviará o atalho como uma sequência fixa "
@@ -680,6 +691,7 @@ class PressShortcutAction:
             "CTRL_A": "CTRL+A",
             "CTRL_C": "CTRL+C",
             "CTRL_X": "CTRL+X",
+            "CTRL_V": "CTRL+V",
         }[shortcut]
         return ActionResult(
             request_id=request.request_id,
