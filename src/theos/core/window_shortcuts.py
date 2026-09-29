@@ -5,11 +5,13 @@ ALLOWED_WINDOW_SHORTCUTS: tuple[str, ...] = (
     "CTRL_C",
     "CTRL_X",
     "CTRL_V",
+    "CTRL_Z",
 )
 
 DESTRUCTIVE_WINDOW_SHORTCUTS: frozenset[str] = frozenset(
     {
         "CTRL_X",
+        "CTRL_Z",
     }
 )
 

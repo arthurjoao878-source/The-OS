@@ -510,6 +510,7 @@ class PressShortcutAction:
             "CTRL_C": "CTRL+C",
             "CTRL_X": "CTRL+X",
             "CTRL_V": "CTRL+V",
+            "CTRL_Z": "CTRL+Z",
         }[shortcut]
         if shortcut == "CTRL_A":
             shortcut_effect = (
@@ -528,12 +529,18 @@ class PressShortcutAction:
                 "substituir o conteúdo atual da área de transferência. O THE OS não lê a "
                 "área de transferência e não verifica semanticamente o que foi recortado."
             )
-        else:
+        elif shortcut == "CTRL_V":
             shortcut_effect = (
                 "PRIVILEGIADO: CTRL+V pode inserir no aplicativo alvo o conteúdo atual da "
                 "área de transferência, que pode conter dados sensíveis. O THE OS não lê, "
                 "não mostra ao provedor e não pré-visualiza esse conteúdo; portanto não pode "
                 "inspecionar o que será colado antes do envio."
+            )
+        else:
+            shortcut_effect = (
+                "ATENÇÃO: CTRL+Z pode desfazer a última operação no controle em foco e "
+                "alterar, remover ou restaurar conteúdo. O THE OS não inspeciona o histórico "
+                "de desfazer e não verifica semanticamente o resultado."
             )
         return ConfirmationPreview(
             allowed=True,
@@ -543,7 +550,7 @@ class PressShortcutAction:
                 f"PID: {pid}\n"
                 f"Alvo opaco: {target_token[:12]}...\n"
                 f"Atalho: {shortcut_label}\n"
-                "Somente CTRL+A, CTRL+C, CTRL+X e CTRL+V estão permitidos nesta etapa. "
+                "Somente CTRL+A, CTRL+C, CTRL+X, CTRL+V e CTRL+Z estão permitidos nesta etapa. "
                 f"{shortcut_effect} "
                 "Após a confirmação, o THE OS reativará somente a janela exata aprovada, "
                 "verificará o primeiro plano, enviará o atalho como uma sequência fixa "
@@ -692,6 +699,7 @@ class PressShortcutAction:
             "CTRL_C": "CTRL+C",
             "CTRL_X": "CTRL+X",
             "CTRL_V": "CTRL+V",
+            "CTRL_Z": "CTRL+Z",
         }[shortcut]
         return ActionResult(
             request_id=request.request_id,
