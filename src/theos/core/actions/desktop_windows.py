@@ -8,14 +8,13 @@ from theos.core.actions.contracts import (
     ActionRisk,
     ConfirmationPreview,
 )
+from theos.core.keyboard_shortcuts import (
+    format_window_shortcut_allowlist_pt,
+    get_window_shortcut_spec,
+)
 from theos.core.window_keys import (
     is_allowed_window_key,
     is_destructive_window_key,
-)
-from theos.core.window_shortcuts import (
-    is_allowed_window_shortcut,
-    is_destructive_window_shortcut,
-    is_privileged_window_shortcut,
 )
 from theos.core.window_targets import (
     is_window_target_token,
@@ -474,12 +473,12 @@ class PressShortcutAction:
 
     @staticmethod
     def risk_for(request: ActionRequest) -> ActionRisk:
-        shortcut = request.arguments.get("shortcut")
-        if is_privileged_window_shortcut(shortcut):
-            return ActionRisk.PRIVILEGED
-        if is_destructive_window_shortcut(shortcut):
-            return ActionRisk.DESTRUCTIVE
-        return ActionRisk.CONFIRM
+        shortcut_spec = get_window_shortcut_spec(
+            request.arguments.get("shortcut")
+        )
+        if shortcut_spec is None:
+            return ActionRisk.CONFIRM
+        return shortcut_spec.risk
 
     @staticmethod
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
@@ -487,6 +486,7 @@ class PressShortcutAction:
         title = request.arguments.get("title")
         target_token = request.arguments.get("target_token")
         shortcut = request.arguments.get("shortcut")
+        shortcut_spec = get_window_shortcut_spec(shortcut)
         if (
             not isinstance(pid, int)
             or isinstance(pid, bool)
@@ -494,7 +494,7 @@ class PressShortcutAction:
             or not isinstance(title, str)
             or not title.strip()
             or not is_window_target_token(target_token)
-            or not is_allowed_window_shortcut(shortcut)
+            or shortcut_spec is None
         ):
             return ConfirmationPreview(
                 allowed=False,
@@ -505,43 +505,8 @@ class PressShortcutAction:
             )
 
         normalized_title = title.strip()
-        shortcut_label = {
-            "CTRL_A": "CTRL+A",
-            "CTRL_C": "CTRL+C",
-            "CTRL_X": "CTRL+X",
-            "CTRL_V": "CTRL+V",
-            "CTRL_Z": "CTRL+Z",
-        }[shortcut]
-        if shortcut == "CTRL_A":
-            shortcut_effect = (
-                "CTRL+A pode selecionar conteúdo dependendo do controle em foco. "
-                "Nenhum conteúdo da área de transferência é lido ou escrito por esse atalho."
-            )
-        elif shortcut == "CTRL_C":
-            shortcut_effect = (
-                "ATENÇÃO: CTRL+C pode substituir o conteúdo atual da área de transferência "
-                "pelo conteúdo selecionado no aplicativo. O THE OS não lê a área de "
-                "transferência e não verifica semanticamente o que foi copiado."
-            )
-        elif shortcut == "CTRL_X":
-            shortcut_effect = (
-                "ATENÇÃO: CTRL+X pode remover o conteúdo selecionado do aplicativo e "
-                "substituir o conteúdo atual da área de transferência. O THE OS não lê a "
-                "área de transferência e não verifica semanticamente o que foi recortado."
-            )
-        elif shortcut == "CTRL_V":
-            shortcut_effect = (
-                "PRIVILEGIADO: CTRL+V pode inserir no aplicativo alvo o conteúdo atual da "
-                "área de transferência, que pode conter dados sensíveis. O THE OS não lê, "
-                "não mostra ao provedor e não pré-visualiza esse conteúdo; portanto não pode "
-                "inspecionar o que será colado antes do envio."
-            )
-        else:
-            shortcut_effect = (
-                "ATENÇÃO: CTRL+Z pode desfazer a última operação no controle em foco e "
-                "alterar, remover ou restaurar conteúdo. O THE OS não inspeciona o histórico "
-                "de desfazer e não verifica semanticamente o resultado."
-            )
+        shortcut_label = shortcut_spec.label
+        shortcut_effect = shortcut_spec.preview_effect
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -550,7 +515,7 @@ class PressShortcutAction:
                 f"PID: {pid}\n"
                 f"Alvo opaco: {target_token[:12]}...\n"
                 f"Atalho: {shortcut_label}\n"
-                "Somente CTRL+A, CTRL+C, CTRL+X, CTRL+V e CTRL+Z estão permitidos nesta etapa. "
+                f"Somente {format_window_shortcut_allowlist_pt()} estão permitidos nesta etapa. "
                 f"{shortcut_effect} "
                 "Após a confirmação, o THE OS reativará somente a janela exata aprovada, "
                 "verificará o primeiro plano, enviará o atalho como uma sequência fixa "
@@ -569,6 +534,7 @@ class PressShortcutAction:
         title = request.arguments.get("title")
         target_token = request.arguments.get("target_token")
         shortcut = request.arguments.get("shortcut")
+        shortcut_spec = get_window_shortcut_spec(shortcut)
         expected_pid = request.arguments.get(_EXPECTED_SHORTCUT_PID)
         expected_title = request.arguments.get(_EXPECTED_SHORTCUT_TITLE)
         expected_target_token = request.arguments.get(
@@ -583,7 +549,7 @@ class PressShortcutAction:
             or not isinstance(title, str)
             or not title.strip()
             or not is_window_target_token(target_token)
-            or not is_allowed_window_shortcut(shortcut)
+            or shortcut_spec is None
             or expected_pid != pid
             or expected_title != title.strip()
             or expected_target_token != target_token
@@ -694,13 +660,7 @@ class PressShortcutAction:
                 error_code="SHORTCUT_INPUT_FAILED",
             )
 
-        shortcut_label = {
-            "CTRL_A": "CTRL+A",
-            "CTRL_C": "CTRL+C",
-            "CTRL_X": "CTRL+X",
-            "CTRL_V": "CTRL+V",
-            "CTRL_Z": "CTRL+Z",
-        }[shortcut]
+        shortcut_label = shortcut_spec.label
         return ActionResult(
             request_id=request.request_id,
             success=True,

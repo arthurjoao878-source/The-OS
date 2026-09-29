@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from theos.core.actions.contracts import ActionRequest, ActionRisk
 from theos.core.actions.desktop_windows import PressShortcutAction
+from theos.core.keyboard_shortcuts import (
+    ALLOWED_WINDOW_SHORTCUTS,
+    format_window_shortcut_allowlist_pt,
+    get_window_shortcut_spec,
+)
 from theos.core.tools import ToolCall, ToolValidationError, build_default_tool_catalog
 
 
@@ -17,6 +22,8 @@ class _FakeShortcutAdapter:
         shortcut: str,
     ) -> dict[str, object]:
         self.calls.append((pid, title, target_token, shortcut))
+        shortcut_spec = get_window_shortcut_spec(shortcut)
+        assert shortcut_spec is not None
         return {
             "pid": pid,
             "title": title,
@@ -33,15 +40,15 @@ class _FakeShortcutAdapter:
             "content_effect_verified": False,
             "verification": "sendinput_count_and_foreground_only",
             "input_method": f"SendInput_{shortcut}",
-            "clipboard_used": shortcut == "CTRL_V",
+            "clipboard_used": shortcut_spec.clipboard_used,
             "clipboard_api_used_by_theos": False,
-            "clipboard_effect_expected": shortcut in {"CTRL_C", "CTRL_X"},
+            "clipboard_effect_expected": shortcut_spec.clipboard_effect_expected,
             "clipboard_effect_verified": False,
-            "clipboard_input_expected": shortcut == "CTRL_V",
+            "clipboard_input_expected": shortcut_spec.clipboard_input_expected,
             "clipboard_content_inspected_by_theos": False,
             "clipboard_content_provider_visible": False,
-            "content_mutation_expected": shortcut in {"CTRL_X", "CTRL_V", "CTRL_Z"},
-            "shortcut_allowlist": ["CTRL_A", "CTRL_C", "CTRL_X", "CTRL_V", "CTRL_Z"],
+            "content_mutation_expected": shortcut_spec.content_mutation_expected,
+            "shortcut_allowlist": list(ALLOWED_WINDOW_SHORTCUTS),
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
@@ -70,7 +77,10 @@ def test_press_shortcut_requires_preview_guard() -> None:
     assert preview.allowed is True
     assert "PRESSIONAR ATALHO EM JANELA" in preview.text
     assert "Atalho: CTRL+A" in preview.text
-    assert "Somente CTRL+A, CTRL+C, CTRL+X, CTRL+V e CTRL+Z estão permitidos" in preview.text
+    assert (
+        f"Somente {format_window_shortcut_allowlist_pt()} estão permitidos"
+        in preview.text
+    )
     assert "área de transferência" in preview.text
     assert adapter.calls == []
 
@@ -113,7 +123,7 @@ def test_catalog_builds_ctrl_a_shortcut_request() -> None:
 def test_catalog_rejects_unlisted_shortcuts() -> None:
     catalog = build_default_tool_catalog()
 
-    for shortcut in ("CTRL_Y", "CTRL_S", "ALT_F4"):
+    for shortcut in ("CTRL_A_EXTRA", "CTRL_ALT_DELETE", "SHIFT_F13"):
         try:
             catalog.build_action_request(
                 ToolCall(

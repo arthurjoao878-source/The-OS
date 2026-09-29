@@ -10,8 +10,12 @@ from ctypes import wintypes
 
 import psutil
 
+from theos.core.keyboard_shortcuts import (
+    ALLOWED_WINDOW_SHORTCUTS,
+    WINDOW_SHORTCUT_SPECS,
+    get_window_shortcut_spec,
+)
 from theos.core.window_keys import ALLOWED_WINDOW_KEYS
-from theos.core.window_shortcuts import ALLOWED_WINDOW_SHORTCUTS
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -69,11 +73,8 @@ _WINDOW_KEY_VK_CODES = {
     "DELETE": VK_DELETE,
 }
 _WINDOW_SHORTCUT_VK_PAIRS = {
-    "CTRL_A": (VK_CONTROL, VK_A),
-    "CTRL_C": (VK_CONTROL, VK_C),
-    "CTRL_X": (VK_CONTROL, VK_X),
-    "CTRL_V": (VK_CONTROL, VK_V),
-    "CTRL_Z": (VK_CONTROL, VK_Z),
+    spec.name: (VK_CONTROL, ord(spec.primary_key))
+    for spec in WINDOW_SHORTCUT_SPECS
 }
 SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
@@ -615,7 +616,9 @@ class WindowsDesktopWindowAdapter:
             raise RuntimeError("SELF_WINDOW_SHORTCUT_INPUT_BLOCKED")
         if not is_window_target_token(target_token):
             raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
-        if shortcut not in ALLOWED_WINDOW_SHORTCUTS:
+
+        shortcut_spec = get_window_shortcut_spec(shortcut)
+        if shortcut_spec is None:
             raise RuntimeError("SHORTCUT_INPUT_NOT_ALLOWED")
 
         modifier_key, primary_key = _WINDOW_SHORTCUT_VK_PAIRS[shortcut]
@@ -862,14 +865,14 @@ class WindowsDesktopWindowAdapter:
             "content_effect_verified": False,
             "verification": "sendinput_count_and_foreground_only",
             "input_method": f"SendInput_{shortcut}",
-            "clipboard_used": shortcut == "CTRL_V",
+            "clipboard_used": shortcut_spec.clipboard_used,
             "clipboard_api_used_by_theos": False,
-            "clipboard_effect_expected": shortcut in {"CTRL_C", "CTRL_X"},
+            "clipboard_effect_expected": shortcut_spec.clipboard_effect_expected,
             "clipboard_effect_verified": False,
-            "clipboard_input_expected": shortcut == "CTRL_V",
+            "clipboard_input_expected": shortcut_spec.clipboard_input_expected,
             "clipboard_content_inspected_by_theos": False,
             "clipboard_content_provider_visible": False,
-            "content_mutation_expected": shortcut in {"CTRL_X", "CTRL_V", "CTRL_Z"},
+            "content_mutation_expected": shortcut_spec.content_mutation_expected,
             "shortcut_allowlist": list(ALLOWED_WINDOW_SHORTCUTS),
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }

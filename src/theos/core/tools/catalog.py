@@ -4,12 +4,13 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from theos.core.actions.contracts import ActionRequest
-from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
-from theos.core.window_keys import ALLOWED_WINDOW_KEYS, is_allowed_window_key
-from theos.core.window_shortcuts import (
+from theos.core.keyboard_shortcuts import (
     ALLOWED_WINDOW_SHORTCUTS,
+    build_window_shortcut_tool_description,
     is_allowed_window_shortcut,
 )
+from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
+from theos.core.window_keys import ALLOWED_WINDOW_KEYS, is_allowed_window_key
 from theos.core.window_targets import (
     MAX_WINDOW_QUERY_CHARS,
     is_window_target_token,
@@ -454,19 +455,7 @@ def build_default_tool_catalog() -> ToolCatalog:
     catalog.register(
         ToolDefinition(
             name="press_shortcut",
-            description=(
-                "Envia um atalho de teclado estritamente permitido para uma janela visível "
-                "exata já conhecida por PID, título e target_token retornados pelo mesmo "
-                "window_snapshot. Nesta etapa somente CTRL_A (Ctrl+A), CTRL_C (Ctrl+C), "
-                "CTRL_X (Ctrl+X), CTRL_V (Ctrl+V) e CTRL_Z (Ctrl+Z) são permitidos. Use "
-                "somente quando o usuário pedir explicitamente para selecionar tudo, copiar, "
-                "recortar, colar ou desfazer. CTRL+A e CTRL+C permanecem CONFIRM; CTRL+X e "
-                "CTRL+Z são DESTRUCTIVE porque podem alterar conteúdo; CTRL+V é PRIVILEGED "
-                "porque pode enviar ao aplicativo alvo conteúdo não inspecionado da área de "
-                "transferência, inclusive dados sensíveis. O THE OS não lê nem envia esse "
-                "conteúdo ao provedor. Alt+F4, CTRL+S, CTRL+Y e qualquer outra combinação "
-                "permanecem bloqueados."
-            ),
+            description=build_window_shortcut_tool_description(),
             parameters={
                 "type": "object",
                 "properties": {
