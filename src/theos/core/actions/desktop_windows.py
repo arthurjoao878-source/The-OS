@@ -12,7 +12,10 @@ from theos.core.window_keys import (
     is_allowed_window_key,
     is_destructive_window_key,
 )
-from theos.core.window_shortcuts import is_allowed_window_shortcut
+from theos.core.window_shortcuts import (
+    is_allowed_window_shortcut,
+    is_destructive_window_shortcut,
+)
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -469,6 +472,13 @@ class PressShortcutAction:
         self._windows = windows
 
     @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        shortcut = request.arguments.get("shortcut")
+        if is_destructive_window_shortcut(shortcut):
+            return ActionRisk.DESTRUCTIVE
+        return ActionRisk.CONFIRM
+
+    @staticmethod
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
@@ -492,17 +502,28 @@ class PressShortcutAction:
             )
 
         normalized_title = title.strip()
-        shortcut_label = "CTRL+A" if shortcut == "CTRL_A" else "CTRL+C"
-        shortcut_effect = (
-            "CTRL+A pode selecionar conteúdo dependendo do controle em foco. "
-            "Nenhum conteúdo da área de transferência é lido ou escrito por esse atalho."
-            if shortcut == "CTRL_A"
-            else (
+        shortcut_label = {
+            "CTRL_A": "CTRL+A",
+            "CTRL_C": "CTRL+C",
+            "CTRL_X": "CTRL+X",
+        }[shortcut]
+        if shortcut == "CTRL_A":
+            shortcut_effect = (
+                "CTRL+A pode selecionar conteúdo dependendo do controle em foco. "
+                "Nenhum conteúdo da área de transferência é lido ou escrito por esse atalho."
+            )
+        elif shortcut == "CTRL_C":
+            shortcut_effect = (
                 "ATENÇÃO: CTRL+C pode substituir o conteúdo atual da área de transferência "
                 "pelo conteúdo selecionado no aplicativo. O THE OS não lê a área de "
                 "transferência e não verifica semanticamente o que foi copiado."
             )
-        )
+        else:
+            shortcut_effect = (
+                "ATENÇÃO: CTRL+X pode remover o conteúdo selecionado do aplicativo e "
+                "substituir o conteúdo atual da área de transferência. O THE OS não lê a "
+                "área de transferência e não verifica semanticamente o que foi recortado."
+            )
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -511,7 +532,7 @@ class PressShortcutAction:
                 f"PID: {pid}\n"
                 f"Alvo opaco: {target_token[:12]}...\n"
                 f"Atalho: {shortcut_label}\n"
-                "Somente CTRL+A e CTRL+C estão permitidos nesta etapa. "
+                "Somente CTRL+A, CTRL+C e CTRL+X estão permitidos nesta etapa. "
                 f"{shortcut_effect} "
                 "Após a confirmação, o THE OS reativará somente a janela exata aprovada, "
                 "verificará o primeiro plano, enviará o atalho como uma sequência fixa "
@@ -655,7 +676,11 @@ class PressShortcutAction:
                 error_code="SHORTCUT_INPUT_FAILED",
             )
 
-        shortcut_label = "CTRL+A" if shortcut == "CTRL_A" else "CTRL+C"
+        shortcut_label = {
+            "CTRL_A": "CTRL+A",
+            "CTRL_C": "CTRL+C",
+            "CTRL_X": "CTRL+X",
+        }[shortcut]
         return ActionResult(
             request_id=request.request_id,
             success=True,

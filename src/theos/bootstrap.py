@@ -163,7 +163,7 @@ def build_action_registry() -> ActionRegistry:
     registry.register(
         press_shortcut.name,
         press_shortcut.execute,
-        risk=press_shortcut.risk,
+        risk=press_shortcut.risk_for,
         confirmation_preview=press_shortcut.confirmation_preview,
     )
     registry.register(
