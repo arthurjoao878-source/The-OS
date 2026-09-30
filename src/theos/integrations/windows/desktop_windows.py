@@ -10,12 +10,12 @@ from ctypes import wintypes
 
 import psutil
 
+from theos.core.keyboard_keys import ALLOWED_WINDOW_KEYS
 from theos.core.keyboard_shortcuts import (
     ALLOWED_WINDOW_SHORTCUTS,
     WINDOW_SHORTCUT_SPECS,
     get_window_shortcut_spec,
 )
-from theos.core.window_keys import ALLOWED_WINDOW_KEYS
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,

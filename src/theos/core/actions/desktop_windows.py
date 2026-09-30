@@ -8,13 +8,13 @@ from theos.core.actions.contracts import (
     ActionRisk,
     ConfirmationPreview,
 )
+from theos.core.keyboard_keys import (
+    format_window_key_allowlist_pt,
+    get_window_key_spec,
+)
 from theos.core.keyboard_shortcuts import (
     format_window_shortcut_allowlist_pt,
     get_window_shortcut_spec,
-)
-from theos.core.window_keys import (
-    is_allowed_window_key,
-    is_destructive_window_key,
 )
 from theos.core.window_targets import (
     is_window_target_token,
@@ -260,10 +260,10 @@ class PressKeyAction:
 
     @staticmethod
     def risk_for(request: ActionRequest) -> ActionRisk:
-        key = request.arguments.get("key")
-        if is_destructive_window_key(key):
-            return ActionRisk.DESTRUCTIVE
-        return ActionRisk.CONFIRM
+        key_spec = get_window_key_spec(request.arguments.get("key"))
+        if key_spec is None:
+            return ActionRisk.CONFIRM
+        return key_spec.risk
 
     @staticmethod
     def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
@@ -271,6 +271,7 @@ class PressKeyAction:
         title = request.arguments.get("title")
         target_token = request.arguments.get("target_token")
         key = request.arguments.get("key")
+        key_spec = get_window_key_spec(key)
         if (
             not isinstance(pid, int)
             or isinstance(pid, bool)
@@ -278,7 +279,7 @@ class PressKeyAction:
             or not isinstance(title, str)
             or not title.strip()
             or not is_window_target_token(target_token)
-            or not is_allowed_window_key(key)
+            or key_spec is None
         ):
             return ConfirmationPreview(
                 allowed=False,
@@ -286,16 +287,7 @@ class PressKeyAction:
             )
 
         normalized_title = title.strip()
-        key_effect = (
-            "ATENÇÃO: BACKSPACE e DELETE podem remover texto, itens ou outros dados "
-            "dependendo do controle que estiver em foco. O efeito interno do aplicativo "
-            "não será inspecionado."
-            if is_destructive_window_key(key)
-            else (
-                "A tecla pertence à allowlist de confirmação para navegação ou controle "
-                "pontual da janela."
-            )
-        )
+        key_effect = key_spec.preview_effect
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -304,11 +296,8 @@ class PressKeyAction:
                 f"PID: {pid}\n"
                 f"Alvo opaco: {target_token[:12]}...\n"
                 f"Tecla: {key}\n"
+                f"Somente {format_window_key_allowlist_pt()} estão permitidas nesta etapa.\n"
                 f"{key_effect}\n"
-                "ENTER pode confirmar/enviar, ESCAPE pode cancelar/fechar um estado "
-                "transitório, TAB pode mover o foco entre controles, UP/DOWN/LEFT/RIGHT "
-                "podem navegar direcionalmente, HOME/END/PAGE_UP/PAGE_DOWN podem navegar "
-                "por limites ou páginas e BACKSPACE/DELETE são teclas de edição destrutiva. "
                 "Após a confirmação, o THE OS reativará somente a janela exata aprovada e "
                 "verificará que ela "
                 "está em primeiro plano antes de enviar a tecla. O THE OS verifica o envio "
@@ -328,6 +317,7 @@ class PressKeyAction:
         title = request.arguments.get("title")
         target_token = request.arguments.get("target_token")
         key = request.arguments.get("key")
+        key_spec = get_window_key_spec(key)
         expected_pid = request.arguments.get(_EXPECTED_KEY_PID)
         expected_title = request.arguments.get(_EXPECTED_KEY_TITLE)
         expected_target_token = request.arguments.get(_EXPECTED_KEY_TARGET_TOKEN)
@@ -340,7 +330,7 @@ class PressKeyAction:
             or not isinstance(title, str)
             or not title.strip()
             or not is_window_target_token(target_token)
-            or not is_allowed_window_key(key)
+            or key_spec is None
             or expected_pid != pid
             or expected_title != title.strip()
             or expected_target_token != target_token

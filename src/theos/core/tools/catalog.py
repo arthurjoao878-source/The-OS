@@ -4,13 +4,17 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from theos.core.actions.contracts import ActionRequest
+from theos.core.keyboard_keys import (
+    ALLOWED_WINDOW_KEYS,
+    build_window_key_tool_description,
+    is_allowed_window_key,
+)
 from theos.core.keyboard_shortcuts import (
     ALLOWED_WINDOW_SHORTCUTS,
     build_window_shortcut_tool_description,
     is_allowed_window_shortcut,
 )
 from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
-from theos.core.window_keys import ALLOWED_WINDOW_KEYS, is_allowed_window_key
 from theos.core.window_targets import (
     MAX_WINDOW_QUERY_CHARS,
     is_window_target_token,
@@ -405,17 +409,7 @@ def build_default_tool_catalog() -> ToolCatalog:
     catalog.register(
         ToolDefinition(
             name="press_key",
-            description=(
-                "Pressiona uma tecla permitida em uma janela visível exata já conhecida "
-                "por PID, título e target_token retornados pelo mesmo window_snapshot. "
-                "Somente ENTER, ESCAPE, TAB, UP, DOWN, LEFT, RIGHT, HOME, END, PAGE_UP, "
-                "PAGE_DOWN, BACKSPACE e DELETE são permitidas. Use somente quando o usuário "
-                "pedir explicitamente uma dessas teclas. BACKSPACE e DELETE são "
-                "classificadas localmente como DESTRUCTIVE; as demais permanecem CONFIRM. "
-                "Exige confirmação local; depois "
-                "da confirmação, o THE OS reativa e verifica o alvo exato antes do envio. "
-                "O efeito interno do aplicativo não é lido nem inferido."
-            ),
+            description=build_window_key_tool_description(),
             parameters={
                 "type": "object",
                 "properties": {
