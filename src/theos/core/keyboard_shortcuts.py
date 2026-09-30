@@ -95,6 +95,46 @@ _WINDOW_SHORTCUT_SPECS: tuple[WindowShortcutSpec, ...] = (
         ),
         content_mutation_expected=True,
     ),
+    WindowShortcutSpec(
+        name="CTRL_F",
+        label="CTRL+F",
+        modifier="CTRL",
+        primary_key="F",
+        risk=ActionRisk.CONFIRM,
+        intent_pt="buscar no conteúdo",
+        preview_effect=(
+            "CTRL+F pode abrir a interface de busca do aplicativo em foco. "
+            "O THE OS não lê o termo pesquisado nem os resultados encontrados."
+        ),
+    ),
+    WindowShortcutSpec(
+        name="CTRL_S",
+        label="CTRL+S",
+        modifier="CTRL",
+        primary_key="S",
+        risk=ActionRisk.DESTRUCTIVE,
+        intent_pt="salvar",
+        preview_effect=(
+            "ATENÇÃO: CTRL+S pode gravar ou sobrescrever o documento ou arquivo atual. "
+            "O THE OS não inspeciona o destino, o conteúdo persistido nem confirma "
+            "semanticamente o resultado do salvamento."
+        ),
+        content_mutation_expected=True,
+    ),
+    WindowShortcutSpec(
+        name="CTRL_Y",
+        label="CTRL+Y",
+        modifier="CTRL",
+        primary_key="Y",
+        risk=ActionRisk.DESTRUCTIVE,
+        intent_pt="refazer",
+        preview_effect=(
+            "ATENÇÃO: CTRL+Y pode refazer uma operação anteriormente desfeita e alterar, "
+            "remover ou restaurar conteúdo. O THE OS não inspeciona o histórico de refazer "
+            "e não verifica semanticamente o resultado."
+        ),
+        content_mutation_expected=True,
+    ),
 )
 
 

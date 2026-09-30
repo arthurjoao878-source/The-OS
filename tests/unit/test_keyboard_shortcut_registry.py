@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from theos.core.actions.contracts import ActionRequest
+from theos.core.actions.contracts import ActionRequest, ActionRisk
 from theos.core.actions.desktop_windows import PressShortcutAction
 from theos.core.keyboard_shortcuts import (
     ALLOWED_WINDOW_SHORTCUTS,
@@ -85,3 +85,18 @@ def test_windows_transport_mapping_is_derived_from_registry() -> None:
             VK_CONTROL,
             ord(spec.primary_key),
         )
+
+def test_keyboard_shortcut_batch_1_policy_is_explicit() -> None:
+    expected = {
+        "CTRL_F": (ActionRisk.CONFIRM, False),
+        "CTRL_S": (ActionRisk.DESTRUCTIVE, True),
+        "CTRL_Y": (ActionRisk.DESTRUCTIVE, True),
+    }
+
+    for shortcut, (risk, content_mutation_expected) in expected.items():
+        spec = WINDOW_SHORTCUT_REGISTRY[shortcut]
+        assert spec.risk is risk
+        assert spec.content_mutation_expected is content_mutation_expected
+        assert spec.clipboard_used is False
+        assert spec.clipboard_effect_expected is False
+        assert spec.clipboard_input_expected is False
