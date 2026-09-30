@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
+from theos.core.keyboard_keys import WINDOW_KEY_REGISTRY
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +136,82 @@ _WINDOW_SHORTCUT_SPECS: tuple[WindowShortcutSpec, ...] = (
         ),
         content_mutation_expected=True,
     ),
+    WindowShortcutSpec(
+        name="CTRL_LEFT",
+        label="CTRL+LEFT",
+        modifier="CTRL",
+        primary_key="LEFT",
+        risk=ActionRisk.CONFIRM,
+        intent_pt="navegar por unidade maior para a esquerda",
+        preview_effect=(
+            "CTRL+LEFT pode navegar para a esquerda por palavra, item ou outra unidade "
+            "definida pelo controle em foco. O THE OS não inspeciona semanticamente "
+            "o destino da navegação."
+        ),
+    ),
+    WindowShortcutSpec(
+        name="CTRL_RIGHT",
+        label="CTRL+RIGHT",
+        modifier="CTRL",
+        primary_key="RIGHT",
+        risk=ActionRisk.CONFIRM,
+        intent_pt="navegar por unidade maior para a direita",
+        preview_effect=(
+            "CTRL+RIGHT pode navegar para a direita por palavra, item ou outra unidade "
+            "definida pelo controle em foco. O THE OS não inspeciona semanticamente "
+            "o destino da navegação."
+        ),
+    ),
+    WindowShortcutSpec(
+        name="CTRL_UP",
+        label="CTRL+UP",
+        modifier="CTRL",
+        primary_key="UP",
+        risk=ActionRisk.CONFIRM,
+        intent_pt="navegar por unidade maior para cima",
+        preview_effect=(
+            "CTRL+UP pode navegar para cima por parágrafo, item ou outra unidade "
+            "definida pelo controle em foco. O THE OS não inspeciona semanticamente "
+            "o destino da navegação."
+        ),
+    ),
+    WindowShortcutSpec(
+        name="CTRL_DOWN",
+        label="CTRL+DOWN",
+        modifier="CTRL",
+        primary_key="DOWN",
+        risk=ActionRisk.CONFIRM,
+        intent_pt="navegar por unidade maior para baixo",
+        preview_effect=(
+            "CTRL+DOWN pode navegar para baixo por parágrafo, item ou outra unidade "
+            "definida pelo controle em foco. O THE OS não inspeciona semanticamente "
+            "o destino da navegação."
+        ),
+    ),
+    WindowShortcutSpec(
+        name="CTRL_HOME",
+        label="CTRL+HOME",
+        modifier="CTRL",
+        primary_key="HOME",
+        risk=ActionRisk.CONFIRM,
+        intent_pt="navegar para o início maior do controle",
+        preview_effect=(
+            "CTRL+HOME pode navegar para o início do documento, lista ou região ativa. "
+            "O THE OS não inspeciona semanticamente a posição resultante."
+        ),
+    ),
+    WindowShortcutSpec(
+        name="CTRL_END",
+        label="CTRL+END",
+        modifier="CTRL",
+        primary_key="END",
+        risk=ActionRisk.CONFIRM,
+        intent_pt="navegar para o fim maior do controle",
+        preview_effect=(
+            "CTRL+END pode navegar para o fim do documento, lista ou região ativa. "
+            "O THE OS não inspeciona semanticamente a posição resultante."
+        ),
+    ),
 )
 
 
@@ -146,7 +223,12 @@ def _build_registry() -> Mapping[str, WindowShortcutSpec]:
     for spec in _WINDOW_SHORTCUT_SPECS:
         if spec.modifier != "CTRL":
             raise RuntimeError(f"UNSUPPORTED_SHORTCUT_MODIFIER:{spec.name}")
-        if len(spec.primary_key) != 1 or not ("A" <= spec.primary_key <= "Z"):
+        primary_is_letter = (
+            len(spec.primary_key) == 1
+            and "A" <= spec.primary_key <= "Z"
+        )
+        primary_is_registered_key = spec.primary_key in WINDOW_KEY_REGISTRY
+        if not (primary_is_letter or primary_is_registered_key):
             raise RuntimeError(f"UNSUPPORTED_SHORTCUT_PRIMARY_KEY:{spec.name}")
         if spec.name != f"{spec.modifier}_{spec.primary_key}":
             raise RuntimeError(f"WINDOW_SHORTCUT_NAME_MISMATCH:{spec.name}")

@@ -72,8 +72,18 @@ _WINDOW_KEY_VK_CODES = {
     "BACKSPACE": VK_BACK,
     "DELETE": VK_DELETE,
 }
+def _window_shortcut_primary_vk(primary_key: str) -> int:
+    if len(primary_key) == 1 and "A" <= primary_key <= "Z":
+        return ord(primary_key)
+
+    virtual_key = _WINDOW_KEY_VK_CODES.get(primary_key)
+    if virtual_key is None:
+        raise RuntimeError(f"SHORTCUT_PRIMARY_KEY_TRANSPORT_MISSING:{primary_key}")
+    return virtual_key
+
+
 _WINDOW_SHORTCUT_VK_PAIRS = {
-    spec.name: (VK_CONTROL, ord(spec.primary_key))
+    spec.name: (VK_CONTROL, _window_shortcut_primary_vk(spec.primary_key))
     for spec in WINDOW_SHORTCUT_SPECS
 }
 SW_MAXIMIZE = 3
