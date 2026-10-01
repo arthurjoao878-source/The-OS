@@ -61,13 +61,17 @@ class _FakeMouseAnchorAdapter:
         }
 
 
-def test_mouse_anchor_registry_is_fixed_internal_quadrants() -> None:
+def test_mouse_anchor_registry_is_fixed_eight_point_internal_grid() -> None:
     assert tuple(MOUSE_ANCHOR_REGISTRY) == ALLOWED_MOUSE_ANCHORS
     assert tuple(MOUSE_ANCHOR_REGISTRY.values()) == MOUSE_ANCHOR_SPECS
     assert ALLOWED_MOUSE_ANCHORS == (
         "UPPER_LEFT",
+        "TOP_CENTER",
         "UPPER_RIGHT",
+        "CENTER_LEFT",
+        "CENTER_RIGHT",
         "LOWER_LEFT",
+        "BOTTOM_CENTER",
         "LOWER_RIGHT",
     )
     assert {
@@ -75,8 +79,12 @@ def test_mouse_anchor_registry_is_fixed_internal_quadrants() -> None:
         for spec in MOUSE_ANCHOR_SPECS
     } == {
         "UPPER_LEFT": (25, 25),
+        "TOP_CENTER": (50, 25),
         "UPPER_RIGHT": (75, 25),
+        "CENTER_LEFT": (25, 50),
+        "CENTER_RIGHT": (75, 50),
         "LOWER_LEFT": (25, 75),
+        "BOTTOM_CENTER": (50, 75),
         "LOWER_RIGHT": (75, 75),
     }
 
@@ -85,8 +93,9 @@ def test_mouse_anchor_points_are_strictly_inside_client_area() -> None:
     for spec in MOUSE_ANCHOR_SPECS:
         assert 0 < spec.x_percent < 100
         assert 0 < spec.y_percent < 100
-        assert spec.x_percent in {25, 75}
-        assert spec.y_percent in {25, 75}
+        assert spec.x_percent in {25, 50, 75}
+        assert spec.y_percent in {25, 50, 75}
+        assert (spec.x_percent, spec.y_percent) != (50, 50)
 
 
 def test_click_window_anchor_preview_guard_and_button_risk() -> None:
@@ -218,3 +227,89 @@ def test_mouse_anchor_tool_schema_is_registry_driven_and_strict() -> None:
     }
     assert set(schema["required"]) == set(schema["properties"])
     assert schema["additionalProperties"] is False
+
+
+def test_expanded_anchor_grid_excludes_exact_client_center() -> None:
+    positions = {
+        spec.name: (spec.x_percent, spec.y_percent)
+        for spec in MOUSE_ANCHOR_SPECS
+    }
+    assert len(positions) == 8
+    assert (50, 50) not in set(positions.values())
+    assert set(positions.values()) == {
+        (25, 25),
+        (50, 25),
+        (75, 25),
+        (25, 50),
+        (75, 50),
+        (25, 75),
+        (50, 75),
+        (75, 75),
+    }
+
+
+def test_expanded_anchor_grid_flows_to_all_anchor_tools() -> None:
+    catalog = build_default_tool_catalog()
+    token = "e" * 64
+
+    requests = (
+        ToolCall(
+            name="click_window_anchor",
+            arguments={
+                "pid": 5001,
+                "title": "Bloco de Notas",
+                "target_token": token,
+                "button": "LEFT",
+                "anchor": "TOP_CENTER",
+            },
+        ),
+        ToolCall(
+            name="double_click_window_anchor",
+            arguments={
+                "pid": 5001,
+                "title": "Bloco de Notas",
+                "target_token": token,
+                "gesture": "DOUBLE_LEFT",
+                "anchor": "CENTER_RIGHT",
+            },
+        ),
+        ToolCall(
+            name="scroll_window_anchor",
+            arguments={
+                "pid": 5001,
+                "title": "Bloco de Notas",
+                "target_token": token,
+                "direction": "DOWN",
+                "anchor": "BOTTOM_CENTER",
+            },
+        ),
+        ToolCall(
+            name="move_cursor_window_anchor",
+            arguments={
+                "pid": 5001,
+                "title": "Bloco de Notas",
+                "target_token": token,
+                "anchor": "CENTER_LEFT",
+            },
+        ),
+        ToolCall(
+            name="drag_window_anchor",
+            arguments={
+                "pid": 5001,
+                "title": "Bloco de Notas",
+                "target_token": token,
+                "gesture": "LEFT_DRAG",
+                "source_anchor": "TOP_CENTER",
+                "target_anchor": "BOTTOM_CENTER",
+            },
+        ),
+    )
+
+    built = tuple(catalog.build_action_request(call) for call in requests)
+    assert tuple(request.action for request in built) == (
+        "click_window_anchor",
+        "double_click_window_anchor",
+        "scroll_window_anchor",
+        "move_cursor_window_anchor",
+        "drag_window_anchor",
+    )

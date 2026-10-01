@@ -62,8 +62,12 @@ def test_double_click_anchor_uses_existing_gesture_and_anchor_registries() -> No
     assert ALLOWED_MOUSE_GESTURES == ("DOUBLE_LEFT",)
     assert ALLOWED_MOUSE_ANCHORS == (
         "UPPER_LEFT",
+        "TOP_CENTER",
         "UPPER_RIGHT",
+        "CENTER_LEFT",
+        "CENTER_RIGHT",
         "LOWER_LEFT",
+        "BOTTOM_CENTER",
         "LOWER_RIGHT",
     )
 

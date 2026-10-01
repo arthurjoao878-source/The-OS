@@ -59,8 +59,12 @@ def test_scroll_anchor_reuses_existing_registries() -> None:
     assert ALLOWED_MOUSE_SCROLL_DIRECTIONS == ("UP", "DOWN")
     assert ALLOWED_MOUSE_ANCHORS == (
         "UPPER_LEFT",
+        "TOP_CENTER",
         "UPPER_RIGHT",
+        "CENTER_LEFT",
+        "CENTER_RIGHT",
         "LOWER_LEFT",
+        "BOTTOM_CENTER",
         "LOWER_RIGHT",
     )
 

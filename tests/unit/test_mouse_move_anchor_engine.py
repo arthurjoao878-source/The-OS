@@ -55,8 +55,12 @@ class _FakeMoveCursorAdapter:
 def test_move_cursor_anchor_reuses_anchor_registry() -> None:
     assert ALLOWED_MOUSE_ANCHORS == (
         "UPPER_LEFT",
+        "TOP_CENTER",
         "UPPER_RIGHT",
+        "CENTER_LEFT",
+        "CENTER_RIGHT",
         "LOWER_LEFT",
+        "BOTTOM_CENTER",
         "LOWER_RIGHT",
     )
 

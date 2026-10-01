@@ -557,11 +557,11 @@ def build_default_tool_catalog() -> ToolCatalog:
         ToolDefinition(
             name="move_cursor_window_anchor",
             description=(
-                "Move o cursor, sem clicar, para uma das quatro âncoras internas "
-                "registradas da área cliente de uma janela visível exata já conhecida "
-                "por PID, título e target_token. Aceita somente UPPER_LEFT, "
-                "UPPER_RIGHT, LOWER_LEFT ou LOWER_RIGHT, calculadas localmente em "
-                "25%/75% da área cliente. Não aceita x/y, botão, wheel, duração ou "
+                "Move o cursor, sem clicar, para uma âncora interna registrada "
+                "da área cliente de uma janela visível exata já conhecida por PID, "
+                "título e target_token. A âncora vem do registry local na malha fixa "
+                "de 25%/50%/75%, com o centro exato reservado. Não aceita x/y, botão, "
+                "wheel, duração ou "
                 "trajeto arbitrários. A execução verifica alvo, posição final do "
                 "cursor e continuidade de foco; nenhum SendInput é enviado e o THE OS "
                 "não afirma efeitos de hover ou alterações internas."
@@ -706,11 +706,11 @@ def build_default_tool_catalog() -> ToolCatalog:
         ToolDefinition(
             name="double_click_window_anchor",
             description=(
-                "Executa DOUBLE_LEFT em uma das quatro âncoras internas registradas "
-                "da área cliente de uma janela visível exata já conhecida por PID, "
-                "título e target_token. Combina somente o gesto DOUBLE_LEFT já "
-                "registrado com UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT ou LOWER_RIGHT. "
-                "A posição é calculada localmente em 25%/75% da área cliente e a "
+                "Executa DOUBLE_LEFT em uma âncora interna registrada da área "
+                "cliente de uma janela visível exata já conhecida por PID, título e "
+                "target_token. A enumeração de âncoras vem diretamente do registry "
+                "local e usa a malha fixa de 25%/50%/75%, com o centro exato "
+                "reservado. A posição é calculada localmente e a "
                 "sequência é sempre LEFT down/up/down/up. Não aceita x/y, botão, "
                 "quantidade de cliques, intervalo ou âncora arbitrários. O THE OS "
                 "verifica geometria, envio dos quatro eventos e foco, mas não afirma "
@@ -824,11 +824,12 @@ def build_default_tool_catalog() -> ToolCatalog:
         ToolDefinition(
             name="scroll_window_anchor",
             description=(
-                "Rola uma unidade fixa da roda do mouse em uma das quatro âncoras "
-                "internas registradas da área cliente de uma janela visível exata já "
-                "conhecida por PID, título e target_token. Aceita somente UP ou DOWN "
-                "e UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT ou LOWER_RIGHT. A posição é "
-                "derivada localmente em 25%/75% da área cliente e cada chamada envia "
+                "Rola uma unidade fixa da roda do mouse em uma âncora interna "
+                "registrada da área cliente de uma janela visível exata já conhecida "
+                "por PID, título e target_token. Aceita somente UP ou DOWN e uma "
+                "âncora enumerada pelo registry local na malha fixa de 25%/50%/75%, "
+                "com o centro exato reservado. A posição é derivada localmente e cada "
+                "chamada envia "
                 "exatamente um evento MOUSEEVENTF_WHEEL com magnitude fixa de um "
                 "Windows wheel delta. Não aceita quantidade, scroll horizontal, x/y "
                 "ou âncora arbitrários. O THE OS verifica geometria, envio e foco, "

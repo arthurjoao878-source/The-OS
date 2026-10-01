@@ -21,15 +21,39 @@ _MOUSE_ANCHOR_SPECS: tuple[MouseAnchorSpec, ...] = (
         y_percent=25,
     ),
     MouseAnchorSpec(
+        name="TOP_CENTER",
+        label_pt="superior central",
+        x_percent=50,
+        y_percent=25,
+    ),
+    MouseAnchorSpec(
         name="UPPER_RIGHT",
         label_pt="superior direita",
         x_percent=75,
         y_percent=25,
     ),
     MouseAnchorSpec(
+        name="CENTER_LEFT",
+        label_pt="centro esquerda",
+        x_percent=25,
+        y_percent=50,
+    ),
+    MouseAnchorSpec(
+        name="CENTER_RIGHT",
+        label_pt="centro direita",
+        x_percent=75,
+        y_percent=50,
+    ),
+    MouseAnchorSpec(
         name="LOWER_LEFT",
         label_pt="inferior esquerda",
         x_percent=25,
+        y_percent=75,
+    ),
+    MouseAnchorSpec(
+        name="BOTTOM_CENTER",
+        label_pt="inferior central",
+        x_percent=50,
         y_percent=75,
     ),
     MouseAnchorSpec(
@@ -50,6 +74,10 @@ def _build_registry() -> Mapping[str, MouseAnchorSpec]:
             raise RuntimeError(f"INVALID_MOUSE_ANCHOR_NAME:{spec.name}")
         if not 0 < spec.x_percent < 100 or not 0 < spec.y_percent < 100:
             raise RuntimeError(f"INVALID_MOUSE_ANCHOR_PERCENT:{spec.name}")
+        if spec.x_percent not in {25, 50, 75} or spec.y_percent not in {25, 50, 75}:
+            raise RuntimeError(f"INVALID_MOUSE_ANCHOR_GRID_PERCENT:{spec.name}")
+        if spec.x_percent == 50 and spec.y_percent == 50:
+            raise RuntimeError("CLIENT_CENTER_RESERVED_FOR_CENTER_TOOLS")
     return MappingProxyType(registry)
 
 
