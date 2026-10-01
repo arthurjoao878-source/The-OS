@@ -1344,6 +1344,221 @@ class DragWindowAnchorAction:
         )
 
 
+_EXPECTED_SCROLL_ANCHOR_PID = "_theos_expected_scroll_anchor_pid"
+_EXPECTED_SCROLL_ANCHOR_TITLE = "_theos_expected_scroll_anchor_title"
+_EXPECTED_SCROLL_ANCHOR_TARGET_TOKEN = "_theos_expected_scroll_anchor_target_token"
+_EXPECTED_SCROLL_ANCHOR_DIRECTION = "_theos_expected_scroll_anchor_direction"
+_EXPECTED_SCROLL_ANCHOR_NAME = "_theos_expected_scroll_anchor_name"
+
+
+class ScrollWindowAnchorAction:
+    name = "scroll_window_anchor"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        scroll_spec = get_mouse_scroll_spec(request.arguments.get("direction"))
+        if scroll_spec is None:
+            return ActionRisk.CONFIRM
+        return scroll_spec.risk
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        direction = request.arguments.get("direction")
+        anchor = request.arguments.get("anchor")
+        scroll_spec = get_mouse_scroll_spec(direction)
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or scroll_spec is None
+            or anchor_spec is None
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Rolagem por âncora bloqueada antes da confirmação: "
+                    "argumentos inválidos."
+                ),
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "ROLAR EM ÂNCORA INTERNA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                f"Direção: {direction} ({scroll_spec.label_pt})\n"
+                f"Âncora: {anchor} ({anchor_spec.label_pt})\n"
+                f"Somente {format_mouse_scroll_allowlist_pt()} estão permitidos "
+                "como direções nesta etapa.\n"
+                f"Somente {format_mouse_anchor_allowlist_pt()} estão permitidas "
+                "como âncoras nesta etapa.\n"
+                f"Posição interna fixa: {anchor_spec.x_percent}% da largura e "
+                f"{anchor_spec.y_percent}% da altura da área cliente da janela.\n"
+                "Quantidade: uma unidade fixa de wheel por execução.\n"
+                "O aplicativo pode interpretar a rolagem conforme o controle sob a "
+                "âncora selecionada; o THE OS verifica apenas geometria, envio e foco, "
+                "sem inspecionar semanticamente o resultado.\n"
+                "Após a confirmação, o THE OS reativará a janela exata, obterá "
+                "localmente a área cliente, converterá sua origem para coordenadas de "
+                "tela, calculará e verificará a âncora registrada, enviará exatamente "
+                "um evento de wheel e verificará novamente o foco. Quantidade, "
+                "horizontal e coordenadas arbitrárias não são aceitos."
+            ),
+            execution_guard={
+                _EXPECTED_SCROLL_ANCHOR_PID: pid,
+                _EXPECTED_SCROLL_ANCHOR_TITLE: normalized_title,
+                _EXPECTED_SCROLL_ANCHOR_TARGET_TOKEN: target_token,
+                _EXPECTED_SCROLL_ANCHOR_DIRECTION: direction,
+                _EXPECTED_SCROLL_ANCHOR_NAME: anchor,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        direction = request.arguments.get("direction")
+        anchor = request.arguments.get("anchor")
+        scroll_spec = get_mouse_scroll_spec(direction)
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        expected_pid = request.arguments.get(_EXPECTED_SCROLL_ANCHOR_PID)
+        expected_title = request.arguments.get(_EXPECTED_SCROLL_ANCHOR_TITLE)
+        expected_target_token = request.arguments.get(
+            _EXPECTED_SCROLL_ANCHOR_TARGET_TOKEN
+        )
+        expected_direction = request.arguments.get(_EXPECTED_SCROLL_ANCHOR_DIRECTION)
+        expected_anchor = request.arguments.get(_EXPECTED_SCROLL_ANCHOR_NAME)
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or scroll_spec is None
+            or anchor_spec is None
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_target_token != target_token
+            or expected_direction != direction
+            or expected_anchor != anchor
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A rolagem por âncora não possui uma prévia local aprovada.",
+                error_code="MOUSE_SCROLL_ANCHOR_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.scroll_window_anchor(
+                pid,
+                title.strip(),
+                target_token,
+                direction,
+                anchor,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_MOUSE_SCROLL_ANCHOR_BLOCKED": (
+                    "A LYRA bloqueou rolagem por âncora na própria janela.",
+                    "SELF_WINDOW_MOUSE_SCROLL_ANCHOR_BLOCKED",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo; a rolagem foi bloqueada.",
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "MOUSE_SCROLL_ANCHOR_TARGET_ACTIVATION_NOT_VERIFIED": (
+                    "O Windows não confirmou a janela alvo antes da rolagem.",
+                    "MOUSE_SCROLL_ANCHOR_TARGET_ACTIVATION_NOT_VERIFIED",
+                ),
+                "MOUSE_SCROLL_ANCHOR_CLIENT_RECT_INVALID": (
+                    "A área cliente da janela alvo não pôde ser validada.",
+                    "MOUSE_SCROLL_ANCHOR_CLIENT_RECT_INVALID",
+                ),
+                "MOUSE_SCROLL_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED": (
+                    "A origem da área cliente não pôde ser convertida para a tela.",
+                    "MOUSE_SCROLL_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED",
+                ),
+                "MOUSE_SCROLL_ANCHOR_CURSOR_POSITION_NOT_VERIFIED": (
+                    "O Windows não confirmou o cursor na âncora registrada.",
+                    "MOUSE_SCROLL_ANCHOR_CURSOR_POSITION_NOT_VERIFIED",
+                ),
+                "MOUSE_SCROLL_ANCHOR_NOT_ALLOWED": (
+                    "Essa direção ou âncora não está permitida nesta etapa.",
+                    "MOUSE_SCROLL_ANCHOR_NOT_ALLOWED",
+                ),
+                "MOUSE_SCROLL_ANCHOR_NOT_ACCEPTED": (
+                    "O Windows não confirmou o envio da rolagem por âncora.",
+                    "MOUSE_SCROLL_ANCHOR_NOT_ACCEPTED",
+                ),
+                "MOUSE_SCROLL_ANCHOR_FOREGROUND_CHANGED": (
+                    "O foco mudou durante a rolagem; o resultado não é confiável.",
+                    "MOUSE_SCROLL_ANCHOR_FOREGROUND_CHANGED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui executar a rolagem por âncora.",
+                evidence={"reason": reason},
+                error_code="MOUSE_SCROLL_ANCHOR_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui executar a rolagem por âncora.",
+                evidence={"exception": type(exc).__name__},
+                error_code="MOUSE_SCROLL_ANCHOR_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Rolagem {direction} enviada à âncora {anchor} do alvo: "
+                f"{evidence['title']} (PID {evidence['pid']}); posição, wheel e foco "
+                "verificados, efeito interno não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
+
 _EXPECTED_SCROLL_PID = "_theos_expected_scroll_pid"
 _EXPECTED_SCROLL_TITLE = "_theos_expected_scroll_title"
 _EXPECTED_SCROLL_TARGET_TOKEN = "_theos_expected_scroll_target_token"
