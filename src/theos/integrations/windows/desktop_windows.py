@@ -24,6 +24,10 @@ from theos.core.mouse_clicks import ALLOWED_MOUSE_BUTTONS
 from theos.core.mouse_drags import ALLOWED_MOUSE_DRAGS
 from theos.core.mouse_gestures import ALLOWED_MOUSE_GESTURES
 from theos.core.mouse_scroll import ALLOWED_MOUSE_SCROLL_DIRECTIONS
+from theos.core.window_placements import (
+    ALLOWED_WINDOW_PLACEMENTS,
+    get_window_placement_spec,
+)
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -142,6 +146,18 @@ if set(_MOUSE_WHEEL_DELTAS) != set(ALLOWED_MOUSE_SCROLL_DIRECTIONS):
 SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
 SW_RESTORE = 9
+MONITOR_DEFAULTTONEAREST = 2
+
+
+class _MonitorInfo(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", wintypes.RECT),
+        ("rcWork", wintypes.RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
 WM_SYSCOMMAND = 0x0112
 SC_CLOSE = 0xF060
 _WINDOW_TARGET_TOKEN_KEY = secrets.token_bytes(32)
@@ -3213,6 +3229,251 @@ class WindowsDesktopWindowAdapter:
             "control_characters_allowed": False,
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
+
+    def place_window(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+        placement: str,
+    ) -> dict[str, object]:
+        if pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_PLACEMENT_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        placement_spec = get_window_placement_spec(placement)
+        if placement_spec is None:
+            raise RuntimeError("WINDOW_PLACEMENT_NOT_ALLOWED")
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.IsZoomed.argtypes = [wintypes.HWND]
+        user32.IsZoomed.restype = wintypes.BOOL
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindow.restype = wintypes.BOOL
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.MonitorFromWindow.restype = wintypes.HANDLE
+        user32.GetMonitorInfoW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(_MonitorInfo),
+        ]
+        user32.GetMonitorInfoW.restype = wintypes.BOOL
+        user32.MoveWindow.argtypes = [
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.BOOL,
+        ]
+        user32.MoveWindow.restype = wintypes.BOOL
+        user32.GetWindowRect.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.RECT),
+        ]
+        user32.GetWindowRect.restype = wintypes.BOOL
+
+        matches: list[tuple[int, str]] = []
+
+        def visit_window(hwnd: int, _lparam: int) -> bool:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+            if int(process_id.value) != pid:
+                return True
+
+            title_length = int(user32.GetWindowTextLengthW(hwnd))
+            if title_length <= 0:
+                return True
+
+            buffer = ctypes.create_unicode_buffer(title_length + 1)
+            copied = int(
+                user32.GetWindowTextW(hwnd, buffer, title_length + 1)
+            )
+            if copied <= 0:
+                return True
+
+            full_title = buffer.value.strip()
+            if not full_title:
+                return True
+
+            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
+            if bounded_title != title:
+                return True
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+            if candidate_token == target_token:
+                matches.append((int(hwnd), full_title))
+            return True
+
+        callback = callback_type(visit_window)
+        if not user32.EnumWindows(callback, 0):
+            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
+
+        if not matches:
+            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
+        if len(matches) != 1:
+            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
+
+        hwnd_value, full_title = matches[0]
+        hwnd = wintypes.HWND(hwnd_value)
+        was_minimized = bool(user32.IsIconic(hwnd))
+        was_maximized = bool(user32.IsZoomed(hwnd))
+        restored_to_normal = False
+
+        if was_minimized or was_maximized:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            deadline = time.monotonic() + WINDOW_RESTORE_VERIFY_TIMEOUT_SECONDS
+            while time.monotonic() <= deadline:
+                if not user32.IsIconic(hwnd) and not user32.IsZoomed(hwnd):
+                    restored_to_normal = True
+                    break
+                time.sleep(WINDOW_RESTORE_VERIFY_INTERVAL_SECONDS)
+            if not restored_to_normal:
+                raise RuntimeError("WINDOW_PLACEMENT_RESTORE_NOT_VERIFIED")
+
+        monitor = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+        if not monitor:
+            raise RuntimeError("WINDOW_PLACEMENT_MONITOR_NOT_FOUND")
+
+        monitor_info = _MonitorInfo()
+        monitor_info.cbSize = ctypes.sizeof(_MonitorInfo)
+        if not user32.GetMonitorInfoW(
+            monitor,
+            ctypes.byref(monitor_info),
+        ):
+            raise RuntimeError("WINDOW_PLACEMENT_MONITOR_INFO_FAILED")
+
+        work = monitor_info.rcWork
+        work_left = int(work.left)
+        work_top = int(work.top)
+        work_right = int(work.right)
+        work_bottom = int(work.bottom)
+        work_width = work_right - work_left
+        work_height = work_bottom - work_top
+        if work_width <= 0 or work_height <= 0:
+            raise RuntimeError("WINDOW_PLACEMENT_WORK_AREA_INVALID")
+
+        x_start = (
+            work_width * placement_spec.x_percent
+        ) // 100
+        y_start = (
+            work_height * placement_spec.y_percent
+        ) // 100
+        x_end = (
+            work_width
+            * (placement_spec.x_percent + placement_spec.width_percent)
+        ) // 100
+        y_end = (
+            work_height
+            * (placement_spec.y_percent + placement_spec.height_percent)
+        ) // 100
+
+        target_left = work_left + x_start
+        target_top = work_top + y_start
+        target_right = work_left + x_end
+        target_bottom = work_top + y_end
+        target_width = target_right - target_left
+        target_height = target_bottom - target_top
+        if target_width <= 0 or target_height <= 0:
+            raise RuntimeError("WINDOW_PLACEMENT_WORK_AREA_INVALID")
+
+        if not user32.MoveWindow(
+            hwnd,
+            target_left,
+            target_top,
+            target_width,
+            target_height,
+            True,
+        ):
+            raise RuntimeError("WINDOW_PLACEMENT_MOVE_NOT_ACCEPTED")
+
+        deadline = time.monotonic() + WINDOW_RESTORE_VERIFY_TIMEOUT_SECONDS
+        window_rect_verified = False
+        final_rect = wintypes.RECT()
+        while time.monotonic() <= deadline:
+            if (
+                user32.GetWindowRect(hwnd, ctypes.byref(final_rect))
+                and int(final_rect.left) == target_left
+                and int(final_rect.top) == target_top
+                and int(final_rect.right) == target_right
+                and int(final_rect.bottom) == target_bottom
+            ):
+                window_rect_verified = True
+                break
+            time.sleep(WINDOW_RESTORE_VERIFY_INTERVAL_SECONDS)
+
+        if not window_rect_verified:
+            raise RuntimeError("WINDOW_PLACEMENT_NOT_VERIFIED")
+
+        try:
+            process_name = psutil.Process(pid).name()
+        except psutil.Error:
+            process_name = "processo-indisponivel"
+
+        return {
+            "pid": pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "process_name": process_name,
+            "target_token": target_token,
+            "placement": placement,
+            "placement_label_pt": placement_spec.label_pt,
+            "position_mode": "monitor_work_area_registered_layout",
+            "monitor_work_area_left": work_left,
+            "monitor_work_area_top": work_top,
+            "monitor_work_area_right": work_right,
+            "monitor_work_area_bottom": work_bottom,
+            "monitor_work_area_width": work_width,
+            "monitor_work_area_height": work_height,
+            "target_left": target_left,
+            "target_top": target_top,
+            "target_right": target_right,
+            "target_bottom": target_bottom,
+            "target_width": target_width,
+            "target_height": target_height,
+            "window_rect_verified": True,
+            "was_minimized": was_minimized,
+            "was_maximized": was_maximized,
+            "restored_to_normal_before_move": restored_to_normal,
+            "native_snap_semantics_claimed": False,
+            "content_effect_verified": False,
+            "input_method": "MoveWindow_MONITOR_WORK_AREA_REGISTERED_LAYOUT",
+            "placement_allowlist": list(ALLOWED_WINDOW_PLACEMENTS),
+            "title_match": "pid_bounded_title_and_opaque_token_exact",
+        }
+
 
     def restore_window(
         self,

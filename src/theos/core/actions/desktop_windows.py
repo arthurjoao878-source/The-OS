@@ -30,6 +30,7 @@ from theos.core.mouse_scroll import (
     format_mouse_scroll_allowlist_pt,
     get_mouse_scroll_spec,
 )
+from theos.core.window_placements import get_window_placement_spec
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -2607,6 +2608,146 @@ class TypeTextAction:
                 f"Entrada de texto enviada ao alvo: {evidence['title']} "
                 f"(PID {evidence['pid']}); eventos e foco verificados, "
                 "conteúdo interno não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
+
+class PlaceWindowAction:
+    name = "place_window"
+    risk = ActionRisk.NORMAL
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        placement_spec = get_window_placement_spec(
+            request.arguments.get("placement")
+        )
+        if placement_spec is None:
+            return ActionRisk.NORMAL
+        return placement_spec.risk
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        placement = request.arguments.get("placement")
+        placement_spec = get_window_placement_spec(placement)
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or placement_spec is None
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "PID, título, alvo opaco e layout registrado da janela "
+                    "são obrigatórios."
+                ),
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.place_window(
+                pid,
+                title.strip(),
+                target_token,
+                placement,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_PLACEMENT_BLOCKED": (
+                    "A LYRA bloqueou o reposicionamento da própria janela.",
+                    "SELF_WINDOW_PLACEMENT_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    (
+                        "Mais de uma janela correspondeu ao alvo opaco; "
+                        "o layout foi bloqueado."
+                    ),
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_PLACEMENT_NOT_ALLOWED": (
+                    "Esse layout de janela não está permitido.",
+                    "WINDOW_PLACEMENT_NOT_ALLOWED",
+                ),
+                "WINDOW_PLACEMENT_RESTORE_NOT_VERIFIED": (
+                    (
+                        "O Windows não confirmou a janela em estado normal "
+                        "antes de aplicar o layout."
+                    ),
+                    "WINDOW_PLACEMENT_RESTORE_NOT_VERIFIED",
+                ),
+                "WINDOW_PLACEMENT_MONITOR_NOT_FOUND": (
+                    "Não foi possível identificar o monitor atual da janela.",
+                    "WINDOW_PLACEMENT_MONITOR_NOT_FOUND",
+                ),
+                "WINDOW_PLACEMENT_MONITOR_INFO_FAILED": (
+                    "Não foi possível obter a área útil do monitor atual.",
+                    "WINDOW_PLACEMENT_MONITOR_INFO_FAILED",
+                ),
+                "WINDOW_PLACEMENT_WORK_AREA_INVALID": (
+                    "A área útil do monitor atual é inválida.",
+                    "WINDOW_PLACEMENT_WORK_AREA_INVALID",
+                ),
+                "WINDOW_PLACEMENT_MOVE_NOT_ACCEPTED": (
+                    "O Windows não aceitou o reposicionamento da janela.",
+                    "WINDOW_PLACEMENT_MOVE_NOT_ACCEPTED",
+                ),
+                "WINDOW_PLACEMENT_NOT_VERIFIED": (
+                    "O Windows não confirmou o retângulo final exato solicitado.",
+                    "WINDOW_PLACEMENT_NOT_VERIFIED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui aplicar esse layout à janela.",
+                evidence={"reason": reason},
+                error_code="WINDOW_PLACEMENT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui aplicar esse layout à janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="WINDOW_PLACEMENT_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Janela exata posicionada em {placement} "
+                f"({placement_spec.label_pt}) e retângulo verificado: "
+                f"{evidence['title']} (PID {evidence['pid']})."
             ),
             evidence=evidence,
         )

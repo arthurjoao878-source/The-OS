@@ -302,3 +302,71 @@ def test_control_cancel_before_start_prevents_provider_call() -> None:
     assert result.error == "Tarefa cancelada pelo usuário."
     assert executed == []
     assert provider.continuations == 0
+
+class ToolVisibilityProvider:
+    provider_id = "fake"
+
+    def __init__(self) -> None:
+        self.seen_tool_names: list[tuple[str, ...]] = []
+
+    def respond(self, text, *, history=(), tools=()):
+        _ = text, history
+        self.seen_tool_names.append(tuple(tool.name for tool in tools))
+        return AIReply(text="ok", provider_id="fake")
+
+    def continue_after_tools(self, turn, results):
+        raise AssertionError("no continuation expected")
+
+    def reply(self, text, *, history=()):
+        _ = text, history
+        return AIReply(text="ok", provider_id="fake")
+
+
+def test_tool_loop_hides_open_application_without_explicit_launch_intent() -> None:
+    catalog = build_default_tool_catalog()
+    provider = ToolVisibilityProvider()
+    executor = ToolLoopExecutor(
+        provider,
+        ActionRegistry(),
+        catalog,
+    )
+
+    passive = executor.execute(
+        "coloque o Bloco de Notas na metade esquerda da tela",
+        tools=catalog.definitions(),
+    )
+    explicit = executor.execute(
+        "inicie o Bloco de Notas",
+        tools=catalog.definitions(),
+    )
+
+    assert passive.success is True
+    assert explicit.success is True
+    assert "open_application" not in provider.seen_tool_names[0]
+    assert "window_snapshot" in provider.seen_tool_names[0]
+    assert "open_application" in provider.seen_tool_names[1]
+
+
+def test_tool_loop_blocks_forced_open_without_explicit_launch_intent() -> None:
+    executed: list[str] = []
+    registry = ActionRegistry()
+    _register_open_application(registry, executed)
+    provider = TwoStepProvider()
+    catalog = build_default_tool_catalog()
+    executor = ToolLoopExecutor(
+        provider,
+        registry,
+        catalog,
+    )
+
+    result = executor.execute(
+        "coloque o Bloco de Notas na metade esquerda da tela",
+        tools=catalog.definitions(),
+    )
+
+    assert result.success is False
+    assert result.completed_steps == 0
+    assert executed == []
+    assert provider.continuations == 0
+    assert result.error is not None
+    assert "sem pedido explícito" in result.error

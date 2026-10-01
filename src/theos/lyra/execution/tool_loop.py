@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -21,6 +22,47 @@ from theos.lyra.execution.control import ExecutionControl
 MAX_TOOL_LOOP_STEPS = 4
 ProgressCallback = Callable[[str], None]
 
+_APPLICATION_LAUNCH_RE = re.compile(
+    r"\b(?:abre|abra|abrir|inicia|inicie|iniciar|execute|executa|executar|"
+    r"rode|rodar|reabra|reabrir|reinicie|reiniciar|open|start|launch|reopen)\b",
+    re.IGNORECASE,
+)
+_APPLICATION_LAUNCH_NEGATION_RE = re.compile(
+    r"\b(?:não|nao|never|don't|dont|do\s+not)\b",
+    re.IGNORECASE,
+)
+
+
+def _explicit_application_launch_requested(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return False
+
+    for match in _APPLICATION_LAUNCH_RE.finditer(normalized):
+        clause_start = max(
+            normalized.rfind(separator, 0, match.start())
+            for separator in (",", ";", ".", "!", "?", "\n")
+        )
+        prefix = normalized[clause_start + 1 : match.start()]
+        if _APPLICATION_LAUNCH_NEGATION_RE.search(prefix):
+            continue
+        return True
+    return False
+
+
+def _visible_tools_for_request(
+    tools: tuple[ToolDefinition, ...],
+    *,
+    application_launch_allowed: bool,
+) -> tuple[ToolDefinition, ...]:
+    if application_launch_allowed:
+        return tools
+    return tuple(
+        definition
+        for definition in tools
+        if definition.name != "open_application"
+    )
+
 
 @dataclass(frozen=True, slots=True)
 class PendingActionConfirmation:
@@ -29,6 +71,7 @@ class PendingActionConfirmation:
     request: ActionRequest
     risk: ActionRisk
     completed_steps: int
+    application_launch_allowed: bool = False
 
     def __post_init__(self) -> None:
         if self.call.call_id is None:
@@ -96,8 +139,18 @@ class ToolLoopExecutor:
         if cancelled is not None:
             return cancelled
 
+        application_launch_allowed = _explicit_application_launch_requested(text)
+        visible_tools = _visible_tools_for_request(
+            tools,
+            application_launch_allowed=application_launch_allowed,
+        )
+
         try:
-            response = self._provider.respond(text, history=history, tools=tools)
+            response = self._provider.respond(
+                text,
+                history=history,
+                tools=visible_tools,
+            )
         except AIProviderError as exception:
             return self._failure(str(exception), completed_steps=0)
 
@@ -107,6 +160,7 @@ class ToolLoopExecutor:
             messages=[],
             control=control,
             progress=progress,
+            application_launch_allowed=application_launch_allowed,
         )
 
     def resume(
@@ -190,6 +244,7 @@ class ToolLoopExecutor:
             messages=messages,
             control=control,
             progress=progress,
+            application_launch_allowed=pending.application_launch_allowed,
         )
 
     def _drive(
@@ -200,6 +255,7 @@ class ToolLoopExecutor:
         messages: list[str],
         control: ExecutionControl | None,
         progress: ProgressCallback | None,
+        application_launch_allowed: bool,
     ) -> ToolLoopResult:
         while True:
             cancelled = self._checkpoint(
@@ -232,7 +288,10 @@ class ToolLoopExecutor:
                 )
 
             call = response.calls[0]
-            prepared = self._prepare_call(call)
+            prepared = self._prepare_call(
+                call,
+                application_launch_allowed=application_launch_allowed,
+            )
             if isinstance(prepared, str):
                 return ToolLoopResult(
                     success=False,
@@ -255,6 +314,7 @@ class ToolLoopExecutor:
                         request=prepared,
                         risk=risk,
                         completed_steps=completed_steps,
+                        application_launch_allowed=application_launch_allowed,
                     ),
                 )
 
@@ -331,9 +391,19 @@ class ToolLoopExecutor:
             completed_steps=completed_steps,
         )
 
-    def _prepare_call(self, call: ToolCall) -> ActionRequest | str:
+    def _prepare_call(
+        self,
+        call: ToolCall,
+        *,
+        application_launch_allowed: bool,
+    ) -> ActionRequest | str:
         if call.call_id is None:
             return "A IA retornou uma ferramenta sem call_id."
+        if call.name == "open_application" and not application_launch_allowed:
+            return (
+                "A IA propôs abrir um aplicativo sem pedido explícito do usuário "
+                "para abrir, iniciar ou executar uma nova instância."
+            )
         if not self._actions.contains(call.name):
             return "A IA propôs uma ação que não está registrada."
 

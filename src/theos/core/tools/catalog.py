@@ -40,6 +40,11 @@ from theos.core.mouse_scroll import (
     is_allowed_mouse_scroll_direction,
 )
 from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
+from theos.core.window_placements import (
+    ALLOWED_WINDOW_PLACEMENTS,
+    build_window_placement_tool_description,
+    is_allowed_window_placement,
+)
 from theos.core.window_targets import (
     MAX_WINDOW_QUERY_CHARS,
     is_window_target_token,
@@ -975,6 +980,51 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="place_window",
+            description=build_window_placement_tool_description(),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot."
+                        ),
+                    },
+                    "placement": {
+                        "type": "string",
+                        "enum": list(ALLOWED_WINDOW_PLACEMENTS),
+                        "description": "Layout de janela registrado e limitado.",
+                    },
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "placement",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_window_placement_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="restore_window",
             description=(
                 "Restaura para o tamanho normal uma janela visível exata já identificada "
@@ -1637,6 +1687,51 @@ def _validate_mouse_scroll_input(
         "title": normalized_title,
         "target_token": target_token,
         "direction": direction,
+    }
+
+
+def _validate_window_placement_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {
+        "pid",
+        "title",
+        "target_token",
+        "placement",
+    }:
+        raise ToolValidationError(
+            "place_window requires only 'pid', 'title', 'target_token', "
+            "and 'placement'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    target_token = arguments.get("target_token")
+    placement = arguments.get("placement")
+
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+    if not is_window_target_token(target_token):
+        raise ToolValidationError(
+            "target_token must be a 64-character lowercase hex token"
+        )
+    if not is_allowed_window_placement(placement):
+        raise ToolValidationError(
+            "placement must be one of: "
+            + ", ".join(ALLOWED_WINDOW_PLACEMENTS)
+        )
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+        "target_token": target_token,
+        "placement": placement,
     }
 
 

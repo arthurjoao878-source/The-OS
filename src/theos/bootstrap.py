@@ -11,6 +11,7 @@ from theos.core.actions.desktop_windows import (
     MaximizeWindowAction,
     MinimizeWindowAction,
     MoveCursorWindowAnchorAction,
+    PlaceWindowAction,
     PressKeyAction,
     PressShortcutAction,
     RestoreWindowAction,
@@ -80,6 +81,7 @@ def build_action_registry() -> ActionRegistry:
     press_key = PressKeyAction(windows_desktop)
     press_shortcut = PressShortcutAction(windows_desktop)
     type_text = TypeTextAction(windows_desktop)
+    place_window = PlaceWindowAction(windows_desktop)
     restore_window = RestoreWindowAction(windows_desktop)
     maximize_window = MaximizeWindowAction(windows_desktop)
     minimize_window = MinimizeWindowAction(windows_desktop)
@@ -235,6 +237,11 @@ def build_action_registry() -> ActionRegistry:
         type_text.execute,
         risk=type_text.risk,
         confirmation_preview=type_text.confirmation_preview,
+    )
+    registry.register(
+        place_window.name,
+        place_window.execute,
+        risk=place_window.risk_for,
     )
     registry.register(
         restore_window.name,
