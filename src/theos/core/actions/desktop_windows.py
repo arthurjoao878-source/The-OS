@@ -16,6 +16,10 @@ from theos.core.keyboard_shortcuts import (
     format_window_shortcut_allowlist_pt,
     get_window_shortcut_spec,
 )
+from theos.core.mouse_anchors import (
+    format_mouse_anchor_allowlist_pt,
+    get_mouse_anchor_spec,
+)
 from theos.core.mouse_clicks import (
     format_mouse_button_allowlist_pt,
     get_mouse_button_spec,
@@ -439,6 +443,232 @@ class ClickWindowAction:
             success=True,
             message=(
                 f"Clique {button} enviado ao centro do alvo: "
+                f"{evidence['title']} (PID {evidence['pid']}); posição, eventos "
+                "e foco verificados, efeito interno não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
+
+_EXPECTED_MOUSE_ANCHOR_PID = "_theos_expected_mouse_anchor_pid"
+_EXPECTED_MOUSE_ANCHOR_TITLE = "_theos_expected_mouse_anchor_title"
+_EXPECTED_MOUSE_ANCHOR_TARGET_TOKEN = "_theos_expected_mouse_anchor_target_token"
+_EXPECTED_MOUSE_ANCHOR_BUTTON = "_theos_expected_mouse_anchor_button"
+_EXPECTED_MOUSE_ANCHOR_NAME = "_theos_expected_mouse_anchor_name"
+
+
+class ClickWindowAnchorAction:
+    name = "click_window_anchor"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        button_spec = get_mouse_button_spec(request.arguments.get("button"))
+        if button_spec is None:
+            return ActionRisk.CONFIRM
+        return button_spec.risk
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        button = request.arguments.get("button")
+        anchor = request.arguments.get("anchor")
+        button_spec = get_mouse_button_spec(button)
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or button_spec is None
+            or anchor_spec is None
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Clique por âncora bloqueado antes da confirmação: "
+                    "argumentos inválidos."
+                ),
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "CLICAR ÂNCORA INTERNA DA JANELA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                f"Botão: {button}\n"
+                f"Âncora: {anchor} ({anchor_spec.label_pt})\n"
+                f"Somente {format_mouse_button_allowlist_pt()} estão permitidos "
+                "como botões nesta etapa.\n"
+                f"Somente {format_mouse_anchor_allowlist_pt()} estão permitidas "
+                "como âncoras nesta etapa.\n"
+                f"Posição interna fixa: {anchor_spec.x_percent}% da largura e "
+                f"{anchor_spec.y_percent}% da altura da área cliente da janela.\n"
+                f"Operação registrada: {button_spec.intent_pt} na âncora interna "
+                "selecionada. O aplicativo pode interpretar o clique conforme o "
+                "controle sob esse ponto; o THE OS não inspeciona semanticamente o "
+                "efeito.\n"
+                "Após a confirmação, o THE OS reativará somente a janela exata "
+                "aprovada, verificará o primeiro plano, obterá localmente a área "
+                "cliente, converterá sua origem para coordenadas de tela, calculará "
+                "a âncora registrada, posicionará e verificará o cursor nesse ponto, "
+                "enviará exatamente dois eventos de mouse e verificará novamente o "
+                "foco. Coordenadas arbitrárias, bordas e barra de título não são "
+                "alvos deste tool, e o efeito interno não é inspecionado."
+            ),
+            execution_guard={
+                _EXPECTED_MOUSE_ANCHOR_PID: pid,
+                _EXPECTED_MOUSE_ANCHOR_TITLE: normalized_title,
+                _EXPECTED_MOUSE_ANCHOR_TARGET_TOKEN: target_token,
+                _EXPECTED_MOUSE_ANCHOR_BUTTON: button,
+                _EXPECTED_MOUSE_ANCHOR_NAME: anchor,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        button = request.arguments.get("button")
+        anchor = request.arguments.get("anchor")
+        button_spec = get_mouse_button_spec(button)
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        expected_pid = request.arguments.get(_EXPECTED_MOUSE_ANCHOR_PID)
+        expected_title = request.arguments.get(_EXPECTED_MOUSE_ANCHOR_TITLE)
+        expected_target_token = request.arguments.get(
+            _EXPECTED_MOUSE_ANCHOR_TARGET_TOKEN
+        )
+        expected_button = request.arguments.get(_EXPECTED_MOUSE_ANCHOR_BUTTON)
+        expected_anchor = request.arguments.get(_EXPECTED_MOUSE_ANCHOR_NAME)
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or button_spec is None
+            or anchor_spec is None
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_target_token != target_token
+            or expected_button != button
+            or expected_anchor != anchor
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O clique por âncora não possui uma prévia local aprovada.",
+                error_code="MOUSE_ANCHOR_CLICK_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.click_window_anchor(
+                pid,
+                title.strip(),
+                target_token,
+                button,
+                anchor,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_MOUSE_ANCHOR_INPUT_BLOCKED": (
+                    "A LYRA bloqueou clique por âncora na própria janela.",
+                    "SELF_WINDOW_MOUSE_ANCHOR_INPUT_BLOCKED",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    (
+                        "Mais de uma janela correspondeu ao alvo opaco; "
+                        "o clique por âncora foi bloqueado."
+                    ),
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "MOUSE_ANCHOR_INPUT_TARGET_ACTIVATION_NOT_VERIFIED": (
+                    (
+                        "O Windows não confirmou a janela alvo em primeiro plano "
+                        "após a confirmação; o clique por âncora não foi enviado."
+                    ),
+                    "MOUSE_ANCHOR_INPUT_TARGET_ACTIVATION_NOT_VERIFIED",
+                ),
+                "MOUSE_ANCHOR_CLIENT_RECT_INVALID": (
+                    "A área cliente da janela alvo não pôde ser validada.",
+                    "MOUSE_ANCHOR_CLIENT_RECT_INVALID",
+                ),
+                "MOUSE_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED": (
+                    "A origem da área cliente não pôde ser convertida para a tela.",
+                    "MOUSE_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED",
+                ),
+                "MOUSE_ANCHOR_CURSOR_POSITION_NOT_VERIFIED": (
+                    "O Windows não confirmou o cursor na âncora registrada.",
+                    "MOUSE_ANCHOR_CURSOR_POSITION_NOT_VERIFIED",
+                ),
+                "MOUSE_ANCHOR_INPUT_NOT_ALLOWED": (
+                    "Esse botão ou âncora não está permitido nesta etapa.",
+                    "MOUSE_ANCHOR_INPUT_NOT_ALLOWED",
+                ),
+                "MOUSE_ANCHOR_INPUT_NOT_ACCEPTED": (
+                    "O Windows não confirmou o envio completo do clique por âncora.",
+                    "MOUSE_ANCHOR_INPUT_NOT_ACCEPTED",
+                ),
+                "MOUSE_ANCHOR_INPUT_FOREGROUND_CHANGED": (
+                    (
+                        "O foco mudou durante o clique por âncora; não posso confirmar "
+                        "que os eventos permaneceram no alvo."
+                    ),
+                    "MOUSE_ANCHOR_INPUT_FOREGROUND_CHANGED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui clicar na âncora dessa janela.",
+                evidence={"reason": reason},
+                error_code="MOUSE_ANCHOR_INPUT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui clicar na âncora dessa janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="MOUSE_ANCHOR_INPUT_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Clique {button} enviado à âncora {anchor} do alvo: "
                 f"{evidence['title']} (PID {evidence['pid']}); posição, eventos "
                 "e foco verificados, efeito interno não inspecionado."
             ),
