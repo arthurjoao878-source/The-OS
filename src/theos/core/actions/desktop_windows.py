@@ -30,6 +30,7 @@ from theos.core.mouse_scroll import (
     format_mouse_scroll_allowlist_pt,
     get_mouse_scroll_spec,
 )
+from theos.core.window_layout_pairs import get_window_pair_layout_spec
 from theos.core.window_placements import get_window_placement_spec
 from theos.core.window_targets import (
     is_window_target_token,
@@ -2842,6 +2843,171 @@ class PlaceWindowAction:
                 f"Janela exata posicionada em {placement} "
                 f"({placement_spec.label_pt}) e retângulo verificado: "
                 f"{evidence['title']} (PID {evidence['pid']})."
+            ),
+            evidence=evidence,
+        )
+
+
+
+
+class PlaceWindowPairAction:
+    name = "place_window_pair"
+    risk = ActionRisk.NORMAL
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        layout_spec = get_window_pair_layout_spec(
+            request.arguments.get("arrangement")
+        )
+        if layout_spec is None:
+            return ActionRisk.NORMAL
+        return layout_spec.risk
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        first_target_token = request.arguments.get("first_target_token")
+        second_target_token = request.arguments.get("second_target_token")
+        arrangement = request.arguments.get("arrangement")
+        layout_spec = get_window_pair_layout_spec(arrangement)
+
+        if (
+            not is_window_target_token(first_target_token)
+            or not is_window_target_token(second_target_token)
+            or first_target_token == second_target_token
+            or layout_spec is None
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "Dois tokens opacos distintos e um arranjo registrado "
+                    "são obrigatórios."
+                ),
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.place_window_pair(
+                first_target_token,
+                second_target_token,
+                arrangement,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_PAIR_PLACEMENT_BLOCKED": (
+                    "A LYRA bloqueou o reposicionamento da própria janela.",
+                    "SELF_WINDOW_PAIR_PLACEMENT_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "Um dos identificadores opacos de janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_PAIR_SAME_TARGET": (
+                    "As duas posições precisam apontar para janelas distintas.",
+                    "WINDOW_PAIR_SAME_TARGET",
+                ),
+                "WINDOW_PAIR_LAYOUT_NOT_ALLOWED": (
+                    "Esse arranjo de duas janelas não está permitido.",
+                    "WINDOW_PAIR_LAYOUT_NOT_ALLOWED",
+                ),
+                "WINDOW_PAIR_FIRST_TARGET_NOT_FOUND": (
+                    "Não encontrei a primeira janela visível exata pelo token opaco.",
+                    "WINDOW_PAIR_FIRST_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_PAIR_FIRST_TARGET_AMBIGUOUS": (
+                    "O primeiro token opaco não resolveu uma única janela.",
+                    "WINDOW_PAIR_FIRST_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_PAIR_SECOND_TARGET_NOT_FOUND": (
+                    "Não encontrei a segunda janela visível exata pelo token opaco.",
+                    "WINDOW_PAIR_SECOND_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_PAIR_SECOND_TARGET_AMBIGUOUS": (
+                    "O segundo token opaco não resolveu uma única janela.",
+                    "WINDOW_PAIR_SECOND_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_PAIR_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei uma moldura visual operável e única para uma das janelas.",
+                    "WINDOW_PAIR_VISUAL_FRAME_NOT_FOUND",
+                ),
+                "WINDOW_PAIR_VISUAL_FRAME_AMBIGUOUS": (
+                    "Mais de uma moldura visual operável correspondeu à janela hospedada.",
+                    "WINDOW_PAIR_VISUAL_FRAME_AMBIGUOUS",
+                ),
+                "WINDOW_PAIR_NORMAL_STATE_REQUIRED": (
+                    "As duas janelas precisam estar em estado normal antes do arranjo.",
+                    "WINDOW_PAIR_NORMAL_STATE_REQUIRED",
+                ),
+                "WINDOW_PAIR_ORIGINAL_RECT_FAILED": (
+                    "Não foi possível guardar os retângulos originais das duas janelas.",
+                    "WINDOW_PAIR_ORIGINAL_RECT_FAILED",
+                ),
+                "WINDOW_PAIR_MONITOR_NOT_FOUND": (
+                    "Não foi possível identificar o monitor das duas janelas.",
+                    "WINDOW_PAIR_MONITOR_NOT_FOUND",
+                ),
+                "WINDOW_PAIR_MONITOR_MISMATCH": (
+                    "As duas janelas precisam estar no mesmo monitor para este arranjo.",
+                    "WINDOW_PAIR_MONITOR_MISMATCH",
+                ),
+                "WINDOW_PAIR_MONITOR_INFO_FAILED": (
+                    "Não foi possível obter a área útil do monitor compartilhado.",
+                    "WINDOW_PAIR_MONITOR_INFO_FAILED",
+                ),
+                "WINDOW_PAIR_WORK_AREA_INVALID": (
+                    "A área útil do monitor compartilhado é inválida.",
+                    "WINDOW_PAIR_WORK_AREA_INVALID",
+                ),
+                "WINDOW_PAIR_MOVE_NOT_ACCEPTED": (
+                    "O Windows não aceitou uma das movimentações do arranjo.",
+                    "WINDOW_PAIR_MOVE_NOT_ACCEPTED",
+                ),
+                "WINDOW_PAIR_NOT_VERIFIED": (
+                    "O Windows não confirmou os dois retângulos finais exatos.",
+                    "WINDOW_PAIR_NOT_VERIFIED",
+                ),
+                "WINDOW_PAIR_ROLLBACK_FAILED": (
+                    "O arranjo falhou e o rollback exato das janelas também não foi verificado.",
+                    "WINDOW_PAIR_ROLLBACK_FAILED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui aplicar o arranjo de duas janelas.",
+                evidence={"reason": reason},
+                error_code="WINDOW_PAIR_PLACEMENT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui aplicar o arranjo de duas janelas.",
+                evidence={"exception": type(exc).__name__},
+                error_code="WINDOW_PAIR_PLACEMENT_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Duas janelas organizadas em {arrangement} "
+                f"({layout_spec.label_pt}) e ambos os retângulos verificados: "
+                f"{evidence['first_title']} (PID {evidence['first_pid']}) + "
+                f"{evidence['second_title']} (PID {evidence['second_pid']})."
             ),
             evidence=evidence,
         )

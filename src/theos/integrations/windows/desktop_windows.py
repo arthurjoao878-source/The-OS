@@ -24,6 +24,11 @@ from theos.core.mouse_clicks import ALLOWED_MOUSE_BUTTONS
 from theos.core.mouse_drags import ALLOWED_MOUSE_DRAGS
 from theos.core.mouse_gestures import ALLOWED_MOUSE_GESTURES
 from theos.core.mouse_scroll import ALLOWED_MOUSE_SCROLL_DIRECTIONS
+from theos.core.window_layout_pairs import (
+    HostedWindowCandidate,
+    get_window_pair_layout_spec,
+    resolve_hosted_visual_frame,
+)
 from theos.core.window_placements import (
     ALLOWED_WINDOW_PLACEMENTS,
     get_window_placement_spec,
@@ -3607,6 +3612,415 @@ class WindowsDesktopWindowAdapter:
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
 
+
+
+    def place_window_pair(
+        self,
+        first_target_token: str,
+        second_target_token: str,
+        arrangement: str,
+    ) -> dict[str, object]:
+        if (
+            not is_window_target_token(first_target_token)
+            or not is_window_target_token(second_target_token)
+        ):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        if first_target_token == second_target_token:
+            raise RuntimeError("WINDOW_PAIR_SAME_TARGET")
+
+        layout_spec = get_window_pair_layout_spec(arrangement)
+        if layout_spec is None:
+            raise RuntimeError("WINDOW_PAIR_LAYOUT_NOT_ALLOWED")
+        first_placement = get_window_placement_spec(layout_spec.first_placement)
+        second_placement = get_window_placement_spec(layout_spec.second_placement)
+        if first_placement is None or second_placement is None:
+            raise RuntimeError("WINDOW_PAIR_LAYOUT_NOT_ALLOWED")
+
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.IsZoomed.argtypes = [wintypes.HWND]
+        user32.IsZoomed.restype = wintypes.BOOL
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.GetClassNameW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.GetClientRect.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.RECT),
+        ]
+        user32.GetClientRect.restype = wintypes.BOOL
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.MonitorFromWindow.restype = wintypes.HANDLE
+        user32.GetMonitorInfoW.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(_MonitorInfo),
+        ]
+        user32.GetMonitorInfoW.restype = wintypes.BOOL
+        user32.MoveWindow.argtypes = [
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.BOOL,
+        ]
+        user32.MoveWindow.restype = wintypes.BOOL
+        user32.GetWindowRect.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.RECT),
+        ]
+        user32.GetWindowRect.restype = wintypes.BOOL
+
+        all_candidates: list[HostedWindowCandidate] = []
+        full_titles: dict[int, str] = {}
+
+        def visit_window(hwnd: int, _lparam: int) -> bool:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+
+            title_length = int(user32.GetWindowTextLengthW(hwnd))
+            if title_length <= 0:
+                return True
+
+            buffer = ctypes.create_unicode_buffer(title_length + 1)
+            copied = int(user32.GetWindowTextW(hwnd, buffer, title_length + 1))
+            if copied <= 0:
+                return True
+
+            full_title = buffer.value.strip()
+            if not full_title:
+                return True
+            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
+
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+            pid = int(process_id.value)
+            if pid <= 0:
+                return True
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+
+            class_buffer = ctypes.create_unicode_buffer(256)
+            class_length = int(
+                user32.GetClassNameW(
+                    hwnd,
+                    class_buffer,
+                    len(class_buffer),
+                )
+            )
+            class_name = class_buffer.value if class_length > 0 else ""
+
+            client_rect = wintypes.RECT()
+            if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
+                client_width = int(client_rect.right - client_rect.left)
+                client_height = int(client_rect.bottom - client_rect.top)
+            else:
+                client_width = 0
+                client_height = 0
+
+            hwnd_value = int(hwnd)
+            full_titles[hwnd_value] = full_title
+            all_candidates.append(
+                HostedWindowCandidate(
+                    hwnd=hwnd_value,
+                    pid=pid,
+                    title=bounded_title,
+                    target_token=candidate_token,
+                    class_name=class_name,
+                    is_iconic=bool(user32.IsIconic(hwnd)),
+                    is_zoomed=bool(user32.IsZoomed(hwnd)),
+                    client_width=client_width,
+                    client_height=client_height,
+                )
+            )
+            return True
+
+        callback = callback_type(visit_window)
+        if not user32.EnumWindows(callback, 0):
+            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
+
+        first_matches = [
+            candidate
+            for candidate in all_candidates
+            if candidate.target_token == first_target_token
+        ]
+        second_matches = [
+            candidate
+            for candidate in all_candidates
+            if candidate.target_token == second_target_token
+        ]
+
+        if not first_matches:
+            raise RuntimeError("WINDOW_PAIR_FIRST_TARGET_NOT_FOUND")
+        if len(first_matches) != 1:
+            raise RuntimeError("WINDOW_PAIR_FIRST_TARGET_AMBIGUOUS")
+        if not second_matches:
+            raise RuntimeError("WINDOW_PAIR_SECOND_TARGET_NOT_FOUND")
+        if len(second_matches) != 1:
+            raise RuntimeError("WINDOW_PAIR_SECOND_TARGET_AMBIGUOUS")
+
+        candidate_tuple = tuple(all_candidates)
+        try:
+            first_resolved, first_visual_frame_normalized = (
+                resolve_hosted_visual_frame(first_matches[0], candidate_tuple)
+            )
+            second_resolved, second_visual_frame_normalized = (
+                resolve_hosted_visual_frame(second_matches[0], candidate_tuple)
+            )
+        except ValueError as exc:
+            if str(exc) == "HOSTED_VISUAL_FRAME_NOT_FOUND":
+                raise RuntimeError(
+                    "WINDOW_PAIR_VISUAL_FRAME_NOT_FOUND"
+                ) from exc
+            if str(exc) == "HOSTED_VISUAL_FRAME_AMBIGUOUS":
+                raise RuntimeError(
+                    "WINDOW_PAIR_VISUAL_FRAME_AMBIGUOUS"
+                ) from exc
+            raise
+
+        first_hwnd_value = first_resolved.hwnd
+        second_hwnd_value = second_resolved.hwnd
+        first_pid = first_resolved.pid
+        second_pid = second_resolved.pid
+        first_full_title = full_titles[first_hwnd_value]
+        second_full_title = full_titles[second_hwnd_value]
+
+        if first_hwnd_value == second_hwnd_value:
+            raise RuntimeError("WINDOW_PAIR_SAME_TARGET")
+        if first_pid == os.getpid() or second_pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_PAIR_PLACEMENT_BLOCKED")
+
+        first_hwnd = wintypes.HWND(first_hwnd_value)
+        second_hwnd = wintypes.HWND(second_hwnd_value)
+
+        if (
+            first_resolved.is_iconic
+            or first_resolved.is_zoomed
+            or second_resolved.is_iconic
+            or second_resolved.is_zoomed
+        ):
+            raise RuntimeError("WINDOW_PAIR_NORMAL_STATE_REQUIRED")
+
+        def get_rect(hwnd: wintypes.HWND) -> tuple[int, int, int, int]:
+            rect = wintypes.RECT()
+            if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                raise RuntimeError("WINDOW_PAIR_ORIGINAL_RECT_FAILED")
+            return (
+                int(rect.left),
+                int(rect.top),
+                int(rect.right),
+                int(rect.bottom),
+            )
+
+        first_original = get_rect(first_hwnd)
+        second_original = get_rect(second_hwnd)
+
+        first_monitor = user32.MonitorFromWindow(
+            first_hwnd,
+            MONITOR_DEFAULTTONEAREST,
+        )
+        second_monitor = user32.MonitorFromWindow(
+            second_hwnd,
+            MONITOR_DEFAULTTONEAREST,
+        )
+        if not first_monitor or not second_monitor:
+            raise RuntimeError("WINDOW_PAIR_MONITOR_NOT_FOUND")
+        if first_monitor != second_monitor:
+            raise RuntimeError("WINDOW_PAIR_MONITOR_MISMATCH")
+
+        monitor_info = _MonitorInfo()
+        monitor_info.cbSize = ctypes.sizeof(_MonitorInfo)
+        if not user32.GetMonitorInfoW(
+            first_monitor,
+            ctypes.byref(monitor_info),
+        ):
+            raise RuntimeError("WINDOW_PAIR_MONITOR_INFO_FAILED")
+
+        work = monitor_info.rcWork
+        work_left = int(work.left)
+        work_top = int(work.top)
+        work_right = int(work.right)
+        work_bottom = int(work.bottom)
+        work_width = work_right - work_left
+        work_height = work_bottom - work_top
+        if work_width <= 0 or work_height <= 0:
+            raise RuntimeError("WINDOW_PAIR_WORK_AREA_INVALID")
+
+        def target_rect(placement_spec: object) -> tuple[int, int, int, int]:
+            x_start = (work_width * placement_spec.x_percent) // 100
+            y_start = (work_height * placement_spec.y_percent) // 100
+            x_end = (
+                work_width
+                * (placement_spec.x_percent + placement_spec.width_percent)
+            ) // 100
+            y_end = (
+                work_height
+                * (placement_spec.y_percent + placement_spec.height_percent)
+            ) // 100
+            left = work_left + x_start
+            top = work_top + y_start
+            right = work_left + x_end
+            bottom = work_top + y_end
+            if right <= left or bottom <= top:
+                raise RuntimeError("WINDOW_PAIR_WORK_AREA_INVALID")
+            return left, top, right, bottom
+
+        first_target = target_rect(first_placement)
+        second_target = target_rect(second_placement)
+
+        def move_window(
+            hwnd: wintypes.HWND,
+            rectangle: tuple[int, int, int, int],
+        ) -> None:
+            left, top, right, bottom = rectangle
+            if not user32.MoveWindow(
+                hwnd,
+                left,
+                top,
+                right - left,
+                bottom - top,
+                True,
+            ):
+                raise RuntimeError("WINDOW_PAIR_MOVE_NOT_ACCEPTED")
+
+        def rect_verified(
+            hwnd: wintypes.HWND,
+            expected: tuple[int, int, int, int],
+        ) -> bool:
+            deadline = time.monotonic() + WINDOW_RESTORE_VERIFY_TIMEOUT_SECONDS
+            while time.monotonic() <= deadline:
+                rect = wintypes.RECT()
+                if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                    actual = (
+                        int(rect.left),
+                        int(rect.top),
+                        int(rect.right),
+                        int(rect.bottom),
+                    )
+                    if actual == expected:
+                        return True
+                time.sleep(WINDOW_RESTORE_VERIFY_INTERVAL_SECONDS)
+            return False
+
+        mutation_started = False
+        try:
+            move_window(first_hwnd, first_target)
+            mutation_started = True
+            if not rect_verified(first_hwnd, first_target):
+                raise RuntimeError("WINDOW_PAIR_NOT_VERIFIED")
+
+            move_window(second_hwnd, second_target)
+            if not rect_verified(second_hwnd, second_target):
+                raise RuntimeError("WINDOW_PAIR_NOT_VERIFIED")
+        except (RuntimeError, OSError) as original_error:
+            if mutation_started:
+                rollback_ok = True
+                for hwnd, rectangle in (
+                    (first_hwnd, first_original),
+                    (second_hwnd, second_original),
+                ):
+                    try:
+                        move_window(hwnd, rectangle)
+                    except (RuntimeError, OSError):
+                        rollback_ok = False
+                        continue
+                    if not rect_verified(hwnd, rectangle):
+                        rollback_ok = False
+                if not rollback_ok:
+                    raise RuntimeError(
+                        "WINDOW_PAIR_ROLLBACK_FAILED"
+                    ) from original_error
+            raise
+
+        try:
+            first_process_name = psutil.Process(first_pid).name()
+        except psutil.Error:
+            first_process_name = "processo-indisponivel"
+        try:
+            second_process_name = psutil.Process(second_pid).name()
+        except psutil.Error:
+            second_process_name = "processo-indisponivel"
+
+        return {
+            "arrangement": arrangement,
+            "arrangement_label_pt": layout_spec.label_pt,
+            "first_pid": first_pid,
+            "first_title": first_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "first_process_name": first_process_name,
+            "first_target_token": first_target_token,
+            "first_placement": layout_spec.first_placement,
+            "first_target_left": first_target[0],
+            "first_target_top": first_target[1],
+            "first_target_right": first_target[2],
+            "first_target_bottom": first_target[3],
+            "first_rect_verified": True,
+            "second_pid": second_pid,
+            "second_title": second_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "second_process_name": second_process_name,
+            "second_target_token": second_target_token,
+            "second_placement": layout_spec.second_placement,
+            "second_target_left": second_target[0],
+            "second_target_top": second_target[1],
+            "second_target_right": second_target[2],
+            "second_target_bottom": second_target[3],
+            "second_rect_verified": True,
+            "same_monitor_verified": True,
+            "monitor_work_area_left": work_left,
+            "monitor_work_area_top": work_top,
+            "monitor_work_area_right": work_right,
+            "monitor_work_area_bottom": work_bottom,
+            "monitor_work_area_width": work_width,
+            "monitor_work_area_height": work_height,
+            "windows_moved": 2,
+            "transactional_rollback_available": True,
+            "rollback_performed": False,
+            "normal_state_required": True,
+            "token_only_target_resolution": True,
+            "hosted_visual_frame_resolution": True,
+            "first_visual_frame_normalized": first_visual_frame_normalized,
+            "second_visual_frame_normalized": second_visual_frame_normalized,
+            "first_resolved_window_class": first_resolved.class_name,
+            "second_resolved_window_class": second_resolved.class_name,
+            "first_requested_target_token": first_target_token,
+            "second_requested_target_token": second_target_token,
+            "native_snap_semantics_claimed": False,
+            "content_effect_verified": False,
+            "input_method": "MoveWindow_PAIR_REGISTERED_LAYOUT",
+            "title_match": "opaque_token_then_hosted_visual_frame_resolution",
+        }
 
     def restore_window(
         self,

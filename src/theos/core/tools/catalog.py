@@ -40,6 +40,11 @@ from theos.core.mouse_scroll import (
     is_allowed_mouse_scroll_direction,
 )
 from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
+from theos.core.window_layout_pairs import (
+    ALLOWED_WINDOW_PAIR_LAYOUTS,
+    build_window_pair_layout_tool_description,
+    is_allowed_window_pair_layout,
+)
 from theos.core.window_placements import (
     ALLOWED_WINDOW_PLACEMENTS,
     build_window_placement_tool_description,
@@ -1064,6 +1069,55 @@ def build_default_tool_catalog() -> ToolCatalog:
         ),
         _validate_window_placement_input,
     )
+
+    catalog.register(
+        ToolDefinition(
+            name="place_window_pair",
+            description=(
+                build_window_pair_layout_tool_description()
+                + " Para esta ação, copie somente os dois target_token opacos exatos "
+                "das linhas escolhidas; não repita PID ou título no argumento. Não tente "
+                "inferir a moldura visual pelo nome do processo: para aplicativos Windows "
+                "hospedados, o adapter normaliza localmente CoreWindow/frame stale para "
+                "uma única ApplicationFrameWindow operável do mesmo título."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "first_target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato da primeira janela, copiado da descoberta."
+                        ),
+                    },
+                    "second_target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato da segunda janela, copiado da descoberta."
+                        ),
+                    },
+                    "arrangement": {
+                        "type": "string",
+                        "enum": list(ALLOWED_WINDOW_PAIR_LAYOUTS),
+                        "description": "Arranjo registrado de duas janelas.",
+                    },
+                },
+                "required": [
+                    "first_target_token",
+                    "second_target_token",
+                    "arrangement",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_window_pair_placement_input,
+    )
     catalog.register(
         ToolDefinition(
             name="restore_window",
@@ -1791,6 +1845,44 @@ def _validate_window_placement_input(
         "title": normalized_title,
         "target_token": target_token,
         "placement": placement,
+    }
+
+
+
+
+def _validate_window_pair_placement_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    expected = {
+        "first_target_token",
+        "second_target_token",
+        "arrangement",
+    }
+    if set(arguments) != expected:
+        raise ToolValidationError(
+            "place_window_pair requires only two exact opaque tokens and 'arrangement'"
+        )
+
+    first_target_token = arguments.get("first_target_token")
+    second_target_token = arguments.get("second_target_token")
+    arrangement = arguments.get("arrangement")
+
+    if not is_window_target_token(first_target_token):
+        raise ToolValidationError("first_target_token must be a valid opaque token")
+    if not is_window_target_token(second_target_token):
+        raise ToolValidationError("second_target_token must be a valid opaque token")
+    if first_target_token == second_target_token:
+        raise ToolValidationError("the two exact window targets must be distinct")
+    if not is_allowed_window_pair_layout(arrangement):
+        raise ToolValidationError(
+            "arrangement must be one of: "
+            + ", ".join(ALLOWED_WINDOW_PAIR_LAYOUTS)
+        )
+
+    return {
+        "first_target_token": first_target_token,
+        "second_target_token": second_target_token,
+        "arrangement": arrangement,
     }
 
 
