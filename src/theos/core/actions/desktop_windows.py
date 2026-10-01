@@ -452,6 +452,207 @@ class ClickWindowAction:
         )
 
 
+_EXPECTED_MOUSE_MOVE_ANCHOR_PID = "_theos_expected_mouse_move_anchor_pid"
+_EXPECTED_MOUSE_MOVE_ANCHOR_TITLE = "_theos_expected_mouse_move_anchor_title"
+_EXPECTED_MOUSE_MOVE_ANCHOR_TARGET_TOKEN = (
+    "_theos_expected_mouse_move_anchor_target_token"
+)
+_EXPECTED_MOUSE_MOVE_ANCHOR_NAME = "_theos_expected_mouse_move_anchor_name"
+
+
+class MoveCursorWindowAnchorAction:
+    name = "move_cursor_window_anchor"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        return ActionRisk.CONFIRM
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        anchor = request.arguments.get("anchor")
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or anchor_spec is None
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Movimento de cursor por âncora bloqueado antes da confirmação: "
+                    "argumentos inválidos."
+                ),
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "MOVER CURSOR PARA ÂNCORA INTERNA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                f"Âncora: {anchor} ({anchor_spec.label_pt})\n"
+                f"Somente {format_mouse_anchor_allowlist_pt()} estão permitidas "
+                "como âncoras nesta etapa.\n"
+                f"Posição interna fixa: {anchor_spec.x_percent}% da largura e "
+                f"{anchor_spec.y_percent}% da altura da área cliente da janela.\n"
+                "Nenhum clique, wheel, tecla ou evento SendInput será enviado.\n"
+                "Mover o cursor pode acionar apenas efeitos de hover definidos pelo "
+                "aplicativo; o THE OS não inspeciona nem afirma esse efeito.\n"
+                "Após a confirmação, o THE OS reativará somente a janela exata "
+                "aprovada, verificará o primeiro plano, obterá localmente a área "
+                "cliente, converterá sua origem para coordenadas de tela, calculará "
+                "a âncora registrada, moverá e verificará o cursor nesse ponto e "
+                "verificará novamente o foco. Coordenadas arbitrárias não são aceitas."
+            ),
+            execution_guard={
+                _EXPECTED_MOUSE_MOVE_ANCHOR_PID: pid,
+                _EXPECTED_MOUSE_MOVE_ANCHOR_TITLE: normalized_title,
+                _EXPECTED_MOUSE_MOVE_ANCHOR_TARGET_TOKEN: target_token,
+                _EXPECTED_MOUSE_MOVE_ANCHOR_NAME: anchor,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        anchor = request.arguments.get("anchor")
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        expected_pid = request.arguments.get(_EXPECTED_MOUSE_MOVE_ANCHOR_PID)
+        expected_title = request.arguments.get(_EXPECTED_MOUSE_MOVE_ANCHOR_TITLE)
+        expected_target_token = request.arguments.get(
+            _EXPECTED_MOUSE_MOVE_ANCHOR_TARGET_TOKEN
+        )
+        expected_anchor = request.arguments.get(_EXPECTED_MOUSE_MOVE_ANCHOR_NAME)
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or anchor_spec is None
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_target_token != target_token
+            or expected_anchor != anchor
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "O movimento de cursor por âncora não possui uma prévia local "
+                    "aprovada."
+                ),
+                error_code="MOUSE_MOVE_ANCHOR_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.move_cursor_window_anchor(
+                pid,
+                title.strip(),
+                target_token,
+                anchor,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_MOUSE_MOVE_ANCHOR_BLOCKED": (
+                    "A LYRA bloqueou movimento de cursor na própria janela.",
+                    "SELF_WINDOW_MOUSE_MOVE_ANCHOR_BLOCKED",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    (
+                        "Mais de uma janela correspondeu ao alvo opaco; "
+                        "o movimento do cursor foi bloqueado."
+                    ),
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "MOUSE_MOVE_ANCHOR_TARGET_ACTIVATION_NOT_VERIFIED": (
+                    "O Windows não confirmou a janela alvo antes do movimento.",
+                    "MOUSE_MOVE_ANCHOR_TARGET_ACTIVATION_NOT_VERIFIED",
+                ),
+                "MOUSE_MOVE_ANCHOR_CLIENT_RECT_INVALID": (
+                    "A área cliente da janela alvo não pôde ser validada.",
+                    "MOUSE_MOVE_ANCHOR_CLIENT_RECT_INVALID",
+                ),
+                "MOUSE_MOVE_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED": (
+                    "A origem da área cliente não pôde ser convertida para a tela.",
+                    "MOUSE_MOVE_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED",
+                ),
+                "MOUSE_MOVE_ANCHOR_CURSOR_POSITION_NOT_VERIFIED": (
+                    "O Windows não confirmou o cursor na âncora registrada.",
+                    "MOUSE_MOVE_ANCHOR_CURSOR_POSITION_NOT_VERIFIED",
+                ),
+                "MOUSE_MOVE_ANCHOR_NOT_ALLOWED": (
+                    "Essa âncora não está permitida nesta etapa.",
+                    "MOUSE_MOVE_ANCHOR_NOT_ALLOWED",
+                ),
+                "MOUSE_MOVE_ANCHOR_FOREGROUND_CHANGED": (
+                    "O foco mudou durante o movimento do cursor.",
+                    "MOUSE_MOVE_ANCHOR_FOREGROUND_CHANGED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui mover o cursor para essa âncora.",
+                evidence={"reason": reason},
+                error_code="MOUSE_MOVE_ANCHOR_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui mover o cursor para essa âncora.",
+                evidence={"exception": type(exc).__name__},
+                error_code="MOUSE_MOVE_ANCHOR_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Cursor movido para a âncora {anchor} do alvo: "
+                f"{evidence['title']} (PID {evidence['pid']}); posição e foco "
+                "verificados, sem clique e sem inspeção de efeito de hover."
+            ),
+            evidence=evidence,
+        )
+
+
 _EXPECTED_MOUSE_ANCHOR_PID = "_theos_expected_mouse_anchor_pid"
 _EXPECTED_MOUSE_ANCHOR_TITLE = "_theos_expected_mouse_anchor_title"
 _EXPECTED_MOUSE_ANCHOR_TARGET_TOKEN = "_theos_expected_mouse_anchor_target_token"

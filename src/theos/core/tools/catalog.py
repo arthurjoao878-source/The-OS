@@ -555,6 +555,60 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="move_cursor_window_anchor",
+            description=(
+                "Move o cursor, sem clicar, para uma das quatro âncoras internas "
+                "registradas da área cliente de uma janela visível exata já conhecida "
+                "por PID, título e target_token. Aceita somente UPPER_LEFT, "
+                "UPPER_RIGHT, LOWER_LEFT ou LOWER_RIGHT, calculadas localmente em "
+                "25%/75% da área cliente. Não aceita x/y, botão, wheel, duração ou "
+                "trajeto arbitrários. A execução verifica alvo, posição final do "
+                "cursor e continuidade de foco; nenhum SendInput é enviado e o THE OS "
+                "não afirma efeitos de hover ou alterações internas."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot."
+                        ),
+                    },
+                    "anchor": {
+                        "type": "string",
+                        "enum": list(ALLOWED_MOUSE_ANCHORS),
+                        "description": "Âncora interna registrada da área cliente.",
+                    },
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "anchor",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_mouse_move_anchor_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="click_window_anchor",
             description=build_mouse_anchor_click_tool_description(),
             parameters={
@@ -1249,6 +1303,50 @@ def _validate_mouse_click_input(
         "title": normalized_title,
         "target_token": target_token,
         "button": button,
+    }
+
+
+def _validate_mouse_move_anchor_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {
+        "pid",
+        "title",
+        "target_token",
+        "anchor",
+    }:
+        raise ToolValidationError(
+            "move_cursor_window_anchor requires only 'pid', 'title', "
+            "'target_token', and 'anchor'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    target_token = arguments.get("target_token")
+    anchor = arguments.get("anchor")
+
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+    if not is_window_target_token(target_token):
+        raise ToolValidationError(
+            "target_token must be a 64-character lowercase hex token"
+        )
+    if not is_allowed_mouse_anchor(anchor):
+        raise ToolValidationError(
+            "anchor must be one of: " + ", ".join(ALLOWED_MOUSE_ANCHORS)
+        )
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+        "target_token": target_token,
+        "anchor": anchor,
     }
 
 
