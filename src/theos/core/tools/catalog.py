@@ -19,6 +19,11 @@ from theos.core.mouse_clicks import (
     build_mouse_click_tool_description,
     is_allowed_mouse_button,
 )
+from theos.core.mouse_scroll import (
+    ALLOWED_MOUSE_SCROLL_DIRECTIONS,
+    build_mouse_scroll_tool_description,
+    is_allowed_mouse_scroll_direction,
+)
 from theos.core.tools.contracts import ToolCall, ToolDefinition, ToolValidationError
 from theos.core.window_targets import (
     MAX_WINDOW_QUERY_CHARS,
@@ -535,6 +540,48 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="scroll_window",
+            description=build_mouse_scroll_tool_description(),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot para esta janela."
+                        ),
+                    },
+                    "direction": {
+                        "type": "string",
+                        "enum": list(ALLOWED_MOUSE_SCROLL_DIRECTIONS),
+                        "description": (
+                            "Direção registrada para uma unidade fixa de wheel."
+                        ),
+                    },
+                },
+                "required": ["pid", "title", "target_token", "direction"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_mouse_scroll_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="type_text",
             description=(
                 "Envia texto Unicode limitado para uma janela visível exata já conhecida "
@@ -913,6 +960,45 @@ def _validate_mouse_click_input(
         "title": normalized_title,
         "target_token": target_token,
         "button": button,
+    }
+
+
+def _validate_mouse_scroll_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"pid", "title", "target_token", "direction"}:
+        raise ToolValidationError(
+            "scroll_window requires only 'pid', 'title', 'target_token', "
+            "and 'direction'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    target_token = arguments.get("target_token")
+    direction = arguments.get("direction")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+    if not is_window_target_token(target_token):
+        raise ToolValidationError(
+            "target_token must be a 64-character lowercase hex token"
+        )
+    if not is_allowed_mouse_scroll_direction(direction):
+        raise ToolValidationError(
+            "direction must be one of: "
+            + ", ".join(ALLOWED_MOUSE_SCROLL_DIRECTIONS)
+        )
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+        "target_token": target_token,
+        "direction": direction,
     }
 
 

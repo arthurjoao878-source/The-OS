@@ -20,6 +20,10 @@ from theos.core.mouse_clicks import (
     format_mouse_button_allowlist_pt,
     get_mouse_button_spec,
 )
+from theos.core.mouse_scroll import (
+    format_mouse_scroll_allowlist_pt,
+    get_mouse_scroll_spec,
+)
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -436,6 +440,214 @@ class ClickWindowAction:
             message=(
                 f"Clique {button} enviado ao centro do alvo: "
                 f"{evidence['title']} (PID {evidence['pid']}); posição, eventos "
+                "e foco verificados, efeito interno não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
+
+_EXPECTED_SCROLL_PID = "_theos_expected_scroll_pid"
+_EXPECTED_SCROLL_TITLE = "_theos_expected_scroll_title"
+_EXPECTED_SCROLL_TARGET_TOKEN = "_theos_expected_scroll_target_token"
+_EXPECTED_SCROLL_DIRECTION = "_theos_expected_scroll_direction"
+
+
+class ScrollWindowAction:
+    name = "scroll_window"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        scroll_spec = get_mouse_scroll_spec(
+            request.arguments.get("direction")
+        )
+        if scroll_spec is None:
+            return ActionRisk.CONFIRM
+        return scroll_spec.risk
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        direction = request.arguments.get("direction")
+        scroll_spec = get_mouse_scroll_spec(direction)
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or scroll_spec is None
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Rolagem de mouse bloqueada antes da confirmação: "
+                    "argumentos inválidos."
+                ),
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "ROLAR JANELA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                f"Direção: {direction}\n"
+                f"Somente {format_mouse_scroll_allowlist_pt()} estão permitidos "
+                "nesta etapa.\n"
+                "Posição: centro geométrico da janela exata no momento da execução.\n"
+                "Quantidade: uma unidade fixa de wheel por execução.\n"
+                f"{scroll_spec.preview_effect}\n"
+                "Após a confirmação, o THE OS reativará somente a janela exata "
+                "aprovada, verificará o primeiro plano, calculará localmente o centro "
+                "da janela, posicionará e verificará o cursor nesse ponto, enviará "
+                "exatamente um evento de wheel e verificará novamente o foco. "
+                "Quantidade e coordenadas arbitrárias não são aceitas e o efeito "
+                "interno não é inspecionado."
+            ),
+            execution_guard={
+                _EXPECTED_SCROLL_PID: pid,
+                _EXPECTED_SCROLL_TITLE: normalized_title,
+                _EXPECTED_SCROLL_TARGET_TOKEN: target_token,
+                _EXPECTED_SCROLL_DIRECTION: direction,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        direction = request.arguments.get("direction")
+        scroll_spec = get_mouse_scroll_spec(direction)
+        expected_pid = request.arguments.get(_EXPECTED_SCROLL_PID)
+        expected_title = request.arguments.get(_EXPECTED_SCROLL_TITLE)
+        expected_target_token = request.arguments.get(
+            _EXPECTED_SCROLL_TARGET_TOKEN
+        )
+        expected_direction = request.arguments.get(
+            _EXPECTED_SCROLL_DIRECTION
+        )
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or scroll_spec is None
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_target_token != target_token
+            or expected_direction != direction
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A rolagem de mouse não possui uma prévia local aprovada.",
+                error_code="MOUSE_SCROLL_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.scroll_window_center(
+                pid,
+                title.strip(),
+                target_token,
+                direction,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_MOUSE_SCROLL_BLOCKED": (
+                    "A LYRA bloqueou rolagem de mouse na própria janela.",
+                    "SELF_WINDOW_MOUSE_SCROLL_BLOCKED",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    (
+                        "Mais de uma janela correspondeu ao alvo opaco; "
+                        "a rolagem foi bloqueada."
+                    ),
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "MOUSE_SCROLL_TARGET_ACTIVATION_NOT_VERIFIED": (
+                    (
+                        "O Windows não confirmou a janela alvo em primeiro plano "
+                        "após a confirmação; a rolagem não foi enviada."
+                    ),
+                    "MOUSE_SCROLL_TARGET_ACTIVATION_NOT_VERIFIED",
+                ),
+                "MOUSE_SCROLL_WINDOW_RECT_INVALID": (
+                    "A geometria da janela alvo não pôde ser validada.",
+                    "MOUSE_SCROLL_WINDOW_RECT_INVALID",
+                ),
+                "MOUSE_SCROLL_CURSOR_POSITION_NOT_VERIFIED": (
+                    "O Windows não confirmou o cursor no centro da janela.",
+                    "MOUSE_SCROLL_CURSOR_POSITION_NOT_VERIFIED",
+                ),
+                "MOUSE_SCROLL_NOT_ALLOWED": (
+                    "Essa direção de rolagem não está permitida nesta etapa.",
+                    "MOUSE_SCROLL_NOT_ALLOWED",
+                ),
+                "MOUSE_SCROLL_NOT_ACCEPTED": (
+                    "O Windows não confirmou o envio da rolagem.",
+                    "MOUSE_SCROLL_NOT_ACCEPTED",
+                ),
+                "MOUSE_SCROLL_FOREGROUND_CHANGED": (
+                    (
+                        "O foco mudou durante a rolagem; não posso confirmar "
+                        "que o evento permaneceu no alvo."
+                    ),
+                    "MOUSE_SCROLL_FOREGROUND_CHANGED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui rolar essa janela.",
+                evidence={"reason": reason},
+                error_code="MOUSE_SCROLL_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui rolar essa janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="MOUSE_SCROLL_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Rolagem {direction} enviada ao centro do alvo: "
+                f"{evidence['title']} (PID {evidence['pid']}); posição, evento "
                 "e foco verificados, efeito interno não inspecionado."
             ),
             evidence=evidence,
