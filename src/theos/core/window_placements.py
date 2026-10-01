@@ -41,6 +41,56 @@ _WINDOW_PLACEMENT_SPECS: tuple[WindowPlacementSpec, ...] = (
         intent_pt="ocupar a metade direita da área útil do monitor atual",
     ),
     WindowPlacementSpec(
+        name="TOP_HALF",
+        label_pt="metade superior",
+        risk=ActionRisk.NORMAL,
+        x_percent=0,
+        y_percent=0,
+        width_percent=100,
+        height_percent=50,
+        intent_pt="ocupar a metade superior da área útil do monitor atual",
+    ),
+    WindowPlacementSpec(
+        name="BOTTOM_HALF",
+        label_pt="metade inferior",
+        risk=ActionRisk.NORMAL,
+        x_percent=0,
+        y_percent=50,
+        width_percent=100,
+        height_percent=50,
+        intent_pt="ocupar a metade inferior da área útil do monitor atual",
+    ),
+    WindowPlacementSpec(
+        name="LEFT_THIRD",
+        label_pt="terço esquerdo",
+        risk=ActionRisk.NORMAL,
+        x_percent=0,
+        y_percent=0,
+        width_percent=33,
+        height_percent=100,
+        intent_pt="ocupar o terço esquerdo da área útil do monitor atual",
+    ),
+    WindowPlacementSpec(
+        name="CENTER_THIRD",
+        label_pt="terço central",
+        risk=ActionRisk.NORMAL,
+        x_percent=33,
+        y_percent=0,
+        width_percent=34,
+        height_percent=100,
+        intent_pt="ocupar o terço central da área útil do monitor atual",
+    ),
+    WindowPlacementSpec(
+        name="RIGHT_THIRD",
+        label_pt="terço direito",
+        risk=ActionRisk.NORMAL,
+        x_percent=67,
+        y_percent=0,
+        width_percent=33,
+        height_percent=100,
+        intent_pt="ocupar o terço direito da área útil do monitor atual",
+    ),
+    WindowPlacementSpec(
         name="UPPER_LEFT_QUADRANT",
         label_pt="quadrante superior esquerdo",
         risk=ActionRisk.NORMAL,
@@ -93,9 +143,11 @@ def _build_registry() -> Mapping[str, WindowPlacementSpec]:
             raise RuntimeError(f"INVALID_WINDOW_PLACEMENT_NAME:{spec.name}")
         if spec.risk is not ActionRisk.NORMAL:
             raise RuntimeError(f"INVALID_WINDOW_PLACEMENT_RISK:{spec.name}")
-        if spec.x_percent not in {0, 50} or spec.y_percent not in {0, 50}:
-            raise RuntimeError(f"INVALID_WINDOW_PLACEMENT_ORIGIN:{spec.name}")
-        if spec.width_percent not in {50}:
+        if spec.x_percent not in {0, 33, 50, 67}:
+            raise RuntimeError(f"INVALID_WINDOW_PLACEMENT_X_PERCENT:{spec.name}")
+        if spec.y_percent not in {0, 50}:
+            raise RuntimeError(f"INVALID_WINDOW_PLACEMENT_Y_PERCENT:{spec.name}")
+        if spec.width_percent not in {33, 34, 50, 100}:
             raise RuntimeError(f"INVALID_WINDOW_PLACEMENT_WIDTH:{spec.name}")
         if spec.height_percent not in {50, 100}:
             raise RuntimeError(f"INVALID_WINDOW_PLACEMENT_HEIGHT:{spec.name}")

@@ -57,12 +57,17 @@ class _FakeWindowPlacementAdapter:
         }
 
 
-def test_window_placement_registry_is_fixed_six_layout_policy_source() -> None:
+def test_window_placement_registry_is_fixed_eleven_layout_policy_source() -> None:
     assert tuple(WINDOW_PLACEMENT_REGISTRY) == ALLOWED_WINDOW_PLACEMENTS
     assert tuple(WINDOW_PLACEMENT_REGISTRY.values()) == WINDOW_PLACEMENT_SPECS
     assert ALLOWED_WINDOW_PLACEMENTS == (
         "LEFT_HALF",
         "RIGHT_HALF",
+        "TOP_HALF",
+        "BOTTOM_HALF",
+        "LEFT_THIRD",
+        "CENTER_THIRD",
+        "RIGHT_THIRD",
         "UPPER_LEFT_QUADRANT",
         "UPPER_RIGHT_QUADRANT",
         "LOWER_LEFT_QUADRANT",
@@ -79,6 +84,11 @@ def test_window_placement_registry_is_fixed_six_layout_policy_source() -> None:
     } == {
         "LEFT_HALF": (0, 0, 50, 100),
         "RIGHT_HALF": (50, 0, 50, 100),
+        "TOP_HALF": (0, 0, 100, 50),
+        "BOTTOM_HALF": (0, 50, 100, 50),
+        "LEFT_THIRD": (0, 0, 33, 100),
+        "CENTER_THIRD": (33, 0, 34, 100),
+        "RIGHT_THIRD": (67, 0, 33, 100),
         "UPPER_LEFT_QUADRANT": (0, 0, 50, 50),
         "UPPER_RIGHT_QUADRANT": (50, 0, 50, 50),
         "LOWER_LEFT_QUADRANT": (0, 50, 50, 50),
@@ -195,3 +205,44 @@ def test_window_placement_schema_is_registry_driven_and_strict() -> None:
     }
     assert set(schema["required"]) == set(schema["properties"])
     assert schema["additionalProperties"] is False
+
+def test_window_placement_v2_partitions_cover_full_work_area_without_overlap() -> None:
+    top = WINDOW_PLACEMENT_REGISTRY["TOP_HALF"]
+    bottom = WINDOW_PLACEMENT_REGISTRY["BOTTOM_HALF"]
+    left = WINDOW_PLACEMENT_REGISTRY["LEFT_THIRD"]
+    center = WINDOW_PLACEMENT_REGISTRY["CENTER_THIRD"]
+    right = WINDOW_PLACEMENT_REGISTRY["RIGHT_THIRD"]
+
+    assert (top.y_percent, top.height_percent) == (0, 50)
+    assert (bottom.y_percent, bottom.height_percent) == (50, 50)
+    assert top.height_percent + bottom.height_percent == 100
+
+    assert (left.x_percent, left.width_percent) == (0, 33)
+    assert (center.x_percent, center.width_percent) == (33, 34)
+    assert (right.x_percent, right.width_percent) == (67, 33)
+    assert left.x_percent + left.width_percent == center.x_percent
+    assert center.x_percent + center.width_percent == right.x_percent
+    assert right.x_percent + right.width_percent == 100
+
+
+def test_catalog_builds_all_window_layout_v2_batch_names() -> None:
+    catalog = build_default_tool_catalog()
+    for placement in (
+        "TOP_HALF",
+        "BOTTOM_HALF",
+        "LEFT_THIRD",
+        "CENTER_THIRD",
+        "RIGHT_THIRD",
+    ):
+        request = catalog.build_action_request(
+            ToolCall(
+                name="place_window",
+                arguments={
+                    "pid": 5001,
+                    "title": "Bloco de Notas",
+                    "target_token": "e" * 64,
+                    "placement": placement,
+                },
+            )
+        )
+        assert request.arguments["placement"] == placement
