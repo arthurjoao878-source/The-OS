@@ -24,6 +24,7 @@ from theos.core.mouse_clicks import (
     format_mouse_button_allowlist_pt,
     get_mouse_button_spec,
 )
+from theos.core.mouse_drags import get_mouse_drag_spec
 from theos.core.mouse_gestures import get_mouse_gesture_spec
 from theos.core.mouse_scroll import (
     format_mouse_scroll_allowlist_pt,
@@ -1103,6 +1104,241 @@ class DoubleClickWindowAnchorAction:
                 f"Sequência {gesture} enviada à âncora {anchor} do alvo: "
                 f"{evidence['title']} (PID {evidence['pid']}); posição, quatro eventos "
                 "e foco verificados, reconhecimento semântico não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
+
+_EXPECTED_DRAG_PID = "_theos_expected_drag_pid"
+_EXPECTED_DRAG_TITLE = "_theos_expected_drag_title"
+_EXPECTED_DRAG_TARGET_TOKEN = "_theos_expected_drag_target_token"
+_EXPECTED_DRAG_GESTURE = "_theos_expected_drag_gesture"
+_EXPECTED_DRAG_SOURCE_ANCHOR = "_theos_expected_drag_source_anchor"
+_EXPECTED_DRAG_TARGET_ANCHOR = "_theos_expected_drag_target_anchor"
+
+
+class DragWindowAnchorAction:
+    name = "drag_window_anchor"
+    risk = ActionRisk.DESTRUCTIVE
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        drag_spec = get_mouse_drag_spec(request.arguments.get("gesture"))
+        if drag_spec is None:
+            return ActionRisk.DESTRUCTIVE
+        return drag_spec.risk
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        gesture = request.arguments.get("gesture")
+        source_anchor = request.arguments.get("source_anchor")
+        target_anchor = request.arguments.get("target_anchor")
+        drag_spec = get_mouse_drag_spec(gesture)
+        source_spec = get_mouse_anchor_spec(source_anchor)
+        target_spec = get_mouse_anchor_spec(target_anchor)
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or drag_spec is None
+            or source_spec is None
+            or target_spec is None
+            or source_anchor == target_anchor
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Arrasto por âncoras bloqueado antes da confirmação: "
+                    "argumentos inválidos."
+                ),
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "ARRASTAR ENTRE ÂNCORAS INTERNAS\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                f"Gesto: {gesture} ({drag_spec.label_pt})\n"
+                f"Origem: {source_anchor} ({source_spec.label_pt}) — "
+                f"{source_spec.x_percent}% da largura e "
+                f"{source_spec.y_percent}% da altura da área cliente.\n"
+                f"Destino: {target_anchor} ({target_spec.label_pt}) — "
+                f"{target_spec.x_percent}% da largura e "
+                f"{target_spec.y_percent}% da altura da área cliente.\n"
+                f"Somente {format_mouse_anchor_allowlist_pt()} estão permitidas "
+                "como origem ou destino; origem e destino devem ser diferentes.\n"
+                "Sequência fixa: posicionar origem, LEFTDOWN, mover para destino, "
+                "LEFTUP.\n"
+                f"{drag_spec.preview_effect}\n"
+                "Após a confirmação, o THE OS reativará a janela exata, obterá "
+                "localmente a área cliente, converterá sua origem para coordenadas de "
+                "tela, calculará e verificará as duas âncoras, enviará exatamente um "
+                "LEFTDOWN e um LEFTUP e verificará a continuidade de foco. Coordenadas, "
+                "trajeto, duração e botão arbitrários não são aceitos."
+            ),
+            execution_guard={
+                _EXPECTED_DRAG_PID: pid,
+                _EXPECTED_DRAG_TITLE: normalized_title,
+                _EXPECTED_DRAG_TARGET_TOKEN: target_token,
+                _EXPECTED_DRAG_GESTURE: gesture,
+                _EXPECTED_DRAG_SOURCE_ANCHOR: source_anchor,
+                _EXPECTED_DRAG_TARGET_ANCHOR: target_anchor,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        gesture = request.arguments.get("gesture")
+        source_anchor = request.arguments.get("source_anchor")
+        target_anchor = request.arguments.get("target_anchor")
+        drag_spec = get_mouse_drag_spec(gesture)
+        source_spec = get_mouse_anchor_spec(source_anchor)
+        target_spec = get_mouse_anchor_spec(target_anchor)
+        expected_pid = request.arguments.get(_EXPECTED_DRAG_PID)
+        expected_title = request.arguments.get(_EXPECTED_DRAG_TITLE)
+        expected_target_token = request.arguments.get(_EXPECTED_DRAG_TARGET_TOKEN)
+        expected_gesture = request.arguments.get(_EXPECTED_DRAG_GESTURE)
+        expected_source_anchor = request.arguments.get(_EXPECTED_DRAG_SOURCE_ANCHOR)
+        expected_target_anchor = request.arguments.get(_EXPECTED_DRAG_TARGET_ANCHOR)
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or drag_spec is None
+            or source_spec is None
+            or target_spec is None
+            or source_anchor == target_anchor
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_target_token != target_token
+            or expected_gesture != gesture
+            or expected_source_anchor != source_anchor
+            or expected_target_anchor != target_anchor
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O arrasto por âncoras não possui uma prévia local aprovada.",
+                error_code="MOUSE_DRAG_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.drag_window_anchor(
+                pid,
+                title.strip(),
+                target_token,
+                gesture,
+                source_anchor,
+                target_anchor,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_MOUSE_DRAG_BLOCKED": (
+                    "A LYRA bloqueou arrasto na própria janela.",
+                    "SELF_WINDOW_MOUSE_DRAG_BLOCKED",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo; o arrasto foi bloqueado.",
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "MOUSE_DRAG_TARGET_ACTIVATION_NOT_VERIFIED": (
+                    "O Windows não confirmou a janela alvo antes do arrasto.",
+                    "MOUSE_DRAG_TARGET_ACTIVATION_NOT_VERIFIED",
+                ),
+                "MOUSE_DRAG_CLIENT_RECT_INVALID": (
+                    "A área cliente da janela alvo não pôde ser validada.",
+                    "MOUSE_DRAG_CLIENT_RECT_INVALID",
+                ),
+                "MOUSE_DRAG_CLIENT_ORIGIN_NOT_VERIFIED": (
+                    "A origem da área cliente não pôde ser convertida para a tela.",
+                    "MOUSE_DRAG_CLIENT_ORIGIN_NOT_VERIFIED",
+                ),
+                "MOUSE_DRAG_SOURCE_CURSOR_NOT_VERIFIED": (
+                    "O cursor não pôde ser confirmado na âncora de origem.",
+                    "MOUSE_DRAG_SOURCE_CURSOR_NOT_VERIFIED",
+                ),
+                "MOUSE_DRAG_TARGET_CURSOR_NOT_VERIFIED": (
+                    "O cursor não pôde ser confirmado na âncora de destino.",
+                    "MOUSE_DRAG_TARGET_CURSOR_NOT_VERIFIED",
+                ),
+                "MOUSE_DRAG_NOT_ALLOWED": (
+                    "Esse gesto ou par de âncoras não está permitido.",
+                    "MOUSE_DRAG_NOT_ALLOWED",
+                ),
+                "MOUSE_DRAG_BUTTON_DOWN_NOT_ACCEPTED": (
+                    "O Windows não confirmou o LEFTDOWN do arrasto.",
+                    "MOUSE_DRAG_BUTTON_DOWN_NOT_ACCEPTED",
+                ),
+                "MOUSE_DRAG_BUTTON_UP_NOT_ACCEPTED": (
+                    "O Windows não confirmou o LEFTUP do arrasto.",
+                    "MOUSE_DRAG_BUTTON_UP_NOT_ACCEPTED",
+                ),
+                "MOUSE_DRAG_FOREGROUND_CHANGED": (
+                    "O foco mudou durante o arrasto; o resultado não é confiável.",
+                    "MOUSE_DRAG_FOREGROUND_CHANGED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui executar o arrasto limitado.",
+                evidence={"reason": reason},
+                error_code="MOUSE_DRAG_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui executar o arrasto limitado.",
+                evidence={"exception": type(exc).__name__},
+                error_code="MOUSE_DRAG_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Arrasto {gesture} enviado de {source_anchor} para {target_anchor} "
+                f"no alvo: {evidence['title']} (PID {evidence['pid']}); origem, "
+                "destino, LEFTDOWN/LEFTUP e foco verificados, efeito interno não "
+                "inspecionado."
             ),
             evidence=evidence,
         )

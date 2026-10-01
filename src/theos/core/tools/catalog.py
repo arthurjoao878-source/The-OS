@@ -24,6 +24,11 @@ from theos.core.mouse_clicks import (
     build_mouse_click_tool_description,
     is_allowed_mouse_button,
 )
+from theos.core.mouse_drags import (
+    ALLOWED_MOUSE_DRAGS,
+    build_mouse_drag_tool_description,
+    is_allowed_mouse_drag,
+)
 from theos.core.mouse_gestures import (
     ALLOWED_MOUSE_GESTURES,
     build_mouse_double_click_tool_description,
@@ -706,6 +711,63 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="drag_window_anchor",
+            description=build_mouse_drag_tool_description(),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot."
+                        ),
+                    },
+                    "gesture": {
+                        "type": "string",
+                        "enum": list(ALLOWED_MOUSE_DRAGS),
+                        "description": "Gesto de arrasto registrado.",
+                    },
+                    "source_anchor": {
+                        "type": "string",
+                        "enum": list(ALLOWED_MOUSE_ANCHORS),
+                        "description": "Âncora interna registrada de origem.",
+                    },
+                    "target_anchor": {
+                        "type": "string",
+                        "enum": list(ALLOWED_MOUSE_ANCHORS),
+                        "description": "Âncora interna registrada de destino.",
+                    },
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "gesture",
+                    "source_anchor",
+                    "target_anchor",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_mouse_drag_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="scroll_window",
             description=build_mouse_scroll_tool_description(),
             parameters={
@@ -1264,6 +1326,66 @@ def _validate_mouse_double_click_anchor_input(
         "target_token": target_token,
         "gesture": gesture,
         "anchor": anchor,
+    }
+
+
+def _validate_mouse_drag_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {
+        "pid",
+        "title",
+        "target_token",
+        "gesture",
+        "source_anchor",
+        "target_anchor",
+    }:
+        raise ToolValidationError(
+            "drag_window_anchor requires only 'pid', 'title', 'target_token', "
+            "'gesture', 'source_anchor', and 'target_anchor'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    target_token = arguments.get("target_token")
+    gesture = arguments.get("gesture")
+    source_anchor = arguments.get("source_anchor")
+    target_anchor = arguments.get("target_anchor")
+
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+    if not is_window_target_token(target_token):
+        raise ToolValidationError(
+            "target_token must be a 64-character lowercase hex token"
+        )
+    if not is_allowed_mouse_drag(gesture):
+        raise ToolValidationError(
+            "gesture must be one of: " + ", ".join(ALLOWED_MOUSE_DRAGS)
+        )
+    if not is_allowed_mouse_anchor(source_anchor):
+        raise ToolValidationError(
+            "source_anchor must be one of: " + ", ".join(ALLOWED_MOUSE_ANCHORS)
+        )
+    if not is_allowed_mouse_anchor(target_anchor):
+        raise ToolValidationError(
+            "target_anchor must be one of: " + ", ".join(ALLOWED_MOUSE_ANCHORS)
+        )
+    if source_anchor == target_anchor:
+        raise ToolValidationError("source_anchor and target_anchor must differ")
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+        "target_token": target_token,
+        "gesture": gesture,
+        "source_anchor": source_anchor,
+        "target_anchor": target_anchor,
     }
 
 
