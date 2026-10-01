@@ -879,6 +879,235 @@ class DoubleClickWindowAction:
         )
 
 
+_EXPECTED_DOUBLE_CLICK_ANCHOR_PID = "_theos_expected_double_click_anchor_pid"
+_EXPECTED_DOUBLE_CLICK_ANCHOR_TITLE = "_theos_expected_double_click_anchor_title"
+_EXPECTED_DOUBLE_CLICK_ANCHOR_TARGET_TOKEN = (
+    "_theos_expected_double_click_anchor_target_token"
+)
+_EXPECTED_DOUBLE_CLICK_ANCHOR_GESTURE = (
+    "_theos_expected_double_click_anchor_gesture"
+)
+_EXPECTED_DOUBLE_CLICK_ANCHOR_NAME = "_theos_expected_double_click_anchor_name"
+
+
+class DoubleClickWindowAnchorAction:
+    name = "double_click_window_anchor"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        gesture_spec = get_mouse_gesture_spec(request.arguments.get("gesture"))
+        if gesture_spec is None:
+            return ActionRisk.CONFIRM
+        return gesture_spec.risk
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        gesture = request.arguments.get("gesture")
+        anchor = request.arguments.get("anchor")
+        gesture_spec = get_mouse_gesture_spec(gesture)
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or gesture_spec is None
+            or anchor_spec is None
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Duplo clique por âncora bloqueado antes da confirmação: "
+                    "argumentos inválidos."
+                ),
+            )
+
+        normalized_title = title.strip()
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "DUPLO CLIQUE EM ÂNCORA INTERNA\n"
+                f"Janela: {normalized_title}\n"
+                f"PID: {pid}\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                f"Gesto: {gesture} ({gesture_spec.label_pt})\n"
+                f"Âncora: {anchor} ({anchor_spec.label_pt})\n"
+                f"Somente {format_mouse_anchor_allowlist_pt()} estão permitidas "
+                "como âncoras nesta etapa.\n"
+                f"Posição interna fixa: {anchor_spec.x_percent}% da largura e "
+                f"{anchor_spec.y_percent}% da altura da área cliente da janela.\n"
+                "Sequência fixa: quatro eventos LEFT down/up/down/up.\n"
+                "O aplicativo pode interpretar essa sequência conforme o controle sob "
+                "a âncora selecionada; o THE OS verifica apenas posição, eventos e "
+                "foco, sem afirmar reconhecimento semântico de duplo clique.\n"
+                "Após a confirmação, o THE OS reativará somente a janela exata "
+                "aprovada, verificará o primeiro plano, obterá a área cliente, "
+                "converterá sua origem para coordenadas de tela, calculará a âncora "
+                "registrada, posicionará e verificará o cursor, enviará exatamente "
+                "quatro eventos e verificará novamente o foco. Coordenadas, quantidade "
+                "e intervalo arbitrários não são aceitos."
+            ),
+            execution_guard={
+                _EXPECTED_DOUBLE_CLICK_ANCHOR_PID: pid,
+                _EXPECTED_DOUBLE_CLICK_ANCHOR_TITLE: normalized_title,
+                _EXPECTED_DOUBLE_CLICK_ANCHOR_TARGET_TOKEN: target_token,
+                _EXPECTED_DOUBLE_CLICK_ANCHOR_GESTURE: gesture,
+                _EXPECTED_DOUBLE_CLICK_ANCHOR_NAME: anchor,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        gesture = request.arguments.get("gesture")
+        anchor = request.arguments.get("anchor")
+        gesture_spec = get_mouse_gesture_spec(gesture)
+        anchor_spec = get_mouse_anchor_spec(anchor)
+        expected_pid = request.arguments.get(_EXPECTED_DOUBLE_CLICK_ANCHOR_PID)
+        expected_title = request.arguments.get(_EXPECTED_DOUBLE_CLICK_ANCHOR_TITLE)
+        expected_target_token = request.arguments.get(
+            _EXPECTED_DOUBLE_CLICK_ANCHOR_TARGET_TOKEN
+        )
+        expected_gesture = request.arguments.get(
+            _EXPECTED_DOUBLE_CLICK_ANCHOR_GESTURE
+        )
+        expected_anchor = request.arguments.get(_EXPECTED_DOUBLE_CLICK_ANCHOR_NAME)
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or gesture_spec is None
+            or anchor_spec is None
+            or expected_pid != pid
+            or expected_title != title.strip()
+            or expected_target_token != target_token
+            or expected_gesture != gesture
+            or expected_anchor != anchor
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O duplo clique por âncora não possui prévia local aprovada.",
+                error_code="MOUSE_DOUBLE_CLICK_ANCHOR_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._windows.double_click_window_anchor(
+                pid,
+                title.strip(),
+                target_token,
+                gesture,
+                anchor,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_MOUSE_DOUBLE_CLICK_ANCHOR_BLOCKED": (
+                    "A LYRA bloqueou duplo clique por âncora na própria janela.",
+                    "SELF_WINDOW_MOUSE_DOUBLE_CLICK_ANCHOR_BLOCKED",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    (
+                        "Mais de uma janela correspondeu ao alvo opaco; "
+                        "o duplo clique por âncora foi bloqueado."
+                    ),
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "MOUSE_DOUBLE_CLICK_ANCHOR_TARGET_ACTIVATION_NOT_VERIFIED": (
+                    (
+                        "O Windows não confirmou a janela alvo em primeiro plano; "
+                        "o gesto não foi enviado."
+                    ),
+                    "MOUSE_DOUBLE_CLICK_ANCHOR_TARGET_ACTIVATION_NOT_VERIFIED",
+                ),
+                "MOUSE_DOUBLE_CLICK_ANCHOR_CLIENT_RECT_INVALID": (
+                    "A área cliente da janela alvo não pôde ser validada.",
+                    "MOUSE_DOUBLE_CLICK_ANCHOR_CLIENT_RECT_INVALID",
+                ),
+                "MOUSE_DOUBLE_CLICK_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED": (
+                    "A origem da área cliente não pôde ser convertida para a tela.",
+                    "MOUSE_DOUBLE_CLICK_ANCHOR_CLIENT_ORIGIN_NOT_VERIFIED",
+                ),
+                "MOUSE_DOUBLE_CLICK_ANCHOR_CURSOR_POSITION_NOT_VERIFIED": (
+                    "O Windows não confirmou o cursor na âncora registrada.",
+                    "MOUSE_DOUBLE_CLICK_ANCHOR_CURSOR_POSITION_NOT_VERIFIED",
+                ),
+                "MOUSE_DOUBLE_CLICK_ANCHOR_NOT_ALLOWED": (
+                    "Esse gesto ou âncora não está permitido nesta etapa.",
+                    "MOUSE_DOUBLE_CLICK_ANCHOR_NOT_ALLOWED",
+                ),
+                "MOUSE_DOUBLE_CLICK_ANCHOR_NOT_ACCEPTED": (
+                    "O Windows não confirmou o envio completo dos quatro eventos.",
+                    "MOUSE_DOUBLE_CLICK_ANCHOR_NOT_ACCEPTED",
+                ),
+                "MOUSE_DOUBLE_CLICK_ANCHOR_FOREGROUND_CHANGED": (
+                    (
+                        "O foco mudou durante o gesto; não posso confirmar "
+                        "que os eventos permaneceram no alvo."
+                    ),
+                    "MOUSE_DOUBLE_CLICK_ANCHOR_FOREGROUND_CHANGED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar o duplo clique nessa âncora.",
+                evidence={"reason": reason},
+                error_code="MOUSE_DOUBLE_CLICK_ANCHOR_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui enviar o duplo clique nessa âncora.",
+                evidence={"exception": type(exc).__name__},
+                error_code="MOUSE_DOUBLE_CLICK_ANCHOR_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Sequência {gesture} enviada à âncora {anchor} do alvo: "
+                f"{evidence['title']} (PID {evidence['pid']}); posição, quatro eventos "
+                "e foco verificados, reconhecimento semântico não inspecionado."
+            ),
+            evidence=evidence,
+        )
+
+
 _EXPECTED_SCROLL_PID = "_theos_expected_scroll_pid"
 _EXPECTED_SCROLL_TITLE = "_theos_expected_scroll_title"
 _EXPECTED_SCROLL_TARGET_TOKEN = "_theos_expected_scroll_target_token"

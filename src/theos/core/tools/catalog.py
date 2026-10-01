@@ -645,6 +645,67 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="double_click_window_anchor",
+            description=(
+                "Executa DOUBLE_LEFT em uma das quatro âncoras internas registradas "
+                "da área cliente de uma janela visível exata já conhecida por PID, "
+                "título e target_token. Combina somente o gesto DOUBLE_LEFT já "
+                "registrado com UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT ou LOWER_RIGHT. "
+                "A posição é calculada localmente em 25%/75% da área cliente e a "
+                "sequência é sempre LEFT down/up/down/up. Não aceita x/y, botão, "
+                "quantidade de cliques, intervalo ou âncora arbitrários. O THE OS "
+                "verifica geometria, envio dos quatro eventos e foco, mas não afirma "
+                "o reconhecimento semântico do duplo clique."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato da janela visível já identificada.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": (
+                            "Título limitado exato retornado por window_snapshot."
+                        ),
+                    },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": (
+                            "Token opaco exato retornado por window_snapshot."
+                        ),
+                    },
+                    "gesture": {
+                        "type": "string",
+                        "enum": list(ALLOWED_MOUSE_GESTURES),
+                        "description": "Gesto registrado permitido nesta etapa.",
+                    },
+                    "anchor": {
+                        "type": "string",
+                        "enum": list(ALLOWED_MOUSE_ANCHORS),
+                        "description": "Âncora interna registrada da área cliente.",
+                    },
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "gesture",
+                    "anchor",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_mouse_double_click_anchor_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="scroll_window",
             description=build_mouse_scroll_tool_description(),
             parameters={
@@ -1153,6 +1214,56 @@ def _validate_mouse_double_click_input(
         "title": normalized_title,
         "target_token": target_token,
         "gesture": gesture,
+    }
+
+
+def _validate_mouse_double_click_anchor_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {
+        "pid",
+        "title",
+        "target_token",
+        "gesture",
+        "anchor",
+    }:
+        raise ToolValidationError(
+            "double_click_window_anchor requires only 'pid', 'title', "
+            "'target_token', 'gesture', and 'anchor'"
+        )
+
+    pid = arguments.get("pid")
+    title = arguments.get("title")
+    target_token = arguments.get("target_token")
+    gesture = arguments.get("gesture")
+    anchor = arguments.get("anchor")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        raise ToolValidationError("pid must be a positive integer")
+    if not isinstance(title, str) or not title.strip():
+        raise ToolValidationError("title must be a non-blank string")
+
+    normalized_title = title.strip()
+    if len(normalized_title) > 160:
+        raise ToolValidationError("title exceeds the 160-character local limit")
+    if not is_window_target_token(target_token):
+        raise ToolValidationError(
+            "target_token must be a 64-character lowercase hex token"
+        )
+    if not is_allowed_mouse_gesture(gesture):
+        raise ToolValidationError(
+            "gesture must be one of: " + ", ".join(ALLOWED_MOUSE_GESTURES)
+        )
+    if not is_allowed_mouse_anchor(anchor):
+        raise ToolValidationError(
+            "anchor must be one of: " + ", ".join(ALLOWED_MOUSE_ANCHORS)
+        )
+
+    return {
+        "pid": pid,
+        "title": normalized_title,
+        "target_token": target_token,
+        "gesture": gesture,
+        "anchor": anchor,
     }
 
 

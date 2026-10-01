@@ -6,6 +6,7 @@ from theos.core.actions.desktop_windows import (
     ClickWindowAnchorAction,
     CloseWindowAction,
     DoubleClickWindowAction,
+    DoubleClickWindowAnchorAction,
     MaximizeWindowAction,
     MinimizeWindowAction,
     PressKeyAction,
@@ -68,6 +69,7 @@ def build_action_registry() -> ActionRegistry:
     click_window = ClickWindowAction(windows_desktop)
     click_window_anchor = ClickWindowAnchorAction(windows_desktop)
     double_click_window = DoubleClickWindowAction(windows_desktop)
+    double_click_window_anchor = DoubleClickWindowAnchorAction(windows_desktop)
     scroll_window = ScrollWindowAction(windows_desktop)
     press_key = PressKeyAction(windows_desktop)
     press_shortcut = PressShortcutAction(windows_desktop)
@@ -179,6 +181,12 @@ def build_action_registry() -> ActionRegistry:
         double_click_window.execute,
         risk=double_click_window.risk_for,
         confirmation_preview=double_click_window.confirmation_preview,
+    )
+    registry.register(
+        double_click_window_anchor.name,
+        double_click_window_anchor.execute,
+        risk=double_click_window_anchor.risk_for,
+        confirmation_preview=double_click_window_anchor.confirmation_preview,
     )
     registry.register(
         scroll_window.name,
