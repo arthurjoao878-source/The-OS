@@ -16,6 +16,7 @@ from theos.core.keyboard_shortcuts import (
     WINDOW_SHORTCUT_SPECS,
     get_window_shortcut_spec,
 )
+from theos.core.mouse_clicks import ALLOWED_MOUSE_BUTTONS
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_query,
@@ -35,7 +36,14 @@ WINDOW_MAXIMIZE_VERIFY_INTERVAL_SECONDS = 0.05
 WINDOW_RESTORE_VERIFY_TIMEOUT_SECONDS = 0.75
 WINDOW_RESTORE_VERIFY_INTERVAL_SECONDS = 0.05
 MAX_TEXT_INPUT_CHARS = 512
+INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP = 0x0040
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
 VK_BACK = 0x08
@@ -86,6 +94,15 @@ _WINDOW_SHORTCUT_VK_PAIRS = {
     spec.name: (VK_CONTROL, _window_shortcut_primary_vk(spec.primary_key))
     for spec in WINDOW_SHORTCUT_SPECS
 }
+_MOUSE_BUTTON_FLAGS = {
+    "LEFT": (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+    "RIGHT": (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+    "MIDDLE": (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+}
+if set(_MOUSE_BUTTON_FLAGS) != set(ALLOWED_MOUSE_BUTTONS):
+    raise RuntimeError("MOUSE_BUTTON_TRANSPORT_COVERAGE_MISMATCH")
+
+
 SW_MAXIMIZE = 3
 SW_MINIMIZE = 6
 SW_RESTORE = 9
@@ -409,6 +426,266 @@ class WindowsDesktopWindowAdapter:
             "restored_from_minimized": was_minimized,
             "title_match": "pid_bounded_title_and_opaque_token_exact",
         }
+
+    def click_window_center(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+        button: str,
+    ) -> dict[str, object]:
+        if pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_MOUSE_INPUT_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        if button not in ALLOWED_MOUSE_BUTTONS:
+            raise RuntimeError("MOUSE_INPUT_NOT_ALLOWED")
+        down_flag, up_flag = _MOUSE_BUTTON_FLAGS[button]
+
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        user32.EnumWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetWindowTextW.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.IsIconic.restype = wintypes.BOOL
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindow.restype = wintypes.BOOL
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.SetForegroundWindow.restype = wintypes.BOOL
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowRect.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.RECT),
+        ]
+        user32.GetWindowRect.restype = wintypes.BOOL
+        user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        user32.SetCursorPos.restype = wintypes.BOOL
+        user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+        user32.GetCursorPos.restype = wintypes.BOOL
+        user32.SendInput.argtypes = [
+            wintypes.UINT,
+            ctypes.POINTER(_Input),
+            ctypes.c_int,
+        ]
+        user32.SendInput.restype = wintypes.UINT
+
+        matches: list[tuple[int, str]] = []
+
+        def visit_window(hwnd: int, _lparam: int) -> bool:
+            if not user32.IsWindowVisible(hwnd):
+                return True
+
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(
+                hwnd,
+                ctypes.byref(process_id),
+            )
+            if int(process_id.value) != pid:
+                return True
+
+            title_length = int(user32.GetWindowTextLengthW(hwnd))
+            if title_length <= 0:
+                return True
+
+            buffer = ctypes.create_unicode_buffer(title_length + 1)
+            copied = int(
+                user32.GetWindowTextW(
+                    hwnd,
+                    buffer,
+                    title_length + 1,
+                )
+            )
+            if copied <= 0:
+                return True
+
+            full_title = buffer.value.strip()
+            if not full_title:
+                return True
+
+            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
+            if bounded_title != title:
+                return True
+
+            candidate_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
+            if candidate_token == target_token:
+                matches.append((int(hwnd), full_title))
+            return True
+
+        callback = callback_type(visit_window)
+        if not user32.EnumWindows(callback, 0):
+            error_code = ctypes.get_last_error()
+            raise OSError(error_code, "EnumWindows failed")
+
+        if not matches:
+            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
+        if len(matches) != 1:
+            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
+
+        hwnd_value, full_title = matches[0]
+        hwnd = wintypes.HWND(hwnd_value)
+
+        foreground = user32.GetForegroundWindow()
+        already_foreground = bool(foreground and int(foreground) == hwnd_value)
+        was_minimized = bool(user32.IsIconic(hwnd))
+        if was_minimized:
+            user32.ShowWindow(hwnd, SW_RESTORE)
+
+        if not already_foreground:
+            user32.SetForegroundWindow(hwnd)
+
+        deadline = time.monotonic() + FOREGROUND_VERIFY_TIMEOUT_SECONDS
+        foreground_verified_before = False
+        while time.monotonic() <= deadline:
+            current_foreground = user32.GetForegroundWindow()
+            if current_foreground and int(current_foreground) == hwnd_value:
+                foreground_verified_before = True
+                break
+            time.sleep(FOREGROUND_VERIFY_INTERVAL_SECONDS)
+
+        if not foreground_verified_before:
+            raise RuntimeError("MOUSE_INPUT_TARGET_ACTIVATION_NOT_VERIFIED")
+
+        rect = wintypes.RECT()
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            raise RuntimeError("MOUSE_INPUT_WINDOW_RECT_INVALID")
+        if rect.right <= rect.left or rect.bottom <= rect.top:
+            raise RuntimeError("MOUSE_INPUT_WINDOW_RECT_INVALID")
+
+        click_x = int((rect.left + rect.right) // 2)
+        click_y = int((rect.top + rect.bottom) // 2)
+
+        if not user32.SetCursorPos(click_x, click_y):
+            raise RuntimeError("MOUSE_CURSOR_POSITION_NOT_VERIFIED")
+
+        cursor = wintypes.POINT()
+        if not user32.GetCursorPos(ctypes.byref(cursor)):
+            raise RuntimeError("MOUSE_CURSOR_POSITION_NOT_VERIFIED")
+        if int(cursor.x) != click_x or int(cursor.y) != click_y:
+            raise RuntimeError("MOUSE_CURSOR_POSITION_NOT_VERIFIED")
+
+        events = (
+            _Input(
+                type=INPUT_MOUSE,
+                data=_InputUnion(
+                    mi=_MouseInput(
+                        dx=0,
+                        dy=0,
+                        mouseData=0,
+                        dwFlags=down_flag,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                ),
+            ),
+            _Input(
+                type=INPUT_MOUSE,
+                data=_InputUnion(
+                    mi=_MouseInput(
+                        dx=0,
+                        dy=0,
+                        mouseData=0,
+                        dwFlags=up_flag,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                ),
+            ),
+        )
+        event_array_type = _Input * len(events)
+        event_array = event_array_type(*events)
+        submitted = int(
+            user32.SendInput(
+                len(events),
+                event_array,
+                ctypes.sizeof(_Input),
+            )
+        )
+        if submitted != len(events):
+            release_event = _Input(
+                type=INPUT_MOUSE,
+                data=_InputUnion(
+                    mi=_MouseInput(
+                        dx=0,
+                        dy=0,
+                        mouseData=0,
+                        dwFlags=up_flag,
+                        time=0,
+                        dwExtraInfo=0,
+                    )
+                ),
+            )
+            release_array_type = _Input * 1
+            release_array = release_array_type(release_event)
+            user32.SendInput(
+                1,
+                release_array,
+                ctypes.sizeof(_Input),
+            )
+            raise RuntimeError("MOUSE_INPUT_NOT_ACCEPTED")
+
+        foreground_after = user32.GetForegroundWindow()
+        if not foreground_after or int(foreground_after) != hwnd_value:
+            raise RuntimeError("MOUSE_INPUT_FOREGROUND_CHANGED")
+
+        try:
+            process_name = psutil.Process(pid).name()
+        except psutil.Error:
+            process_name = "processo-indisponivel"
+
+        return {
+            "pid": pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "process_name": process_name,
+            "target_token": target_token,
+            "button": button,
+            "position_mode": "window_center",
+            "click_screen_x": click_x,
+            "click_screen_y": click_y,
+            "cursor_position_verified": True,
+            "input_events_submitted": submitted,
+            "foreground_verified_before": True,
+            "foreground_verified_after": True,
+            "target_activation_verified": True,
+            "foreground_reacquired_before_input": not already_foreground,
+            "restored_from_minimized": was_minimized,
+            "input_submission_verified": True,
+            "content_effect_verified": False,
+            "verification": (
+                "window_center_cursor_sendinput_count_and_foreground_only"
+            ),
+            "input_method": f"SendInput_MOUSE_{button}",
+            "button_allowlist": list(ALLOWED_MOUSE_BUTTONS),
+            "title_match": "pid_bounded_title_and_opaque_token_exact",
+        }
+
 
     def press_key(
         self,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from theos.core.actions.desktop_windows import (
     ActivateWindowAction,
+    ClickWindowAction,
     CloseWindowAction,
     MaximizeWindowAction,
     MinimizeWindowAction,
@@ -61,6 +62,7 @@ def build_action_registry() -> ActionRegistry:
     terminate_process = TerminateProcessAction(windows_processes)
     window_snapshot = WindowSnapshotAction(windows_desktop)
     activate_window = ActivateWindowAction(windows_desktop)
+    click_window = ClickWindowAction(windows_desktop)
     press_key = PressKeyAction(windows_desktop)
     press_shortcut = PressShortcutAction(windows_desktop)
     type_text = TypeTextAction(windows_desktop)
@@ -153,6 +155,12 @@ def build_action_registry() -> ActionRegistry:
         activate_window.name,
         activate_window.execute,
         risk=activate_window.risk,
+    )
+    registry.register(
+        click_window.name,
+        click_window.execute,
+        risk=click_window.risk_for,
+        confirmation_preview=click_window.confirmation_preview,
     )
     registry.register(
         press_key.name,
