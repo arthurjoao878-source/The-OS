@@ -40,3 +40,27 @@ def window_target_matches_query(
         needle in bounded_title.casefold()
         or needle in process_name.casefold()
     )
+
+MIN_WINDOW_MULTI_QUERIES = 2
+MAX_WINDOW_MULTI_QUERIES = 4
+
+
+def normalize_window_queries(value: object) -> tuple[str, ...] | None:
+    if not isinstance(value, (list, tuple)):
+        return None
+    if not MIN_WINDOW_MULTI_QUERIES <= len(value) <= MAX_WINDOW_MULTI_QUERIES:
+        return None
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        query = normalize_window_query(item)
+        if query is None:
+            return None
+        folded = query.casefold()
+        if folded in seen:
+            return None
+        seen.add(folded)
+        normalized.append(query)
+
+    return tuple(normalized)

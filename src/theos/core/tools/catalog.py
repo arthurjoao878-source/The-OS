@@ -46,8 +46,11 @@ from theos.core.window_placements import (
     is_allowed_window_placement,
 )
 from theos.core.window_targets import (
+    MAX_WINDOW_MULTI_QUERIES,
     MAX_WINDOW_QUERY_CHARS,
+    MIN_WINDOW_MULTI_QUERIES,
     is_window_target_token,
+    normalize_window_queries,
     normalize_window_query,
 )
 
@@ -395,6 +398,44 @@ def build_default_tool_catalog() -> ToolCatalog:
             },
         ),
         _validate_window_snapshot,
+    )
+
+    catalog.register(
+        ToolDefinition(
+            name="window_snapshot_many",
+            description=(
+                "Inspeciona em uma única coleta confirmada somente janelas visíveis que "
+                "correspondam a 2 até 4 alvos literais conhecidos. Use quando o usuário "
+                "se referir a várias janelas específicas na mesma tarefa, em vez de "
+                "fazer vários window_snapshot separados ou expor um snapshot sem filtro. "
+                "O THE OS enumera as janelas uma vez, aplica localmente correspondência "
+                "case-insensitive por substring contra título limitado ou nome do processo, "
+                "faz a união determinística dos resultados e retorna no máximo 12 janelas "
+                "com título, processo, PID e target_token opaco. Não aceita regex, fuzzy "
+                "match, consultas duplicadas ou menos de dois filtros."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "queries": {
+                        "type": "array",
+                        "minItems": MIN_WINDOW_MULTI_QUERIES,
+                        "maxItems": MAX_WINDOW_MULTI_QUERIES,
+                        "items": {
+                            "type": "string",
+                            "maxLength": MAX_WINDOW_QUERY_CHARS,
+                        },
+                        "description": (
+                            "De 2 a 4 filtros literais distintos para títulos de janela "
+                            "ou nomes de processo."
+                        ),
+                    },
+                },
+                "required": ["queries"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_window_snapshot_many,
     )
     catalog.register(
         ToolDefinition(
@@ -1216,6 +1257,24 @@ def build_default_tool_catalog() -> ToolCatalog:
     return catalog
 
 
+
+
+def _validate_window_snapshot_many(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"queries"}:
+        raise ToolValidationError(
+            "window_snapshot_many requires only 'queries'"
+        )
+
+    normalized_queries = normalize_window_queries(arguments.get("queries"))
+    if normalized_queries is None:
+        raise ToolValidationError(
+            "queries must contain 2 to 4 distinct non-blank literal filters "
+            "within the local per-query limit"
+        )
+
+    return {"queries": list(normalized_queries)}
 def _validate_window_snapshot(
     arguments: Mapping[str, object],
 ) -> dict[str, object]:

@@ -19,6 +19,7 @@ from theos.core.actions.desktop_windows import (
     ScrollWindowAnchorAction,
     TypeTextAction,
     WindowSnapshotAction,
+    WindowSnapshotManyAction,
 )
 from theos.core.actions.file_system import (
     CopyPathAction,
@@ -69,6 +70,7 @@ def build_action_registry() -> ActionRegistry:
     process_snapshot = ProcessSnapshotAction(windows_processes)
     terminate_process = TerminateProcessAction(windows_processes)
     window_snapshot = WindowSnapshotAction(windows_desktop)
+    window_snapshot_many = WindowSnapshotManyAction(windows_desktop)
     activate_window = ActivateWindowAction(windows_desktop)
     move_cursor_window_anchor = MoveCursorWindowAnchorAction(windows_desktop)
     click_window = ClickWindowAction(windows_desktop)
@@ -166,6 +168,12 @@ def build_action_registry() -> ActionRegistry:
         window_snapshot.execute,
         risk=window_snapshot.risk,
         confirmation_preview=window_snapshot.confirmation_preview,
+    )
+    registry.register(
+        window_snapshot_many.name,
+        window_snapshot_many.execute,
+        risk=window_snapshot_many.risk,
+        confirmation_preview=window_snapshot_many.confirmation_preview,
     )
     registry.register(
         activate_window.name,

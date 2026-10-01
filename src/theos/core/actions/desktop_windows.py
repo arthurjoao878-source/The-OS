@@ -33,6 +33,7 @@ from theos.core.mouse_scroll import (
 from theos.core.window_placements import get_window_placement_spec
 from theos.core.window_targets import (
     is_window_target_token,
+    normalize_window_queries,
     normalize_window_query,
 )
 from theos.integrations.windows.desktop_windows import WindowsDesktopWindowAdapter
@@ -155,6 +156,99 @@ class WindowSnapshotAction:
         )
 
 
+
+
+class WindowSnapshotManyAction:
+    name = "window_snapshot_many"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        normalized_queries = normalize_window_queries(
+            request.arguments.get("queries")
+        )
+        if normalized_queries is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Inspeção multi-alvo de janelas bloqueada: filtros locais inválidos.",
+            )
+
+        filters = "; ".join(normalized_queries)
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "INSPECIONAR MÚLTIPLAS JANELAS VISÍVEIS\n"
+                "A LYRA enumerará localmente as janelas de nível superior que estão "
+                "visíveis uma única vez e enviará ao provedor de IA somente as janelas "
+                "que corresponderem a pelo menos um dos filtros literais aprovados.\n"
+                f"Filtros locais solicitados ({len(normalized_queries)}): {filters}\n"
+                "Correspondência: substring determinística sem regex ou fuzzy match, "
+                "aplicada somente ao título limitado ou nome do processo.\n"
+                "Limite global de saída: 12 janelas; títulos são limitados a "
+                "160 caracteres.\n"
+                "Não serão coletados conteúdo interno das janelas, teclas digitadas, "
+                "capturas de tela, caminhos de executáveis, handles brutos ou títulos "
+                "de janelas ocultas."
+            ),
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        normalized_queries = normalize_window_queries(
+            request.arguments.get("queries")
+        )
+        if normalized_queries is None:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Os filtros locais da inspeção multi-alvo são inválidos.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.snapshot_many(normalized_queries)
+        except RuntimeError as exc:
+            reason = str(exc)
+            if reason == "WINDOW_QUERIES_INVALID":
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="Os filtros locais da inspeção multi-alvo são inválidos.",
+                    evidence={"reason": reason},
+                    error_code="ACTION_VALIDATION_FAILED",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui inspecionar as janelas visíveis solicitadas.",
+                evidence={"reason": reason},
+                error_code="WINDOW_SNAPSHOT_MANY_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui inspecionar as janelas visíveis solicitadas.",
+                evidence={"exception": type(exc).__name__},
+                error_code="WINDOW_SNAPSHOT_MANY_FAILED",
+            )
+
+        observed = int(evidence["observed_windows"])
+        matched = int(evidence["matched_windows"])
+        returned = int(evidence["returned_windows"])
+        filter_count = int(evidence["filter_count"])
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Janelas inspecionadas: {observed} visíveis com título; "
+                f"{matched} corresponderam a pelo menos um dos {filter_count} filtros "
+                f"locais; {returned} retornadas."
+            ),
+            evidence=evidence,
+        )
 class ActivateWindowAction:
     name = "activate_window"
     risk = ActionRisk.NORMAL
