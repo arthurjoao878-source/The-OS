@@ -347,7 +347,10 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "não é devolvido. O manifesto Python é revalidado antes e depois do pytest; "
                 "mudança bloqueia a execução ou invalida o resultado. A invocação usa um "
                 "config pytest temporário vazio via -c, rootdir fixo, remove PYTEST_ADDOPTS/"
-                "PYTEST_PLUGINS herdados e desabilita plugin autoload por flag e ambiente."
+                "PYTEST_PLUGINS herdados e desabilita plugin autoload por flag e ambiente. "
+                "Também remove PYTHONPATH/PYTHONHOME e demais PYTHON* herdadas, reintroduzindo "
+                "somente PYTHONDONTWRITEBYTECODE=1, PYTHONNOUSERSITE=1 e PYTHONSAFEPATH=1. "
+                "Esse ambiente reduz import injection herdada, mas não é hermético nem sandbox."
             ),
             parameters={
                 "type": "object",

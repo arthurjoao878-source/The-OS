@@ -312,6 +312,11 @@ class WindowsPythonUnitTestAdapter:
                 "plugin_autoload_enabled": False,
                 "implicit_pytest_config_enabled": False,
                 "ambient_pytest_environment_scrubbed": True,
+                "ambient_python_environment_scrubbed": True,
+                "python_user_site_enabled": False,
+                "python_safe_path_enabled": True,
+                "python_import_environment_is_hermetic": False,
+                "venv_site_packages_may_execute_startup_hooks": True,
                 "controlled_pytest_config_enabled": True,
                 "controlled_pytest_rootdir_enabled": True,
                 "conftest_loading_enabled": False,
@@ -351,10 +356,12 @@ class WindowsPythonUnitTestAdapter:
 
         environment = os.environ.copy()
         for key in tuple(environment):
-            if key.startswith("PYTEST_"):
+            if key.startswith(("PYTEST_", "PYTHON")):
                 environment.pop(key, None)
         environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["PYTHONNOUSERSITE"] = "1"
+        environment["PYTHONSAFEPATH"] = "1"
         environment["NO_COLOR"] = "1"
 
         with tempfile.TemporaryDirectory(prefix="theos-pytest-") as temp_dir:

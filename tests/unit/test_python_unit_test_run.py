@@ -1063,3 +1063,195 @@ def test_catalog_documents_pytest_invocation_isolation_without_schema_change() -
     assert "config pytest temporário vazio" in definition.description
     assert "PYTEST_ADDOPTS" in definition.description
     assert "PYTEST_PLUGINS" in definition.description
+
+def test_run_scrubs_ambient_python_environment_and_sets_controlled_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_python_env.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    captured: dict[str, object] = {}
+
+    ambient = {
+        "PYTHONPATH": r"C:\Injected",
+        "PYTHONHOME": r"C:\WrongPython",
+        "PYTHONINSPECT": "1",
+        "PYTHONWARNINGS": "error",
+        "PYTHONBREAKPOINT": "injected.module:hook",
+        "PYTHONUSERBASE": r"C:\InjectedUserBase",
+        "PYTHONCASEOK": "1",
+        "PYTHONOPTIMIZE": "2",
+    }
+    for key, value in ambient.items():
+        monkeypatch.setenv(key, value)
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        captured["env"] = kwargs["env"]
+        _write_junit(list(command), tests=1, failures=0)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    env = captured["env"]
+    assert evidence["passed"] is True
+    for key in ambient:
+        assert key not in env
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env["PYTHONNOUSERSITE"] == "1"
+    assert env["PYTHONSAFEPATH"] == "1"
+    assert evidence["ambient_python_environment_scrubbed"] is True
+    assert evidence["python_user_site_enabled"] is False
+    assert evidence["python_safe_path_enabled"] is True
+    assert evidence["python_import_environment_is_hermetic"] is False
+
+
+def test_run_preserves_unrelated_environment_while_scrubbing_python_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_env_preserve.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("M78_KEEP_ME", "present")
+    monkeypatch.setenv("PYTHONPATH", r"C:\Injected")
+    monkeypatch.setenv("PYTEST_ADDOPTS", r"C:\Injected\test_extra.py")
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        captured["env"] = kwargs["env"]
+        _write_junit(list(command), tests=1, failures=0)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    env = captured["env"]
+    assert evidence["passed"] is True
+    assert env["M78_KEEP_ME"] == "present"
+    assert "PYTHONPATH" not in env
+    assert "PYTEST_ADDOPTS" not in env
+
+
+def test_run_evidence_marks_python_import_policy_as_non_hermetic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_non_hermetic.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        _ = kwargs
+        _write_junit(list(command), tests=1, failures=0)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    assert evidence["ambient_python_environment_scrubbed"] is True
+    assert evidence["python_user_site_enabled"] is False
+    assert evidence["python_safe_path_enabled"] is True
+    assert evidence["python_import_environment_is_hermetic"] is False
+    assert evidence["venv_site_packages_may_execute_startup_hooks"] is True
+
+
+def test_action_preview_discloses_controlled_python_import_environment(
+    tmp_path: Path,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_preview_python_env.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    action = RunPythonUnitTestFileAction(WindowsPythonUnitTestAdapter(root))
+
+    preview = action.confirmation_preview(
+        ActionRequest(
+            action="run_python_unit_test_file",
+            arguments={"path": str(target)},
+        )
+    )
+
+    assert preview.allowed is True
+    assert "PYTHON* herdadas são removidas" in preview.text
+    assert "PYTHONNOUSERSITE=1" in preview.text
+    assert "PYTHONSAFEPATH=1" in preview.text
+    assert "não torna imports herméticos" in preview.text
+
+
+def test_catalog_documents_controlled_python_import_environment() -> None:
+    catalog = build_default_tool_catalog()
+    definitions = {item.name: item for item in catalog.definitions()}
+    definition = definitions["run_python_unit_test_file"]
+
+    assert len(definitions) == 42
+    assert set(definition.parameters["properties"]) == {"path"}
+    assert set(definition.parameters["required"]) == {"path"}
+    assert definition.parameters["additionalProperties"] is False
+    assert "PYTHONPATH/PYTHONHOME" in definition.description
+    assert "PYTHONNOUSERSITE=1" in definition.description
+    assert "PYTHONSAFEPATH=1" in definition.description
+    assert "não é hermético" in definition.description
