@@ -11,6 +11,8 @@ from theos.core.actions.contracts import (
 from theos.integrations.windows.python_tests import (
     MAX_PROJECT_PYTHON_FILES,
     MAX_PROJECT_PYTHON_TOTAL_BYTES,
+    MAX_PYTEST_PACKAGE_FILES,
+    MAX_PYTEST_PACKAGE_TOTAL_BYTES,
     MAX_PYTEST_VERIFIER_BYTES,
     MAX_PYTHON_UNIT_TEST_FILE_BYTES,
     PYTHON_UNIT_TEST_TIMEOUT_SECONDS,
@@ -24,6 +26,9 @@ _EXPECTED_PROJECT_PYTHON_MANIFEST_SHA256 = (
 )
 _EXPECTED_PYTEST_VERIFIER_PATH = "_expected_pytest_verifier_path"
 _EXPECTED_PYTEST_VERIFIER_SHA256 = "_expected_pytest_verifier_sha256"
+_EXPECTED_PYTEST_PACKAGE_MANIFEST_SHA256 = (
+    "_expected_pytest_package_manifest_sha256"
+)
 
 
 class RunPythonUnitTestFileAction:
@@ -82,6 +87,24 @@ class RunPythonUnitTestFileAction:
             "PYTEST_VERIFIER_UNREADABLE": (
                 "Não foi possível hashear o pytest.exe controlado."
             ),
+            "PYTEST_PACKAGE_ROOT_UNAVAILABLE": (
+                "Os roots pytest/_pytest do venv não estão disponíveis."
+            ),
+            "PYTEST_PACKAGE_LINK_NOT_ALLOWED": (
+                "O estado pytest/_pytest contém link/junction e foi bloqueado."
+            ),
+            "PYTEST_PACKAGE_STATE_UNAVAILABLE": (
+                "Não foi possível hashear o estado pytest/_pytest."
+            ),
+            "PYTEST_PACKAGE_FILE_TOO_LARGE": (
+                "Um arquivo pytest/_pytest excede o limite local."
+            ),
+            "PYTEST_PACKAGE_TOTAL_TOO_LARGE": (
+                "O estado pytest/_pytest excede o limite total local."
+            ),
+            "PYTEST_PACKAGE_FILE_COUNT_EXCEEDED": (
+                "O estado pytest/_pytest excede o limite local de arquivos."
+            ),
         }
         return ConfirmationPreview(
             allowed=False,
@@ -120,6 +143,16 @@ class RunPythonUnitTestFileAction:
         if verifier.get("error") is not None:
             return self._blocked_preview(verifier)
 
+        try:
+            package_state = self._adapter.preview_pytest_package_state()
+        except (OSError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível validar o estado pytest/_pytest.",
+            )
+        if package_state.get("error") is not None:
+            return self._blocked_preview(package_state)
+
         path = str(evidence["path"])
         sha256 = str(evidence["sha256"])
         project_manifest_sha256 = str(
@@ -130,6 +163,15 @@ class RunPythonUnitTestFileAction:
         pytest_verifier_path = str(verifier["pytest_verifier_path"])
         pytest_verifier_sha256 = str(verifier["pytest_verifier_sha256"])
         pytest_verifier_size_bytes = int(verifier["pytest_verifier_size_bytes"])
+        pytest_package_manifest_sha256 = str(
+            package_state["pytest_package_manifest_sha256"]
+        )
+        pytest_package_file_count = int(
+            package_state["pytest_package_file_count"]
+        )
+        pytest_package_total_bytes = int(
+            package_state["pytest_package_total_bytes"]
+        )
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -147,6 +189,13 @@ class RunPythonUnitTestFileAction:
                 f"SHA-256 do pytest.exe: {pytest_verifier_sha256}\n"
                 f"pytest.exe: {pytest_verifier_size_bytes} byte(s); limite de "
                 f"{MAX_PYTEST_VERIFIER_BYTES} byte(s).\n"
+                "Manifesto pytest/_pytest do venv: pytest + _pytest\n"
+                f"Manifesto pytest/_pytest SHA-256: "
+                f"{pytest_package_manifest_sha256}\n"
+                f"Manifesto pytest/_pytest: {pytest_package_file_count} arquivo(s), "
+                f"{pytest_package_total_bytes} byte(s); limites de "
+                f"{MAX_PYTEST_PACKAGE_FILES} arquivo(s) e "
+                f"{MAX_PYTEST_PACKAGE_TOTAL_BYTES} byte(s) totais.\n"
                 f"Timeout: {PYTHON_UNIT_TEST_TIMEOUT_SECONDS:g}s.\n"
                 "RISCO PRIVILEGIADO: pytest executará código Python do arquivo de teste "
                 "e dos módulos que ele importar com as permissões do usuário atual. "
@@ -158,6 +207,8 @@ class RunPythonUnitTestFileAction:
                 "temporário vazio e rootdir fixo; PYTEST_ADDOPTS/PYTEST_PLUGINS herdados removidos. "
                 "Variáveis PYTHON* herdadas são removidas; o child recebe "
                 "PYTHONDONTWRITEBYTECODE=1, PYTHONNOUSERSITE=1 e PYTHONSAFEPATH=1. "
+                "O estado dos roots pytest/_pytest é vinculado à aprovação e "
+                "revalidado antes/depois, mas não é dependency closure do venv. "
                 "Isso não torna imports herméticos: o venv/site-packages continua parte "
                 "da execução privilegiada. stdout/stderr brutos não são enviados ao modelo. Em falha/erro, "
                 "o JUnit temporário pode fornecer até 3 diagnósticos estruturados e "
@@ -171,6 +222,9 @@ class RunPythonUnitTestFileAction:
                 ),
                 _EXPECTED_PYTEST_VERIFIER_PATH: pytest_verifier_path,
                 _EXPECTED_PYTEST_VERIFIER_SHA256: pytest_verifier_sha256,
+                _EXPECTED_PYTEST_PACKAGE_MANIFEST_SHA256: (
+                    pytest_package_manifest_sha256
+                ),
             },
         )
 
@@ -187,6 +241,9 @@ class RunPythonUnitTestFileAction:
         expected_pytest_verifier_sha256 = request.arguments.get(
             _EXPECTED_PYTEST_VERIFIER_SHA256
         )
+        expected_pytest_package_manifest_sha256 = request.arguments.get(
+            _EXPECTED_PYTEST_PACKAGE_MANIFEST_SHA256
+        )
         if (
             not raw_path
             or not isinstance(expected_path, str)
@@ -199,6 +256,8 @@ class RunPythonUnitTestFileAction:
             or not expected_pytest_verifier_path
             or not isinstance(expected_pytest_verifier_sha256, str)
             or len(expected_pytest_verifier_sha256) != 64
+            or not isinstance(expected_pytest_package_manifest_sha256, str)
+            or len(expected_pytest_package_manifest_sha256) != 64
         ):
             return ActionResult(
                 request_id=request.request_id,
@@ -218,6 +277,9 @@ class RunPythonUnitTestFileAction:
                 expected_pytest_verifier_path=expected_pytest_verifier_path,
                 expected_pytest_verifier_sha256=(
                     expected_pytest_verifier_sha256
+                ),
+                expected_pytest_package_manifest_sha256=(
+                    expected_pytest_package_manifest_sha256
                 ),
             )
         except (OSError, ValueError) as exc:
@@ -284,9 +346,34 @@ class RunPythonUnitTestFileAction:
                 "PYTEST_VERIFIER_CHANGED_AFTER_PREVIEW": (
                     "O pytest.exe controlado mudou após a aprovação; execução bloqueada."
                 ),
+                "PYTEST_PACKAGE_ROOT_UNAVAILABLE": (
+                    "Os roots pytest/_pytest deixaram de estar disponíveis."
+                ),
+                "PYTEST_PACKAGE_LINK_NOT_ALLOWED": (
+                    "O estado pytest/_pytest contém link/junction e foi bloqueado."
+                ),
+                "PYTEST_PACKAGE_STATE_UNAVAILABLE": (
+                    "Não foi possível validar o estado pytest/_pytest."
+                ),
+                "PYTEST_PACKAGE_FILE_TOO_LARGE": (
+                    "Um arquivo pytest/_pytest excede o limite do manifesto."
+                ),
+                "PYTEST_PACKAGE_TOTAL_TOO_LARGE": (
+                    "O estado pytest/_pytest excede o limite total do manifesto."
+                ),
+                "PYTEST_PACKAGE_FILE_COUNT_EXCEEDED": (
+                    "O estado pytest/_pytest excede o limite de arquivos."
+                ),
+                "PYTEST_PACKAGE_STATE_CHANGED_AFTER_PREVIEW": (
+                    "O estado pytest/_pytest mudou após a aprovação; "
+                    "pytest não foi iniciado."
+                ),
                 "PYTEST_TIMEOUT": "O teste excedeu o timeout local de 30 segundos.",
                 "PYTEST_VERIFIER_CHANGED_DURING_RUN": (
                     "O pytest.exe controlado mudou durante a execução; resultado descartado."
+                ),
+                "PYTEST_PACKAGE_STATE_CHANGED_DURING_RUN": (
+                    "O estado pytest/_pytest mudou durante a execução; resultado descartado."
                 ),
                 "TEST_TARGET_CHANGED_DURING_RUN": (
                     "O arquivo de teste mudou durante a execução; resultado descartado."

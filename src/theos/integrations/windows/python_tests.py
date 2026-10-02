@@ -20,6 +20,10 @@ MAX_PROJECT_PYTHON_FILES = 256
 MAX_PROJECT_PYTHON_FILE_BYTES = 256 * 1024
 MAX_PROJECT_PYTHON_TOTAL_BYTES = 4 * 1024 * 1024
 MAX_PYTEST_VERIFIER_BYTES = 4 * 1024 * 1024
+PYTEST_PACKAGE_MANIFEST_ROOT_LABELS = ("pytest", "_pytest")
+MAX_PYTEST_PACKAGE_FILES = 512
+MAX_PYTEST_PACKAGE_FILE_BYTES = 2 * 1024 * 1024
+MAX_PYTEST_PACKAGE_TOTAL_BYTES = 16 * 1024 * 1024
 
 
 class WindowsPythonUnitTestAdapter:
@@ -250,6 +254,113 @@ class WindowsPythonUnitTestAdapter:
         return evidence
 
     @staticmethod
+    def _pytest_package_roots() -> tuple[Path, Path]:
+        venv_root = Path(sys.executable).resolve().parent.parent
+        site_packages = venv_root / "Lib" / "site-packages"
+        return site_packages / "pytest", site_packages / "_pytest"
+
+    def preview_pytest_package_state(self) -> dict[str, object]:
+        roots = self._pytest_package_roots()
+        records: list[tuple[str, int, str]] = []
+        total_bytes = 0
+        evidence: dict[str, object] = {
+            "pytest_package_manifest_roots": list(
+                PYTEST_PACKAGE_MANIFEST_ROOT_LABELS
+            ),
+            "max_pytest_package_files": MAX_PYTEST_PACKAGE_FILES,
+            "max_pytest_package_file_bytes": MAX_PYTEST_PACKAGE_FILE_BYTES,
+            "max_pytest_package_total_bytes": MAX_PYTEST_PACKAGE_TOTAL_BYTES,
+            "pytest_package_manifest_entries_returned": False,
+            "pytest_package_content_returned": False,
+        }
+
+        try:
+            for root_label, root in zip(
+                PYTEST_PACKAGE_MANIFEST_ROOT_LABELS,
+                roots,
+                strict=True,
+            ):
+                if not root.exists() or not root.is_dir():
+                    evidence["error"] = "PYTEST_PACKAGE_ROOT_UNAVAILABLE"
+                    return evidence
+                if self._is_link_like(root):
+                    evidence["error"] = "PYTEST_PACKAGE_LINK_NOT_ALLOWED"
+                    return evidence
+
+                for current_raw, dirnames, filenames in os.walk(
+                    root,
+                    topdown=True,
+                    followlinks=False,
+                ):
+                    current = Path(current_raw)
+                    if self._is_link_like(current):
+                        evidence["error"] = "PYTEST_PACKAGE_LINK_NOT_ALLOWED"
+                        return evidence
+
+                    for dirname in tuple(dirnames):
+                        child = current / dirname
+                        if self._is_link_like(child):
+                            evidence["error"] = "PYTEST_PACKAGE_LINK_NOT_ALLOWED"
+                            return evidence
+                    dirnames[:] = sorted(dirnames, key=str.casefold)
+
+                    for filename in sorted(filenames, key=str.casefold):
+                        target = current / filename
+                        if self._is_link_like(target):
+                            evidence["error"] = "PYTEST_PACKAGE_LINK_NOT_ALLOWED"
+                            return evidence
+                        if not target.is_file():
+                            evidence["error"] = "PYTEST_PACKAGE_STATE_UNAVAILABLE"
+                            return evidence
+
+                        payload = target.read_bytes()
+                        size_bytes = len(payload)
+                        if size_bytes > MAX_PYTEST_PACKAGE_FILE_BYTES:
+                            evidence["error"] = "PYTEST_PACKAGE_FILE_TOO_LARGE"
+                            return evidence
+
+                        total_bytes += size_bytes
+                        if total_bytes > MAX_PYTEST_PACKAGE_TOTAL_BYTES:
+                            evidence["error"] = "PYTEST_PACKAGE_TOTAL_TOO_LARGE"
+                            return evidence
+
+                        relative = target.relative_to(root).as_posix()
+                        records.append(
+                            (
+                                f"{root_label}/{relative}",
+                                size_bytes,
+                                hashlib.sha256(payload).hexdigest(),
+                            )
+                        )
+                        if len(records) > MAX_PYTEST_PACKAGE_FILES:
+                            evidence["error"] = (
+                                "PYTEST_PACKAGE_FILE_COUNT_EXCEEDED"
+                            )
+                            return evidence
+        except OSError:
+            evidence["error"] = "PYTEST_PACKAGE_STATE_UNAVAILABLE"
+            return evidence
+
+        records.sort(key=lambda item: item[0].casefold())
+        digest = hashlib.sha256()
+        for relative, size_bytes, sha256 in records:
+            digest.update(relative.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(size_bytes).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(sha256.encode("ascii"))
+            digest.update(b"\n")
+
+        evidence.update(
+            {
+                "pytest_package_manifest_sha256": digest.hexdigest(),
+                "pytest_package_file_count": len(records),
+                "pytest_package_total_bytes": total_bytes,
+            }
+        )
+        return evidence
+
+    @staticmethod
     def _bounded_junit_attribute(
         value: str | None,
         *,
@@ -342,6 +453,7 @@ class WindowsPythonUnitTestAdapter:
         expected_project_python_manifest_sha256: str,
         expected_pytest_verifier_path: str,
         expected_pytest_verifier_sha256: str,
+        expected_pytest_package_manifest_sha256: str,
     ) -> dict[str, object]:
         preview = self.preview_test_target(raw_path)
         evidence = dict(preview)
@@ -350,6 +462,8 @@ class WindowsPythonUnitTestAdapter:
                 "risk_boundary": "PRIVILEGED_TEST_CODE_EXECUTION",
                 "pytest_executable_fixed": True,
                 "pytest_verifier_identity_guard_enabled": True,
+                "pytest_package_state_guard_enabled": True,
+                "pytest_package_state_is_dependency_closure": False,
                 "pytest_arguments_fixed": True,
                 "shell_used": False,
                 "plugin_autoload_enabled": False,
@@ -404,6 +518,19 @@ class WindowsPythonUnitTestAdapter:
             != expected_pytest_verifier_sha256
         ):
             evidence["error"] = "PYTEST_VERIFIER_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        package_state = self.preview_pytest_package_state()
+        package_state_error = package_state.get("error")
+        if isinstance(package_state_error, str):
+            evidence.update(package_state)
+            return evidence
+        evidence.update(package_state)
+        if (
+            evidence.get("pytest_package_manifest_sha256")
+            != expected_pytest_package_manifest_sha256
+        ):
+            evidence["error"] = "PYTEST_PACKAGE_STATE_CHANGED_AFTER_PREVIEW"
             return evidence
 
         pytest_executable = Path(expected_pytest_verifier_path)
@@ -469,9 +596,32 @@ class WindowsPythonUnitTestAdapter:
                         }
                     )
                     return evidence
+                after_package_state = self.preview_pytest_package_state()
+                after_package_error = after_package_state.get("error")
+                if (
+                    isinstance(after_package_error, str)
+                    or after_package_state.get("pytest_package_manifest_sha256")
+                    != expected_pytest_package_manifest_sha256
+                ):
+                    evidence.update(
+                        {
+                            "pytest_package_state_unchanged": False,
+                            "pytest_package_state_after_error": (
+                                after_package_error
+                            ),
+                            "error": "PYTEST_PACKAGE_STATE_CHANGED_DURING_RUN",
+                        }
+                    )
+                    return evidence
                 evidence.update(
                     {
                         "pytest_verifier_unchanged": True,
+                        "pytest_package_state_unchanged": True,
+                        "after_pytest_package_manifest_sha256": (
+                            after_package_state[
+                                "pytest_package_manifest_sha256"
+                            ]
+                        ),
                         "error": "PYTEST_TIMEOUT",
                     }
                 )
@@ -501,6 +651,26 @@ class WindowsPythonUnitTestAdapter:
                 )
                 return evidence
             evidence["pytest_verifier_unchanged"] = True
+
+            after_package_state = self.preview_pytest_package_state()
+            after_package_error = after_package_state.get("error")
+            if (
+                isinstance(after_package_error, str)
+                or after_package_state.get("pytest_package_manifest_sha256")
+                != expected_pytest_package_manifest_sha256
+            ):
+                evidence.update(
+                    {
+                        "pytest_package_state_unchanged": False,
+                        "pytest_package_state_after_error": after_package_error,
+                        "error": "PYTEST_PACKAGE_STATE_CHANGED_DURING_RUN",
+                    }
+                )
+                return evidence
+            evidence["pytest_package_state_unchanged"] = True
+            evidence["after_pytest_package_manifest_sha256"] = (
+                after_package_state["pytest_package_manifest_sha256"]
+            )
 
             try:
                 after_payload = path.read_bytes()
