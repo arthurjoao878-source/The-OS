@@ -73,6 +73,8 @@ MAX_TEXT_LINE_RANGE_LINES = 40
 MAX_LITERAL_REPLACE_TEXT_CHARS = 1024
 MAX_LITERAL_BLOCK_CHARS = 1024
 MAX_LITERAL_BLOCK_LINES = 40
+MIN_PYTHON_STATIC_MANY_PATHS = 2
+MAX_PYTHON_STATIC_MANY_PATHS = 8
 
 _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
     " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
@@ -289,6 +291,42 @@ def build_default_tool_catalog() -> ToolCatalog:
             },
         ),
         _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="check_python_static_many",
+            description=(
+                "Analisa estaticamente uma lista explícita de 2 a 8 arquivos Python com "
+                "um único Ruff controlado. Não aceita diretórios, globs, raízes, flags, "
+                "rule selectors nem comandos do modelo. Cada alvo deve ser .py/.pyw, "
+                "existir, não ser link/junction e ter no máximo 256 KiB; o conjunto é "
+                "limitado a 1 MiB. THE OS usa o mesmo ruff.exe do venv com argv fixo, "
+                "--isolated, --no-cache, --no-fix, py314 e E4,E7,E9,F, sem shell. "
+                "Cada arquivo é hasheado antes/depois e qualquer mudança invalida o "
+                "resultado. No máximo 40 diagnósticos estruturais globais são retornados, "
+                "sem linhas-fonte nem edições de fix."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "minItems": MIN_PYTHON_STATIC_MANY_PATHS,
+                        "maxItems": MAX_PYTHON_STATIC_MANY_PATHS,
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                        },
+                        "description": (
+                            "Lista explícita de 2 a 8 caminhos .py/.pyw a analisar."
+                        ),
+                    }
+                },
+                "required": ["paths"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_python_static_many,
     )
     catalog.register(
         ToolDefinition(
@@ -2370,6 +2408,44 @@ def _validate_single_path(arguments: Mapping[str, object]) -> dict[str, object]:
         raise ToolValidationError("path must be a non-blank string")
 
     return {"path": path.strip()}
+
+
+def _validate_python_static_many(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"paths"}:
+        raise ToolValidationError(
+            "check_python_static_many requires only 'paths'"
+        )
+
+    paths = arguments.get("paths")
+    if not isinstance(paths, list):
+        raise ToolValidationError("paths must be an array")
+    if (
+        len(paths) < MIN_PYTHON_STATIC_MANY_PATHS
+        or len(paths) > MAX_PYTHON_STATIC_MANY_PATHS
+    ):
+        raise ToolValidationError(
+            "paths must contain between "
+            f"{MIN_PYTHON_STATIC_MANY_PATHS} and "
+            f"{MAX_PYTHON_STATIC_MANY_PATHS} items"
+        )
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        if not isinstance(path, str) or not path.strip():
+            raise ToolValidationError(
+                "each paths item must be a non-blank string"
+            )
+        value = path.strip()
+        key = value.casefold()
+        if key in seen:
+            raise ToolValidationError("paths must be distinct")
+        seen.add(key)
+        normalized.append(value)
+
+    return {"paths": normalized}
 
 
 def _validate_read_text_lines(

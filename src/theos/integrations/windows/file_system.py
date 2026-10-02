@@ -47,6 +47,10 @@ MAX_PYTHON_STATIC_MESSAGE_CHARS = 240
 MAX_PYTHON_STATIC_OUTPUT_BYTES = 256 * 1024
 PYTHON_STATIC_TIMEOUT_SECONDS = 5.0
 PYTHON_STATIC_RULES = ("E4", "E7", "E9", "F")
+MIN_PYTHON_STATIC_MANY_FILES = 2
+MAX_PYTHON_STATIC_MANY_FILES = 8
+MAX_PYTHON_STATIC_MANY_TOTAL_BYTES = 1024 * 1024
+MAX_PYTHON_STATIC_MANY_DIAGNOSTICS = 40
 MAX_WRITE_PREVIEW_CHARS = 3500
 MAX_COPY_ENTRIES = 256
 MAX_COPY_BYTES = 64 * 1024 * 1024
@@ -729,6 +733,328 @@ class WindowsFileSystemAdapter:
             code = raw_diagnostic.get("code")
             diagnostics.append(
                 {
+                    "code": code if isinstance(code, str) else None,
+                    "message": message,
+                    "line": location.get("row"),
+                    "column": location.get("column"),
+                    "end_line": end_location.get("row"),
+                    "end_column": end_location.get("column"),
+                    "fix_available": raw_diagnostic.get("fix") is not None,
+                }
+            )
+
+        total_diagnostics = len(raw_diagnostics)
+        evidence.update(
+            {
+                "verifier": "ruff",
+                "lint_clean": total_diagnostics == 0,
+                "total_diagnostics": total_diagnostics,
+                "diagnostics": diagnostics,
+                "diagnostics_truncated": total_diagnostics > max_diagnostics,
+            }
+        )
+        return evidence
+
+    def check_python_static_many(
+        self,
+        raw_paths: list[str],
+        *,
+        max_files: int = MAX_PYTHON_STATIC_MANY_FILES,
+        max_bytes_each: int = MAX_PYTHON_STATIC_FILE_BYTES,
+        max_total_bytes: int = MAX_PYTHON_STATIC_MANY_TOTAL_BYTES,
+        max_diagnostics: int = MAX_PYTHON_STATIC_MANY_DIAGNOSTICS,
+    ) -> dict[str, object]:
+        if (
+            max_files < MIN_PYTHON_STATIC_MANY_FILES
+            or max_files > MAX_PYTHON_STATIC_MANY_FILES
+        ):
+            raise ValueError("invalid max_files")
+        if max_bytes_each < 1 or max_bytes_each > MAX_PYTHON_STATIC_FILE_BYTES:
+            raise ValueError("invalid max_bytes_each")
+        if (
+            max_total_bytes < 1
+            or max_total_bytes > MAX_PYTHON_STATIC_MANY_TOTAL_BYTES
+        ):
+            raise ValueError("invalid max_total_bytes")
+        if (
+            max_diagnostics < 1
+            or max_diagnostics > MAX_PYTHON_STATIC_MANY_DIAGNOSTICS
+        ):
+            raise ValueError("invalid max_diagnostics")
+        if (
+            len(raw_paths) < MIN_PYTHON_STATIC_MANY_FILES
+            or len(raw_paths) > max_files
+        ):
+            raise ValueError("invalid path count")
+
+        evidence: dict[str, object] = {
+            "files_count": len(raw_paths),
+            "min_files": MIN_PYTHON_STATIC_MANY_FILES,
+            "max_files": max_files,
+            "max_bytes_each": max_bytes_each,
+            "max_total_bytes": max_total_bytes,
+            "max_diagnostics": max_diagnostics,
+            "max_output_bytes": MAX_PYTHON_STATIC_OUTPUT_BYTES,
+            "timeout_seconds": PYTHON_STATIC_TIMEOUT_SECONDS,
+            "rules": list(PYTHON_STATIC_RULES),
+            "targets": [],
+            "source_content_returned": False,
+            "target_code_executed": False,
+            "target_imported": False,
+            "target_modified": False,
+            "shell_used": False,
+            "ruff_fix_enabled": False,
+            "ruff_cache_enabled": False,
+            "isolated_mode": True,
+            "diagnostic_is_untrusted_data": True,
+        }
+
+        paths: list[Path] = []
+        targets: list[dict[str, object]] = []
+        normalized_targets: set[str] = set()
+        total_bytes = 0
+
+        for index, raw_path in enumerate(raw_paths):
+            path = self.resolve(raw_path)
+            normalized_key = os.path.normcase(str(path))
+            target: dict[str, object] = {
+                "index": index,
+                "path": str(path),
+                "exists": path.exists(),
+            }
+            targets.append(target)
+
+            if normalized_key in normalized_targets:
+                evidence.update(
+                    {
+                        "targets": targets,
+                        "error": "DUPLICATE_RESOLVED_TARGET",
+                        "error_target_index": index,
+                        "error_target_path": str(path),
+                    }
+                )
+                return evidence
+            normalized_targets.add(normalized_key)
+
+            if not path.exists():
+                evidence.update(
+                    {
+                        "targets": targets,
+                        "error": "TARGET_NOT_FOUND",
+                        "error_target_index": index,
+                        "error_target_path": str(path),
+                    }
+                )
+                return evidence
+
+            target["is_file"] = path.is_file()
+            if not path.is_file():
+                evidence.update(
+                    {
+                        "targets": targets,
+                        "error": "TARGET_NOT_FILE",
+                        "error_target_index": index,
+                        "error_target_path": str(path),
+                    }
+                )
+                return evidence
+
+            if self._is_link_like(path):
+                evidence.update(
+                    {
+                        "targets": targets,
+                        "error": "LINK_TARGET_NOT_ALLOWED",
+                        "error_target_index": index,
+                        "error_target_path": str(path),
+                    }
+                )
+                return evidence
+
+            suffix = path.suffix.casefold()
+            target["suffix"] = suffix
+            if suffix not in PYTHON_SYNTAX_SUFFIXES:
+                evidence.update(
+                    {
+                        "targets": targets,
+                        "error": "PYTHON_SOURCE_SUFFIX_REQUIRED",
+                        "error_target_index": index,
+                        "error_target_path": str(path),
+                    }
+                )
+                return evidence
+
+            size_bytes = path.stat().st_size
+            target["size_bytes"] = size_bytes
+            if size_bytes > max_bytes_each:
+                evidence.update(
+                    {
+                        "targets": targets,
+                        "error": "FILE_TOO_LARGE",
+                        "error_target_index": index,
+                        "error_target_path": str(path),
+                    }
+                )
+                return evidence
+
+            total_bytes += size_bytes
+            paths.append(path)
+
+        evidence["targets"] = targets
+        evidence["total_bytes"] = total_bytes
+        if total_bytes > max_total_bytes:
+            evidence["error"] = "TOTAL_BYTES_TOO_LARGE"
+            return evidence
+
+        for path, target in zip(paths, targets, strict=True):
+            before_bytes = path.read_bytes()
+            target["before_sha256"] = hashlib.sha256(before_bytes).hexdigest()
+            target["bytes_read_for_guard"] = len(before_bytes)
+
+        python_executable = Path(sys.executable).resolve()
+        ruff_executable = python_executable.with_name("ruff.exe")
+        if not ruff_executable.is_file():
+            evidence["error"] = "RUFF_VERIFIER_NOT_AVAILABLE"
+            return evidence
+
+        command = [
+            str(ruff_executable),
+            "check",
+            "--isolated",
+            "--no-cache",
+            "--no-fix",
+            "--output-format=json",
+            "--target-version=py314",
+            "--select=E4,E7,E9,F",
+            *[str(path) for path in paths],
+        ]
+        environment = os.environ.copy()
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["NO_COLOR"] = "1"
+
+        try:
+            completed = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                check=False,
+                shell=False,
+                timeout=PYTHON_STATIC_TIMEOUT_SECONDS,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired:
+            any_changed = False
+            for path, target in zip(paths, targets, strict=True):
+                try:
+                    after_bytes = path.read_bytes()
+                    after_sha256 = hashlib.sha256(after_bytes).hexdigest()
+                except OSError:
+                    after_sha256 = None
+                target["after_sha256"] = after_sha256
+                unchanged = after_sha256 == target["before_sha256"]
+                target["target_unchanged"] = unchanged
+                any_changed = any_changed or not unchanged
+
+            evidence.update(
+                {
+                    "all_targets_unchanged": not any_changed,
+                    "target_modified": any_changed,
+                    "error": "RUFF_VERIFIER_TIMEOUT",
+                }
+            )
+            return evidence
+
+        any_changed = False
+        for path, target in zip(paths, targets, strict=True):
+            try:
+                after_bytes = path.read_bytes()
+                after_sha256 = hashlib.sha256(after_bytes).hexdigest()
+            except OSError:
+                after_sha256 = None
+            target["after_sha256"] = after_sha256
+            unchanged = after_sha256 == target["before_sha256"]
+            target["target_unchanged"] = unchanged
+            any_changed = any_changed or not unchanged
+
+        evidence.update(
+            {
+                "all_targets_unchanged": not any_changed,
+                "target_modified": any_changed,
+                "verifier_exit_code": completed.returncode,
+                "stdout_bytes": len(completed.stdout),
+                "stderr_bytes": len(completed.stderr),
+            }
+        )
+        if any_changed:
+            evidence["error"] = "TARGET_CHANGED_DURING_STATIC_CHECK"
+            return evidence
+
+        if (
+            len(completed.stdout) > MAX_PYTHON_STATIC_OUTPUT_BYTES
+            or len(completed.stderr) > MAX_PYTHON_STATIC_OUTPUT_BYTES
+        ):
+            evidence["error"] = "RUFF_VERIFIER_OUTPUT_TOO_LARGE"
+            return evidence
+
+        if completed.returncode not in {0, 1}:
+            stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+            if len(stderr) > MAX_PYTHON_STATIC_MESSAGE_CHARS:
+                stderr = stderr[: MAX_PYTHON_STATIC_MESSAGE_CHARS - 1] + "…"
+            evidence.update(
+                {
+                    "error": "RUFF_VERIFIER_FAILED",
+                    "verifier_error": stderr or None,
+                }
+            )
+            return evidence
+
+        try:
+            raw_diagnostics = json.loads(completed.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+            return evidence
+
+        if not isinstance(raw_diagnostics, list):
+            evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+            return evidence
+
+        allowed_paths = {
+            os.path.normcase(str(path)): str(path)
+            for path in paths
+        }
+        diagnostics: list[dict[str, object]] = []
+        for raw_diagnostic in raw_diagnostics[:max_diagnostics]:
+            if not isinstance(raw_diagnostic, dict):
+                evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+                return evidence
+
+            location = raw_diagnostic.get("location")
+            end_location = raw_diagnostic.get("end_location")
+            filename = raw_diagnostic.get("filename")
+            message = raw_diagnostic.get("message")
+            if (
+                not isinstance(location, dict)
+                or not isinstance(end_location, dict)
+                or not isinstance(filename, str)
+                or not isinstance(message, str)
+            ):
+                evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+                return evidence
+
+            resolved_filename = Path(filename).resolve(strict=False)
+            mapped_path = allowed_paths.get(
+                os.path.normcase(str(resolved_filename))
+            )
+            if mapped_path is None:
+                evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+                return evidence
+
+            if len(message) > MAX_PYTHON_STATIC_MESSAGE_CHARS:
+                message = message[: MAX_PYTHON_STATIC_MESSAGE_CHARS - 1] + "…"
+
+            code = raw_diagnostic.get("code")
+            diagnostics.append(
+                {
+                    "path": mapped_path,
                     "code": code if isinstance(code, str) else None,
                     "message": message,
                     "line": location.get("row"),

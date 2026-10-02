@@ -458,6 +458,10 @@ class ToolLoopExecutor:
         if request.action == "check_python_static":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Analisando Python estaticamente em {target}..."
+        if request.action == "check_python_static_many":
+            paths = request.arguments.get("paths", [])
+            count = len(paths) if isinstance(paths, list) else 0
+            return f"Analisando estaticamente {count} arquivos Python..."
         if request.action == "search_text":
             query = str(request.arguments.get("query", "texto"))
             root = str(request.arguments.get("root", "pasta"))

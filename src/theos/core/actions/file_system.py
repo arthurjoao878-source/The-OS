@@ -12,6 +12,9 @@ from theos.core.actions.contracts import (
 from theos.integrations.windows.file_system import (
     MAX_PYTHON_STATIC_DIAGNOSTICS,
     MAX_PYTHON_STATIC_FILE_BYTES,
+    MAX_PYTHON_STATIC_MANY_DIAGNOSTICS,
+    MAX_PYTHON_STATIC_MANY_FILES,
+    MAX_PYTHON_STATIC_MANY_TOTAL_BYTES,
     MAX_PYTHON_SYNTAX_FILE_BYTES,
     MAX_TEXT_SEARCH_BYTES_PER_FILE,
     MAX_TEXT_SEARCH_DEPTH,
@@ -19,6 +22,7 @@ from theos.integrations.windows.file_system import (
     MAX_TEXT_SEARCH_RESULTS,
     MAX_TEXT_SEARCH_SNIPPET_CHARS,
     MAX_TEXT_SEARCH_TOTAL_BYTES,
+    MIN_PYTHON_STATIC_MANY_FILES,
     PYTHON_STATIC_TIMEOUT_SECONDS,
     WindowsFileSystemAdapter,
 )
@@ -587,6 +591,164 @@ class CheckPythonStaticAction:
             message = (
                 f"Análise estática concluída em {resolved.name or resolved}: "
                 f"{count} diagnóstico(s)."
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=message,
+            evidence=evidence,
+        )
+
+
+class CheckPythonStaticManyAction:
+    name = "check_python_static_many"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_paths = request.arguments.get("paths")
+        if not isinstance(raw_paths, list) or not raw_paths:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: lista de caminhos inválida.",
+            )
+
+        path_lines = "\n".join(
+            f"- {path!s}"
+            for path in raw_paths
+        )
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "VERIFICAR VÁRIOS ARQUIVOS PYTHON ESTATICAMENTE COM RUFF\n"
+                f"Arquivos ({len(raw_paths)}):\n{path_lines}\n"
+                "O conteúdo só será lido após esta confirmação. O batch aceita de "
+                f"{MIN_PYTHON_STATIC_MANY_FILES} a {MAX_PYTHON_STATIC_MANY_FILES} "
+                "arquivos .py/.pyw explícitos, até "
+                f"{MAX_PYTHON_STATIC_FILE_BYTES} byte(s) por arquivo e "
+                f"{MAX_PYTHON_STATIC_MANY_TOTAL_BYTES} byte(s) no total.\n"
+                "THE OS inicia um único Ruff irmão do Python do venv, com argv fixo, "
+                "sem shell, --isolated, --no-cache e --no-fix. Regras: E4,E7,E9,F; "
+                f"target py314; timeout {PYTHON_STATIC_TIMEOUT_SECONDS:g}s.\n"
+                "Cada alvo recebe SHA-256 antes/depois. No máximo "
+                f"{MAX_PYTHON_STATIC_MANY_DIAGNOSTICS} diagnósticos estruturais "
+                "globais são retornados; linhas-fonte e edições de fix não são expostas."
+            ),
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_paths = request.arguments.get("paths")
+        if not isinstance(raw_paths, list) or not all(
+            isinstance(path, str) and path.strip()
+            for path in raw_paths
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A lista explícita de arquivos Python é obrigatória.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.check_python_static_many(raw_paths)
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui executar a análise estática Python em batch.",
+                evidence={"exception": type(exc).__name__},
+                error_code="PYTHON_STATIC_MANY_FAILED",
+            )
+
+        error = evidence.get("error")
+        error_map = {
+            "DUPLICATE_RESOLVED_TARGET": (
+                "Dois caminhos do batch resolvem para o mesmo arquivo; a análise foi bloqueada.",
+                "DUPLICATE_RESOLVED_TARGET",
+            ),
+            "TARGET_NOT_FOUND": (
+                "Um dos arquivos do batch não foi encontrado.",
+                "PATH_NOT_FOUND",
+            ),
+            "TARGET_NOT_FILE": (
+                "Um dos caminhos do batch não é um arquivo.",
+                "PATH_NOT_FILE",
+            ),
+            "LINK_TARGET_NOT_ALLOWED": (
+                "Links e junctions não são aceitos no batch de análise estática.",
+                "LINK_TARGET_NOT_ALLOWED",
+            ),
+            "PYTHON_SOURCE_SUFFIX_REQUIRED": (
+                "O batch aceita somente arquivos .py ou .pyw.",
+                "PYTHON_SOURCE_SUFFIX_REQUIRED",
+            ),
+            "FILE_TOO_LARGE": (
+                "Um arquivo do batch excede o limite local por arquivo.",
+                "FILE_TOO_LARGE",
+            ),
+            "TOTAL_BYTES_TOO_LARGE": (
+                "O conjunto de arquivos excede o limite total local do batch.",
+                "TOTAL_BYTES_TOO_LARGE",
+            ),
+            "RUFF_VERIFIER_NOT_AVAILABLE": (
+                "O Ruff controlado do ambiente THE OS não está disponível.",
+                "RUFF_VERIFIER_NOT_AVAILABLE",
+            ),
+            "RUFF_VERIFIER_TIMEOUT": (
+                "O Ruff excedeu o tempo local permitido para o batch.",
+                "RUFF_VERIFIER_TIMEOUT",
+            ),
+            "RUFF_VERIFIER_OUTPUT_TOO_LARGE": (
+                "A saída do Ruff excedeu o limite local permitido.",
+                "RUFF_VERIFIER_OUTPUT_TOO_LARGE",
+            ),
+            "RUFF_VERIFIER_FAILED": (
+                "O processo Ruff controlado falhou.",
+                "RUFF_VERIFIER_FAILED",
+            ),
+            "RUFF_VERIFIER_PROTOCOL_INVALID": (
+                "O Ruff retornou um formato que THE OS não reconheceu.",
+                "RUFF_VERIFIER_PROTOCOL_INVALID",
+            ),
+            "TARGET_CHANGED_DURING_STATIC_CHECK": (
+                "Um ou mais arquivos mudaram durante a análise; o resultado foi descartado.",
+                "TARGET_CHANGED_DURING_STATIC_CHECK",
+            ),
+        }
+        if isinstance(error, str):
+            mapped = error_map.get(error)
+            if mapped is None:
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="A análise estática Python em batch falhou de forma não reconhecida.",
+                    evidence=evidence,
+                    error_code="PYTHON_STATIC_MANY_FAILED",
+                )
+            message, error_code = mapped
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=message,
+                evidence=evidence,
+                error_code=error_code,
+            )
+
+        count = evidence.get("files_count")
+        files_count = count if isinstance(count, int) else len(raw_paths)
+        total = evidence.get("total_diagnostics")
+        diagnostic_count = total if isinstance(total, int) else 0
+        if bool(evidence.get("lint_clean")):
+            message = (
+                f"Análise estática Python em batch limpa em {files_count} arquivo(s)."
+            )
+        else:
+            message = (
+                f"Análise estática Python em batch concluída em {files_count} arquivo(s): "
+                f"{diagnostic_count} diagnóstico(s)."
             )
 
         return ActionResult(
