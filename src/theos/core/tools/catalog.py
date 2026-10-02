@@ -330,6 +330,38 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="run_python_unit_test_file",
+            description=(
+                "Executa de forma PRIVILEGED um único arquivo de teste unitário Python "
+                "explícito do checkout atual. Aceita somente tests/unit/test_*.py existente, "
+                "não-link e de até 256 KiB. A prévia local calcula SHA-256 do conteúdo e "
+                "a aprovação fica vinculada ao caminho resolvido e a esse hash. pytest "
+                "executa código Python e imports com as permissões atuais; THE OS não "
+                "fornece sandbox. Após aprovação usa somente o pytest.exe do mesmo venv, "
+                "sem shell e com argv fixo para um único arquivo, maxfail=1, sem traceback "
+                "textual, sem conftest, sem plugin autoload, sem cacheprovider e sem bytecode, "
+                "com timeout de 30s. stdout/stderr não são devolvidos ao modelo; somente "
+                "contagens estruturadas de um JUnit temporário e o status pass/fail."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Caminho explícito para um único tests/unit/test_*.py "
+                            "do checkout atual."
+                        ),
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
             name="open_path",
             description=(
                 "Pede ao Windows para abrir um arquivo ou pasta local existente. "

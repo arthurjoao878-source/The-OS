@@ -462,6 +462,9 @@ class ToolLoopExecutor:
             paths = request.arguments.get("paths", [])
             count = len(paths) if isinstance(paths, list) else 0
             return f"Analisando estaticamente {count} arquivos Python..."
+        if request.action == "run_python_unit_test_file":
+            target = str(request.arguments.get("path", "arquivo"))
+            return f"Executando teste unitário Python {target}..."
         if request.action == "search_text":
             query = str(request.arguments.get("query", "texto"))
             root = str(request.arguments.get("root", "pasta"))

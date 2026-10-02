@@ -1,0 +1,291 @@
+from __future__ import annotations
+
+import hashlib
+import os
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+MAX_PYTHON_UNIT_TEST_FILE_BYTES = 256 * 1024
+MAX_PYTEST_JUNIT_BYTES = 256 * 1024
+PYTHON_UNIT_TEST_TIMEOUT_SECONDS = 30.0
+
+
+class WindowsPythonUnitTestAdapter:
+    def __init__(self, project_root: Path) -> None:
+        self._project_root = project_root.resolve(strict=True)
+        self._tests_unit_root = (self._project_root / "tests" / "unit").resolve(
+            strict=True
+        )
+
+    @property
+    def project_root(self) -> Path:
+        return self._project_root
+
+    @staticmethod
+    def _is_link_like(path: Path) -> bool:
+        if path.is_symlink():
+            return True
+        isjunction = getattr(os.path, "isjunction", None)
+        return bool(isjunction(path)) if callable(isjunction) else False
+
+    def _resolve_explicit_unit_test(
+        self,
+        raw_path: str,
+    ) -> tuple[Path | None, str | None]:
+        normalized = raw_path.strip()
+        if not normalized:
+            return None, "PATH_REQUIRED"
+
+        candidate = Path(normalized)
+        if not candidate.is_absolute():
+            candidate = self._project_root / candidate
+        lexical = Path(os.path.abspath(candidate))
+
+        try:
+            lexical.relative_to(self._tests_unit_root)
+        except ValueError:
+            return None, "TEST_TARGET_OUTSIDE_UNIT_ROOT"
+
+        current = lexical
+        while True:
+            if current.exists() and self._is_link_like(current):
+                return None, "LINK_TARGET_NOT_ALLOWED"
+            if current == self._tests_unit_root:
+                break
+            if self._tests_unit_root not in current.parents:
+                return None, "TEST_TARGET_OUTSIDE_UNIT_ROOT"
+            current = current.parent
+
+        try:
+            resolved = lexical.resolve(strict=True)
+        except FileNotFoundError:
+            return lexical, "PATH_NOT_FOUND"
+
+        try:
+            resolved.relative_to(self._tests_unit_root)
+        except ValueError:
+            return None, "TEST_TARGET_OUTSIDE_UNIT_ROOT"
+
+        if not resolved.is_file():
+            return resolved, "PATH_NOT_FILE"
+        if resolved.suffix.casefold() != ".py" or not resolved.name.startswith("test_"):
+            return resolved, "UNIT_TEST_FILE_REQUIRED"
+
+        return resolved, None
+
+    def preview_test_target(self, raw_path: str) -> dict[str, object]:
+        path, error = self._resolve_explicit_unit_test(raw_path)
+        evidence: dict[str, object] = {
+            "project_root": str(self._project_root),
+            "tests_unit_root": str(self._tests_unit_root),
+            "max_file_bytes": MAX_PYTHON_UNIT_TEST_FILE_BYTES,
+            "pytest_timeout_seconds": PYTHON_UNIT_TEST_TIMEOUT_SECONDS,
+            "source_content_returned": False,
+            "test_code_executed": False,
+            "sandboxed": False,
+            "external_side_effects_not_contained": True,
+        }
+        if path is not None:
+            evidence["path"] = str(path)
+        if error is not None:
+            evidence["error"] = error
+            return evidence
+
+        assert path is not None
+        size_bytes = path.stat().st_size
+        evidence["size_bytes"] = size_bytes
+        if size_bytes > MAX_PYTHON_UNIT_TEST_FILE_BYTES:
+            evidence["error"] = "FILE_TOO_LARGE"
+            return evidence
+
+        payload = path.read_bytes()
+        evidence.update(
+            {
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes_hashed": len(payload),
+                "hash_only_preflight": True,
+            }
+        )
+        return evidence
+
+    @staticmethod
+    def _pytest_executable() -> Path:
+        return Path(sys.executable).resolve().with_name("pytest.exe")
+
+    @staticmethod
+    def _parse_junit_summary(report: Path) -> dict[str, int]:
+        root = ET.parse(report).getroot()
+        suites = []
+        if root.tag.rsplit("}", 1)[-1] == "testsuite":
+            suites = [root]
+        else:
+            suites = [
+                element
+                for element in root
+                if element.tag.rsplit("}", 1)[-1] == "testsuite"
+            ]
+        if not suites:
+            raise ValueError("missing testsuite")
+
+        totals = {
+            "tests": 0,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+        }
+        for suite in suites:
+            for key in totals:
+                raw_value = suite.attrib.get(key, "0")
+                value = int(raw_value)
+                if value < 0:
+                    raise ValueError("negative junit count")
+                totals[key] += value
+        return totals
+
+    def run_test_file(
+        self,
+        raw_path: str,
+        *,
+        expected_path: str,
+        expected_sha256: str,
+    ) -> dict[str, object]:
+        preview = self.preview_test_target(raw_path)
+        evidence = dict(preview)
+        evidence.update(
+            {
+                "risk_boundary": "PRIVILEGED_TEST_CODE_EXECUTION",
+                "pytest_executable_fixed": True,
+                "pytest_arguments_fixed": True,
+                "shell_used": False,
+                "plugin_autoload_enabled": False,
+                "conftest_loading_enabled": False,
+                "pytest_cache_enabled": False,
+                "bytecode_write_enabled": False,
+                "raw_pytest_output_returned": False,
+                "junit_structural_summary_only": True,
+                "test_code_executed": False,
+                "project_imports_may_execute": True,
+                "sandboxed": False,
+                "external_side_effects_not_contained": True,
+            }
+        )
+        if evidence.get("error") is not None:
+            return evidence
+
+        path = Path(str(evidence["path"]))
+        if str(path) != expected_path or evidence.get("sha256") != expected_sha256:
+            evidence["error"] = "TEST_TARGET_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        pytest_executable = self._pytest_executable()
+        if not pytest_executable.is_file():
+            evidence["error"] = "PYTEST_VERIFIER_NOT_AVAILABLE"
+            return evidence
+
+        environment = os.environ.copy()
+        environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["NO_COLOR"] = "1"
+
+        with tempfile.TemporaryDirectory(prefix="theos-pytest-") as temp_dir:
+            report = Path(temp_dir) / "junit.xml"
+            command = [
+                str(pytest_executable),
+                "-q",
+                "--disable-warnings",
+                "--maxfail=1",
+                "--tb=no",
+                "--noconftest",
+                "-p",
+                "no:cacheprovider",
+                f"--junitxml={report}",
+                str(path),
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=self._project_root,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                    shell=False,
+                    timeout=PYTHON_UNIT_TEST_TIMEOUT_SECONDS,
+                    env=environment,
+                )
+            except subprocess.TimeoutExpired:
+                evidence.update(
+                    {
+                        "test_code_executed": True,
+                        "error": "PYTEST_TIMEOUT",
+                    }
+                )
+                return evidence
+
+            evidence.update(
+                {
+                    "test_code_executed": True,
+                    "pytest_exit_code": completed.returncode,
+                }
+            )
+
+            try:
+                after_payload = path.read_bytes()
+            except OSError:
+                evidence.update(
+                    {
+                        "target_unchanged": False,
+                        "error": "TEST_TARGET_CHANGED_DURING_RUN",
+                    }
+                )
+                return evidence
+
+            after_sha256 = hashlib.sha256(after_payload).hexdigest()
+            evidence["after_sha256"] = after_sha256
+            evidence["target_unchanged"] = after_sha256 == expected_sha256
+            if after_sha256 != expected_sha256:
+                evidence["error"] = "TEST_TARGET_CHANGED_DURING_RUN"
+                return evidence
+
+            if completed.returncode not in {0, 1, 5}:
+                evidence["error"] = "PYTEST_PROCESS_FAILED"
+                return evidence
+
+            if not report.is_file():
+                evidence["error"] = "PYTEST_REPORT_MISSING"
+                return evidence
+            report_size = report.stat().st_size
+            evidence["junit_report_bytes"] = report_size
+            if report_size > MAX_PYTEST_JUNIT_BYTES:
+                evidence["error"] = "PYTEST_REPORT_TOO_LARGE"
+                return evidence
+
+            try:
+                summary = self._parse_junit_summary(report)
+            except (ET.ParseError, OSError, ValueError):
+                evidence["error"] = "PYTEST_REPORT_INVALID"
+                return evidence
+
+        tests_run = summary["tests"]
+        failures = summary["failures"]
+        errors = summary["errors"]
+        skipped = summary["skipped"]
+        evidence.update(
+            {
+                "tests_run": tests_run,
+                "failures": failures,
+                "errors": errors,
+                "skipped": skipped,
+                "passed": (
+                    completed.returncode == 0
+                    and tests_run > 0
+                    and failures == 0
+                    and errors == 0
+                ),
+                "no_tests_collected": completed.returncode == 5 or tests_run == 0,
+            }
+        )
+        return evidence

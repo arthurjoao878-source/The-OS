@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from theos.core.actions.desktop_windows import (
     ActivateWindowAction,
     ClickWindowAction,
@@ -43,6 +45,7 @@ from theos.core.actions.file_system import (
 )
 from theos.core.actions.open_application import OpenApplicationAction
 from theos.core.actions.processes import ProcessSnapshotAction, TerminateProcessAction
+from theos.core.actions.python_tests import RunPythonUnitTestFileAction
 from theos.core.actions.registry import ActionRegistry
 from theos.core.actions.system_status import SystemStatusAction
 from theos.core.applications.registry import ApplicationRegistry
@@ -53,6 +56,7 @@ from theos.integrations.windows.applications import WindowsApplicationAdapter
 from theos.integrations.windows.desktop_windows import WindowsDesktopWindowAdapter
 from theos.integrations.windows.file_system import WindowsFileSystemAdapter
 from theos.integrations.windows.processes import WindowsProcessAdapter
+from theos.integrations.windows.python_tests import WindowsPythonUnitTestAdapter
 from theos.integrations.windows.system_status import WindowsSystemStatusAdapter
 from theos.lyra.memory.service import MemoryService
 from theos.lyra.memory.sqlite_store import SQLiteMemoryStore
@@ -64,6 +68,9 @@ def build_action_registry() -> ActionRegistry:
     windows_desktop = WindowsDesktopWindowAdapter()
     windows_files = WindowsFileSystemAdapter()
     windows_processes = WindowsProcessAdapter()
+    python_tests = WindowsPythonUnitTestAdapter(
+        Path(__file__).resolve().parents[2]
+    )
     windows_system = WindowsSystemStatusAdapter()
 
     open_application = OpenApplicationAction(applications, windows_applications)
@@ -71,6 +78,7 @@ def build_action_registry() -> ActionRegistry:
     check_python_syntax = CheckPythonSyntaxAction(windows_files)
     check_python_static = CheckPythonStaticAction(windows_files)
     check_python_static_many = CheckPythonStaticManyAction(windows_files)
+    run_python_unit_test_file = RunPythonUnitTestFileAction(python_tests)
     find_path = FindPathAction(windows_files)
     open_path = OpenPathAction(windows_files)
     read_text_file = ReadTextFileAction(windows_files)
@@ -136,6 +144,12 @@ def build_action_registry() -> ActionRegistry:
         check_python_static_many.execute,
         risk=check_python_static_many.risk,
         confirmation_preview=check_python_static_many.confirmation_preview,
+    )
+    registry.register(
+        run_python_unit_test_file.name,
+        run_python_unit_test_file.execute,
+        risk=run_python_unit_test_file.risk,
+        confirmation_preview=run_python_unit_test_file.confirmation_preview,
     )
     registry.register(
         find_path.name,
