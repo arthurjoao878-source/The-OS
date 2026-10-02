@@ -28,6 +28,8 @@ MAX_TEXT_LINE_RANGE_LINES = 40
 MAX_TEXT_LINE_RANGE_SCAN_BYTES = 256 * 1024
 MAX_TEXT_LINE_RANGE_OUTPUT_BYTES = 16 * 1024
 MAX_WRITE_BYTES = 16 * 1024
+MAX_LITERAL_REPLACE_FILE_BYTES = 256 * 1024
+MAX_LITERAL_REPLACE_TEXT_CHARS = 1024
 MAX_WRITE_PREVIEW_CHARS = 3500
 MAX_COPY_ENTRIES = 256
 MAX_COPY_BYTES = 64 * 1024 * 1024
@@ -787,6 +789,207 @@ class WindowsFileSystemAdapter:
         evidence["atomic_replace"] = True
         evidence["write_verified"] = True
         return evidence
+
+    def preview_literal_text_replace(
+        self,
+        raw_path: str,
+        old_text: str,
+        new_text: str,
+    ) -> dict[str, object]:
+        path = self.resolve(raw_path)
+        old_sha256 = hashlib.sha256(old_text.encode("utf-8")).hexdigest()
+        new_sha256 = hashlib.sha256(new_text.encode("utf-8")).hexdigest()
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "old_text_sha256": old_sha256,
+            "new_text_sha256": new_sha256,
+            "allowed": False,
+        }
+
+        if (
+            not old_text
+            or not old_text.strip()
+            or old_text == new_text
+            or len(old_text) > MAX_LITERAL_REPLACE_TEXT_CHARS
+            or len(new_text) > MAX_LITERAL_REPLACE_TEXT_CHARS
+            or any(character in old_text for character in ("\0", "\r", "\n"))
+            or any(character in new_text for character in ("\0", "\r", "\n"))
+        ):
+            evidence["error"] = "INVALID_LITERAL_REPLACEMENT"
+            return evidence
+
+        if not path.exists():
+            evidence["error"] = "PATH_NOT_FOUND"
+            return evidence
+        if not path.is_file():
+            evidence["error"] = "PATH_NOT_FILE"
+            return evidence
+        if self._is_link_like(path):
+            evidence["error"] = "LINK_TARGET_NOT_ALLOWED"
+            return evidence
+
+        size_bytes = path.stat().st_size
+        evidence["size_bytes"] = size_bytes
+        if size_bytes > MAX_LITERAL_REPLACE_FILE_BYTES:
+            evidence["error"] = "FILE_TOO_LARGE"
+            return evidence
+
+        raw_before = path.read_bytes()
+        before_sha256 = hashlib.sha256(raw_before).hexdigest()
+        evidence["before_sha256"] = before_sha256
+
+        encoding = self._detect_text_encoding(raw_before)
+        if encoding is None:
+            evidence["error"] = "FILE_NOT_TEXT"
+            return evidence
+
+        try:
+            before = raw_before.decode(encoding)
+        except UnicodeDecodeError:
+            evidence["error"] = "FILE_NOT_TEXT"
+            return evidence
+
+        match_count = before.count(old_text)
+        evidence["match_count"] = match_count
+        if match_count != 1:
+            evidence["error"] = (
+                "LITERAL_NOT_FOUND" if match_count == 0 else "LITERAL_NOT_UNIQUE"
+            )
+            return evidence
+
+        after = before.replace(old_text, new_text, 1)
+        write_encoding = encoding
+        if encoding == "utf-8-sig" and not raw_before.startswith(b"\xef\xbb\xbf"):
+            write_encoding = "utf-8"
+
+        try:
+            raw_after = after.encode(write_encoding)
+        except UnicodeEncodeError:
+            evidence["error"] = "REPLACEMENT_NOT_ENCODABLE"
+            return evidence
+
+        if len(raw_after) > MAX_LITERAL_REPLACE_FILE_BYTES:
+            evidence["error"] = "RESULT_TOO_LARGE"
+            return evidence
+
+        after_sha256 = hashlib.sha256(raw_after).hexdigest()
+        diff = "".join(
+            difflib.unified_diff(
+                before.splitlines(keepends=True),
+                after.splitlines(keepends=True),
+                fromfile=f"antes/{path.name}",
+                tofile=f"depois/{path.name}",
+                n=3,
+            )
+        )
+        if len(diff) > MAX_WRITE_PREVIEW_CHARS:
+            diff = (
+                f"--- antes/{path.name}\n"
+                f"+++ depois/{path.name}\n"
+                "@@ ocorrência literal única @@\n"
+                f"-{old_text}\n"
+                f"+{new_text}\n"
+                "... contexto omitido pelo limite local; mudança exata preservada ..."
+            )
+            preview_truncated = True
+            preview_mode = "focused_literal"
+        else:
+            preview_truncated = False
+            preview_mode = "unified_diff"
+
+        evidence.update(
+            {
+                "allowed": True,
+                "encoding": encoding,
+                "write_encoding": write_encoding,
+                "after_bytes": len(raw_after),
+                "after_sha256": after_sha256,
+                "diff": diff,
+                "preview_truncated": preview_truncated,
+                "preview_mode": preview_mode,
+            }
+        )
+        return evidence
+
+    def replace_text_literal(
+        self,
+        raw_path: str,
+        old_text: str,
+        new_text: str,
+        *,
+        expected_path: str,
+        expected_before_sha256: str,
+        expected_after_sha256: str,
+    ) -> dict[str, object]:
+        preview = self.preview_literal_text_replace(
+            raw_path,
+            old_text,
+            new_text,
+        )
+
+        if str(preview.get("path")) != expected_path:
+            raise RuntimeError("LITERAL_REPLACE_TARGET_CHANGED")
+        if preview.get("before_sha256") != expected_before_sha256:
+            raise RuntimeError("LITERAL_REPLACE_TARGET_CHANGED")
+        if not bool(preview.get("allowed")):
+            raise ValueError(
+                str(preview.get("error", "LITERAL_REPLACE_PREVIEW_REJECTED"))
+            )
+        if str(preview.get("after_sha256")) != expected_after_sha256:
+            raise RuntimeError("LITERAL_REPLACE_CONTENT_CHANGED")
+
+        path = Path(str(preview["path"]))
+        raw_before = path.read_bytes()
+        encoding = str(preview["encoding"])
+        write_encoding = str(preview["write_encoding"])
+
+        try:
+            before = raw_before.decode(encoding)
+            after = before.replace(old_text, new_text, 1)
+            payload = after.encode(write_encoding)
+        except (UnicodeDecodeError, UnicodeEncodeError) as exc:
+            raise RuntimeError("LITERAL_REPLACE_ENCODING_CHANGED") from exc
+
+        payload_sha256 = hashlib.sha256(payload).hexdigest()
+        if payload_sha256 != expected_after_sha256:
+            raise RuntimeError("LITERAL_REPLACE_CONTENT_CHANGED")
+
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".theos-literal-replace.tmp",
+                delete=False,
+            ) as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+                temporary_path = Path(handle.name)
+
+            os.replace(temporary_path, path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+        written = path.read_bytes()
+        written_sha256 = hashlib.sha256(written).hexdigest()
+        if written_sha256 != expected_after_sha256:
+            raise RuntimeError("LITERAL_REPLACE_VERIFICATION_FAILED")
+
+        return {
+            "path": str(path),
+            "match_count": 1,
+            "bytes_written": len(written),
+            "sha256": written_sha256,
+            "atomic_replace": True,
+            "write_verified": True,
+            "encoding_preserved": True,
+            "line_endings_outside_match_preserved": True,
+        }
 
     def path_signature(self, raw_path: str) -> str | None:
         path = self.resolve(raw_path)

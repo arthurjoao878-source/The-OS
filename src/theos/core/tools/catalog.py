@@ -70,6 +70,7 @@ MAX_WRITE_CONTENT_BYTES = 16 * 1024
 MAX_TEXT_SEARCH_QUERY_CHARS = 120
 MAX_TEXT_LINE_START = 1_000_000
 MAX_TEXT_LINE_RANGE_LINES = 40
+MAX_LITERAL_REPLACE_TEXT_CHARS = 1024
 
 _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
     " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
@@ -1451,6 +1452,53 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="replace_text_literal",
+            description=(
+                "Substitui exatamente uma ocorrência de um texto literal de uma única "
+                "linha dentro de um arquivo textual local já existente. É uma mutação "
+                "cirúrgica: não aceita regex, fuzzy matching, posição arbitrária nem "
+                "zero/múltiplas ocorrências. old_text deve ser não vazio e diferente de "
+                "new_text; ambos são limitados a 1024 caracteres e não podem conter "
+                "quebra de linha ou NUL. O arquivo é limitado a 256 KiB. THE OS prepara "
+                "um diff local antes da confirmação, guarda o SHA-256 do arquivo e do "
+                "resultado aprovado, revalida tudo após a aprovação, escreve por "
+                "substituição atômica e verifica o SHA-256 final. Arquivos de código, "
+                "scripts, credenciais/chaves ou caminhos de sistema recebem risco "
+                "PRIVILEGED localmente. Não use para criar arquivo novo."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local do arquivo textual existente.",
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_LITERAL_REPLACE_TEXT_CHARS,
+                        "description": (
+                            "Texto literal exato de uma única linha que deve ocorrer "
+                            "exatamente uma vez."
+                        ),
+                    },
+                    "new_text": {
+                        "type": "string",
+                        "maxLength": MAX_LITERAL_REPLACE_TEXT_CHARS,
+                        "description": (
+                            "Texto literal substituto de uma única linha; vazio remove "
+                            "a ocorrência."
+                        ),
+                    },
+                },
+                "required": ["path", "old_text", "new_text"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_replace_text_literal,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
@@ -2340,6 +2388,41 @@ def _validate_move_path(arguments: Mapping[str, object]) -> dict[str, object]:
     return {
         "source": source.strip(),
         "destination": destination.strip(),
+    }
+
+
+def _validate_replace_text_literal(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"path", "old_text", "new_text"}:
+        raise ToolValidationError(
+            "replace_text_literal requires only 'path', 'old_text', and 'new_text'"
+        )
+
+    path = arguments.get("path")
+    old_text = arguments.get("old_text")
+    new_text = arguments.get("new_text")
+    if not isinstance(path, str) or not path.strip():
+        raise ToolValidationError("path must be a non-blank string")
+    if not isinstance(old_text, str) or not old_text or not old_text.strip():
+        raise ToolValidationError("old_text must be a non-blank string")
+    if not isinstance(new_text, str):
+        raise ToolValidationError("new_text must be a string")
+    if len(old_text) > MAX_LITERAL_REPLACE_TEXT_CHARS:
+        raise ToolValidationError("old_text exceeds the local character limit")
+    if len(new_text) > MAX_LITERAL_REPLACE_TEXT_CHARS:
+        raise ToolValidationError("new_text exceeds the local character limit")
+    if any(character in old_text for character in ("\0", "\r", "\n")):
+        raise ToolValidationError("old_text must be a single-line literal")
+    if any(character in new_text for character in ("\0", "\r", "\n")):
+        raise ToolValidationError("new_text must be a single-line literal")
+    if old_text == new_text:
+        raise ToolValidationError("old_text and new_text must differ")
+
+    return {
+        "path": path.strip(),
+        "old_text": old_text,
+        "new_text": new_text,
     }
 
 

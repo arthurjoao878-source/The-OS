@@ -32,6 +32,7 @@ from theos.core.actions.file_system import (
     OpenPathAction,
     ReadTextFileAction,
     ReadTextLinesAction,
+    ReplaceTextLiteralAction,
     SearchTextAction,
     TrashPathAction,
     WriteTextFileAction,
@@ -67,6 +68,7 @@ def build_action_registry() -> ActionRegistry:
     open_path = OpenPathAction(windows_files)
     read_text_file = ReadTextFileAction(windows_files)
     read_text_lines = ReadTextLinesAction(windows_files)
+    replace_text_literal = ReplaceTextLiteralAction(windows_files)
     search_text = SearchTextAction(windows_files)
     write_text_file = WriteTextFileAction(windows_files)
     create_directory = CreateDirectoryAction(windows_files)
@@ -134,6 +136,12 @@ def build_action_registry() -> ActionRegistry:
         search_text.execute,
         risk=search_text.risk,
         confirmation_preview=search_text.confirmation_preview,
+    )
+    registry.register(
+        replace_text_literal.name,
+        replace_text_literal.execute,
+        risk=replace_text_literal.risk_for,
+        confirmation_preview=replace_text_literal.confirmation_preview,
     )
     registry.register(
         write_text_file.name,

@@ -469,6 +469,9 @@ class ToolLoopExecutor:
         if request.action == "write_text_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Gravando {target}..."
+        if request.action == "replace_text_literal":
+            target = str(request.arguments.get("path", "arquivo"))
+            return f"Substituindo texto literal em {target}..."
         if request.action == "create_directory":
             target = str(request.arguments.get("path", "pasta"))
             return f"Criando pasta {target}..."
