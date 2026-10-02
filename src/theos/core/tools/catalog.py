@@ -342,6 +342,8 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "hasheado na prévia e revalidado antes e depois da execução por caminho/SHA-256. "
                 "Os roots fixos pytest/_pytest do venv também entram em um manifesto SHA-256 "
                 "bounded, revalidado antes/depois; isso não é dependency closure do venv. "
+                "O bootstrap Scripts/python.exe + pyvenv.cfg também é hasheado e "
+                "revalidado antes/depois, sem alegar runtime dependency closure. "
                 "Após aprovação usa somente esse pytest.exe, "
                 "sem shell e com argv fixo para um único arquivo, maxfail=1, sem traceback "
                 "textual, sem conftest, sem plugin autoload, sem cacheprovider e sem bytecode, "

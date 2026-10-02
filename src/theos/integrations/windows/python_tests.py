@@ -24,6 +24,8 @@ PYTEST_PACKAGE_MANIFEST_ROOT_LABELS = ("pytest", "_pytest")
 MAX_PYTEST_PACKAGE_FILES = 512
 MAX_PYTEST_PACKAGE_FILE_BYTES = 2 * 1024 * 1024
 MAX_PYTEST_PACKAGE_TOTAL_BYTES = 16 * 1024 * 1024
+MAX_PYTHON_RUNTIME_EXE_BYTES = 16 * 1024 * 1024
+MAX_PYVENV_CONFIG_BYTES = 64 * 1024
 
 
 class WindowsPythonUnitTestAdapter:
@@ -361,6 +363,85 @@ class WindowsPythonUnitTestAdapter:
         return evidence
 
     @staticmethod
+    def _python_runtime_executable() -> Path:
+        return Path(sys.executable)
+
+    def preview_python_runtime_state(self) -> dict[str, object]:
+        raw_runtime = self._python_runtime_executable()
+        runtime_path = Path(os.path.abspath(raw_runtime))
+        config_path = runtime_path.parent.parent / "pyvenv.cfg"
+        evidence: dict[str, object] = {
+            "python_runtime_path": str(runtime_path),
+            "pyvenv_config_path": str(config_path),
+            "max_python_runtime_exe_bytes": MAX_PYTHON_RUNTIME_EXE_BYTES,
+            "max_pyvenv_config_bytes": MAX_PYVENV_CONFIG_BYTES,
+            "python_runtime_state_content_returned": False,
+        }
+
+        try:
+            if not runtime_path.exists() or not runtime_path.is_file():
+                evidence["error"] = "PYTHON_RUNTIME_NOT_AVAILABLE"
+                return evidence
+            if self._is_link_like(runtime_path):
+                evidence["error"] = "PYTHON_RUNTIME_LINK_NOT_ALLOWED"
+                return evidence
+            runtime_resolved = runtime_path.resolve(strict=True)
+            if self._is_link_like(runtime_resolved):
+                evidence["error"] = "PYTHON_RUNTIME_LINK_NOT_ALLOWED"
+                return evidence
+            runtime_size = runtime_resolved.stat().st_size
+            evidence["python_runtime_path"] = str(runtime_resolved)
+            evidence["python_runtime_size_bytes"] = runtime_size
+            if runtime_size > MAX_PYTHON_RUNTIME_EXE_BYTES:
+                evidence["error"] = "PYTHON_RUNTIME_TOO_LARGE"
+                return evidence
+            runtime_payload = runtime_resolved.read_bytes()
+
+            if not config_path.exists() or not config_path.is_file():
+                evidence["error"] = "PYVENV_CONFIG_NOT_AVAILABLE"
+                return evidence
+            if self._is_link_like(config_path):
+                evidence["error"] = "PYVENV_CONFIG_LINK_NOT_ALLOWED"
+                return evidence
+            config_resolved = config_path.resolve(strict=True)
+            if self._is_link_like(config_resolved):
+                evidence["error"] = "PYVENV_CONFIG_LINK_NOT_ALLOWED"
+                return evidence
+            config_size = config_resolved.stat().st_size
+            evidence["pyvenv_config_path"] = str(config_resolved)
+            evidence["pyvenv_config_size_bytes"] = config_size
+            if config_size > MAX_PYVENV_CONFIG_BYTES:
+                evidence["error"] = "PYVENV_CONFIG_TOO_LARGE"
+                return evidence
+            config_payload = config_resolved.read_bytes()
+        except OSError:
+            evidence["error"] = "PYTHON_RUNTIME_STATE_UNREADABLE"
+            return evidence
+
+        runtime_sha256 = hashlib.sha256(runtime_payload).hexdigest()
+        config_sha256 = hashlib.sha256(config_payload).hexdigest()
+        digest = hashlib.sha256()
+        for label, size_bytes, sha256 in (
+            ("Scripts/python.exe", runtime_size, runtime_sha256),
+            ("pyvenv.cfg", config_size, config_sha256),
+        ):
+            digest.update(label.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(size_bytes).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(sha256.encode("ascii"))
+            digest.update(b"\n")
+
+        evidence.update(
+            {
+                "python_runtime_sha256": runtime_sha256,
+                "pyvenv_config_sha256": config_sha256,
+                "python_runtime_state_sha256": digest.hexdigest(),
+            }
+        )
+        return evidence
+
+    @staticmethod
     def _bounded_junit_attribute(
         value: str | None,
         *,
@@ -454,6 +535,7 @@ class WindowsPythonUnitTestAdapter:
         expected_pytest_verifier_path: str,
         expected_pytest_verifier_sha256: str,
         expected_pytest_package_manifest_sha256: str,
+        expected_python_runtime_state_sha256: str,
     ) -> dict[str, object]:
         preview = self.preview_test_target(raw_path)
         evidence = dict(preview)
@@ -464,6 +546,8 @@ class WindowsPythonUnitTestAdapter:
                 "pytest_verifier_identity_guard_enabled": True,
                 "pytest_package_state_guard_enabled": True,
                 "pytest_package_state_is_dependency_closure": False,
+                "python_runtime_state_guard_enabled": True,
+                "python_runtime_state_is_dependency_closure": False,
                 "pytest_arguments_fixed": True,
                 "shell_used": False,
                 "plugin_autoload_enabled": False,
@@ -531,6 +615,19 @@ class WindowsPythonUnitTestAdapter:
             != expected_pytest_package_manifest_sha256
         ):
             evidence["error"] = "PYTEST_PACKAGE_STATE_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        runtime_state = self.preview_python_runtime_state()
+        runtime_state_error = runtime_state.get("error")
+        if isinstance(runtime_state_error, str):
+            evidence.update(runtime_state)
+            return evidence
+        evidence.update(runtime_state)
+        if (
+            evidence.get("python_runtime_state_sha256")
+            != expected_python_runtime_state_sha256
+        ):
+            evidence["error"] = "PYTHON_RUNTIME_STATE_CHANGED_AFTER_PREVIEW"
             return evidence
 
         pytest_executable = Path(expected_pytest_verifier_path)
@@ -613,13 +710,36 @@ class WindowsPythonUnitTestAdapter:
                         }
                     )
                     return evidence
+                after_runtime_state = self.preview_python_runtime_state()
+                after_runtime_error = after_runtime_state.get("error")
+                if (
+                    isinstance(after_runtime_error, str)
+                    or after_runtime_state.get("python_runtime_state_sha256")
+                    != expected_python_runtime_state_sha256
+                ):
+                    evidence.update(
+                        {
+                            "python_runtime_state_unchanged": False,
+                            "python_runtime_state_after_error": (
+                                after_runtime_error
+                            ),
+                            "error": "PYTHON_RUNTIME_STATE_CHANGED_DURING_RUN",
+                        }
+                    )
+                    return evidence
                 evidence.update(
                     {
                         "pytest_verifier_unchanged": True,
                         "pytest_package_state_unchanged": True,
+                        "python_runtime_state_unchanged": True,
                         "after_pytest_package_manifest_sha256": (
                             after_package_state[
                                 "pytest_package_manifest_sha256"
+                            ]
+                        ),
+                        "after_python_runtime_state_sha256": (
+                            after_runtime_state[
+                                "python_runtime_state_sha256"
                             ]
                         ),
                         "error": "PYTEST_TIMEOUT",
@@ -670,6 +790,26 @@ class WindowsPythonUnitTestAdapter:
             evidence["pytest_package_state_unchanged"] = True
             evidence["after_pytest_package_manifest_sha256"] = (
                 after_package_state["pytest_package_manifest_sha256"]
+            )
+
+            after_runtime_state = self.preview_python_runtime_state()
+            after_runtime_error = after_runtime_state.get("error")
+            if (
+                isinstance(after_runtime_error, str)
+                or after_runtime_state.get("python_runtime_state_sha256")
+                != expected_python_runtime_state_sha256
+            ):
+                evidence.update(
+                    {
+                        "python_runtime_state_unchanged": False,
+                        "python_runtime_state_after_error": after_runtime_error,
+                        "error": "PYTHON_RUNTIME_STATE_CHANGED_DURING_RUN",
+                    }
+                )
+                return evidence
+            evidence["python_runtime_state_unchanged"] = True
+            evidence["after_python_runtime_state_sha256"] = (
+                after_runtime_state["python_runtime_state_sha256"]
             )
 
             try:

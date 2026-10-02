@@ -14,7 +14,9 @@ from theos.integrations.windows.python_tests import (
     MAX_PYTEST_PACKAGE_FILES,
     MAX_PYTEST_PACKAGE_TOTAL_BYTES,
     MAX_PYTEST_VERIFIER_BYTES,
+    MAX_PYTHON_RUNTIME_EXE_BYTES,
     MAX_PYTHON_UNIT_TEST_FILE_BYTES,
+    MAX_PYVENV_CONFIG_BYTES,
     PYTHON_UNIT_TEST_TIMEOUT_SECONDS,
     WindowsPythonUnitTestAdapter,
 )
@@ -28,6 +30,9 @@ _EXPECTED_PYTEST_VERIFIER_PATH = "_expected_pytest_verifier_path"
 _EXPECTED_PYTEST_VERIFIER_SHA256 = "_expected_pytest_verifier_sha256"
 _EXPECTED_PYTEST_PACKAGE_MANIFEST_SHA256 = (
     "_expected_pytest_package_manifest_sha256"
+)
+_EXPECTED_PYTHON_RUNTIME_STATE_SHA256 = (
+    "_expected_python_runtime_state_sha256"
 )
 
 
@@ -105,6 +110,27 @@ class RunPythonUnitTestFileAction:
             "PYTEST_PACKAGE_FILE_COUNT_EXCEEDED": (
                 "O estado pytest/_pytest excede o limite local de arquivos."
             ),
+            "PYTHON_RUNTIME_NOT_AVAILABLE": (
+                "O Scripts/python.exe do venv não está disponível."
+            ),
+            "PYTHON_RUNTIME_LINK_NOT_ALLOWED": (
+                "O Scripts/python.exe do venv não pode ser link/junction."
+            ),
+            "PYTHON_RUNTIME_TOO_LARGE": (
+                "O Scripts/python.exe do venv excede o limite local."
+            ),
+            "PYVENV_CONFIG_NOT_AVAILABLE": (
+                "O pyvenv.cfg do venv não está disponível."
+            ),
+            "PYVENV_CONFIG_LINK_NOT_ALLOWED": (
+                "O pyvenv.cfg do venv não pode ser link/junction."
+            ),
+            "PYVENV_CONFIG_TOO_LARGE": (
+                "O pyvenv.cfg do venv excede o limite local."
+            ),
+            "PYTHON_RUNTIME_STATE_UNREADABLE": (
+                "Não foi possível hashear o bootstrap Python do venv."
+            ),
         }
         return ConfirmationPreview(
             allowed=False,
@@ -153,6 +179,16 @@ class RunPythonUnitTestFileAction:
         if package_state.get("error") is not None:
             return self._blocked_preview(package_state)
 
+        try:
+            runtime_state = self._adapter.preview_python_runtime_state()
+        except (OSError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível validar o bootstrap Python do venv.",
+            )
+        if runtime_state.get("error") is not None:
+            return self._blocked_preview(runtime_state)
+
         path = str(evidence["path"])
         sha256 = str(evidence["sha256"])
         project_manifest_sha256 = str(
@@ -171,6 +207,19 @@ class RunPythonUnitTestFileAction:
         )
         pytest_package_total_bytes = int(
             package_state["pytest_package_total_bytes"]
+        )
+        python_runtime_path = str(runtime_state["python_runtime_path"])
+        python_runtime_sha256 = str(runtime_state["python_runtime_sha256"])
+        python_runtime_size_bytes = int(
+            runtime_state["python_runtime_size_bytes"]
+        )
+        pyvenv_config_path = str(runtime_state["pyvenv_config_path"])
+        pyvenv_config_sha256 = str(runtime_state["pyvenv_config_sha256"])
+        pyvenv_config_size_bytes = int(
+            runtime_state["pyvenv_config_size_bytes"]
+        )
+        python_runtime_state_sha256 = str(
+            runtime_state["python_runtime_state_sha256"]
         )
         return ConfirmationPreview(
             allowed=True,
@@ -196,6 +245,16 @@ class RunPythonUnitTestFileAction:
                 f"{pytest_package_total_bytes} byte(s); limites de "
                 f"{MAX_PYTEST_PACKAGE_FILES} arquivo(s) e "
                 f"{MAX_PYTEST_PACKAGE_TOTAL_BYTES} byte(s) totais.\n"
+                "Estado bootstrap Python do venv: Scripts/python.exe + pyvenv.cfg\n"
+                f"Scripts/python.exe aprovado: {python_runtime_path}\n"
+                f"SHA-256 do Scripts/python.exe: {python_runtime_sha256}\n"
+                f"Scripts/python.exe: {python_runtime_size_bytes} byte(s); limite de "
+                f"{MAX_PYTHON_RUNTIME_EXE_BYTES} byte(s).\n"
+                f"pyvenv.cfg aprovado: {pyvenv_config_path}\n"
+                f"SHA-256 do pyvenv.cfg: {pyvenv_config_sha256}\n"
+                f"pyvenv.cfg: {pyvenv_config_size_bytes} byte(s); limite de "
+                f"{MAX_PYVENV_CONFIG_BYTES} byte(s).\n"
+                f"Estado bootstrap Python SHA-256: {python_runtime_state_sha256}\n"
                 f"Timeout: {PYTHON_UNIT_TEST_TIMEOUT_SECONDS:g}s.\n"
                 "RISCO PRIVILEGIADO: pytest executará código Python do arquivo de teste "
                 "e dos módulos que ele importar com as permissões do usuário atual. "
@@ -209,6 +268,8 @@ class RunPythonUnitTestFileAction:
                 "PYTHONDONTWRITEBYTECODE=1, PYTHONNOUSERSITE=1 e PYTHONSAFEPATH=1. "
                 "O estado dos roots pytest/_pytest é vinculado à aprovação e "
                 "revalidado antes/depois, mas não é dependency closure do venv. "
+                "Scripts/python.exe + pyvenv.cfg também ficam vinculados e revalidados, "
+                "mas isso não é runtime dependency closure. "
                 "Isso não torna imports herméticos: o venv/site-packages continua parte "
                 "da execução privilegiada. stdout/stderr brutos não são enviados ao modelo. Em falha/erro, "
                 "o JUnit temporário pode fornecer até 3 diagnósticos estruturados e "
@@ -224,6 +285,9 @@ class RunPythonUnitTestFileAction:
                 _EXPECTED_PYTEST_VERIFIER_SHA256: pytest_verifier_sha256,
                 _EXPECTED_PYTEST_PACKAGE_MANIFEST_SHA256: (
                     pytest_package_manifest_sha256
+                ),
+                _EXPECTED_PYTHON_RUNTIME_STATE_SHA256: (
+                    python_runtime_state_sha256
                 ),
             },
         )
@@ -244,6 +308,9 @@ class RunPythonUnitTestFileAction:
         expected_pytest_package_manifest_sha256 = request.arguments.get(
             _EXPECTED_PYTEST_PACKAGE_MANIFEST_SHA256
         )
+        expected_python_runtime_state_sha256 = request.arguments.get(
+            _EXPECTED_PYTHON_RUNTIME_STATE_SHA256
+        )
         if (
             not raw_path
             or not isinstance(expected_path, str)
@@ -258,6 +325,8 @@ class RunPythonUnitTestFileAction:
             or len(expected_pytest_verifier_sha256) != 64
             or not isinstance(expected_pytest_package_manifest_sha256, str)
             or len(expected_pytest_package_manifest_sha256) != 64
+            or not isinstance(expected_python_runtime_state_sha256, str)
+            or len(expected_python_runtime_state_sha256) != 64
         ):
             return ActionResult(
                 request_id=request.request_id,
@@ -280,6 +349,9 @@ class RunPythonUnitTestFileAction:
                 ),
                 expected_pytest_package_manifest_sha256=(
                     expected_pytest_package_manifest_sha256
+                ),
+                expected_python_runtime_state_sha256=(
+                    expected_python_runtime_state_sha256
                 ),
             )
         except (OSError, ValueError) as exc:
@@ -368,12 +440,40 @@ class RunPythonUnitTestFileAction:
                     "O estado pytest/_pytest mudou após a aprovação; "
                     "pytest não foi iniciado."
                 ),
+                "PYTHON_RUNTIME_NOT_AVAILABLE": (
+                    "O Scripts/python.exe do venv não está disponível."
+                ),
+                "PYTHON_RUNTIME_LINK_NOT_ALLOWED": (
+                    "O Scripts/python.exe do venv virou link/junction e foi bloqueado."
+                ),
+                "PYTHON_RUNTIME_TOO_LARGE": (
+                    "O Scripts/python.exe do venv excede o limite local."
+                ),
+                "PYVENV_CONFIG_NOT_AVAILABLE": (
+                    "O pyvenv.cfg do venv não está disponível."
+                ),
+                "PYVENV_CONFIG_LINK_NOT_ALLOWED": (
+                    "O pyvenv.cfg do venv virou link/junction e foi bloqueado."
+                ),
+                "PYVENV_CONFIG_TOO_LARGE": (
+                    "O pyvenv.cfg do venv excede o limite local."
+                ),
+                "PYTHON_RUNTIME_STATE_UNREADABLE": (
+                    "Não foi possível validar o bootstrap Python do venv."
+                ),
+                "PYTHON_RUNTIME_STATE_CHANGED_AFTER_PREVIEW": (
+                    "O bootstrap Python do venv mudou após a aprovação; "
+                    "pytest não foi iniciado."
+                ),
                 "PYTEST_TIMEOUT": "O teste excedeu o timeout local de 30 segundos.",
                 "PYTEST_VERIFIER_CHANGED_DURING_RUN": (
                     "O pytest.exe controlado mudou durante a execução; resultado descartado."
                 ),
                 "PYTEST_PACKAGE_STATE_CHANGED_DURING_RUN": (
                     "O estado pytest/_pytest mudou durante a execução; resultado descartado."
+                ),
+                "PYTHON_RUNTIME_STATE_CHANGED_DURING_RUN": (
+                    "O bootstrap Python do venv mudou durante a execução; resultado descartado."
                 ),
                 "TEST_TARGET_CHANGED_DURING_RUN": (
                     "O arquivo de teste mudou durante a execução; resultado descartado."

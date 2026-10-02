@@ -146,6 +146,11 @@ def test_run_uses_fixed_pytest_policy_and_parses_pass(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     command = captured["command"]
@@ -213,6 +218,11 @@ def test_run_treats_test_failure_as_verified_result(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     assert evidence["passed"] is False
@@ -257,6 +267,11 @@ def test_run_blocks_changed_target_before_pytest(
         expected_pytest_package_manifest_sha256=str(
             adapter.preview_pytest_package_state()[
                 "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
             ]
         ),
     )
@@ -310,6 +325,11 @@ def test_run_reports_timeout(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     assert evidence["error"] == "PYTEST_TIMEOUT"
@@ -359,6 +379,11 @@ def test_run_rejects_operational_pytest_exit(
         expected_pytest_package_manifest_sha256=str(
             adapter.preview_pytest_package_state()[
                 "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
             ]
         ),
     )
@@ -547,6 +572,11 @@ def test_run_exposes_bounded_failure_diagnostic_without_failure_body(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     diagnostics = evidence["failure_diagnostics"]
@@ -616,6 +646,11 @@ def test_run_caps_failure_diagnostics_at_three(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     assert evidence["failure_diagnostic_total"] == 5
@@ -679,6 +714,11 @@ def test_run_exposes_error_kind_and_bounds_identifiers(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     diagnostic = evidence["failure_diagnostics"][0]
@@ -701,6 +741,7 @@ def test_action_failure_result_keeps_structured_diagnostics() -> None:
             expected_pytest_verifier_path,
             expected_pytest_verifier_sha256,
             expected_pytest_package_manifest_sha256,
+            expected_python_runtime_state_sha256,
         ):
             _ = (
                 raw_path,
@@ -710,6 +751,7 @@ def test_action_failure_result_keeps_structured_diagnostics() -> None:
                 expected_pytest_verifier_path,
                 expected_pytest_verifier_sha256,
                 expected_pytest_package_manifest_sha256,
+                expected_python_runtime_state_sha256,
             )
             return {
                 "path": r"C:\Repo\tests\unit\test_failure.py",
@@ -745,6 +787,7 @@ def test_action_failure_result_keeps_structured_diagnostics() -> None:
                 "_expected_pytest_verifier_path": r"C:\Venv\pytest.exe",
                 "_expected_pytest_verifier_sha256": "c" * 64,
                 "_expected_pytest_package_manifest_sha256": "d" * 64,
+                "_expected_python_runtime_state_sha256": "e" * 64,
             },
         )
     )
@@ -845,6 +888,11 @@ def test_run_blocks_project_python_change_after_preview(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     assert evidence["error"] == "PROJECT_PYTHON_STATE_CHANGED_AFTER_PREVIEW"
@@ -900,6 +948,11 @@ def test_run_invalidates_if_project_python_changes_during_pytest(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     assert evidence["error"] == "PROJECT_PYTHON_STATE_CHANGED_DURING_RUN"
@@ -952,6 +1005,11 @@ def test_run_invalidates_if_python_file_is_added_during_pytest(
         expected_pytest_package_manifest_sha256=str(
             adapter.preview_pytest_package_state()[
                 "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
             ]
         ),
     )
@@ -1057,6 +1115,11 @@ def test_run_scrubs_ambient_pytest_option_and_plugin_environment(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     env = captured["env"]
@@ -1123,6 +1186,11 @@ def test_run_uses_private_empty_pytest_config_and_fixed_rootdir(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     command = captured["command"]
@@ -1183,6 +1251,11 @@ def test_run_command_keeps_one_explicit_target_under_ambient_injection(
         expected_pytest_package_manifest_sha256=str(
             adapter.preview_pytest_package_state()[
                 "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
             ]
         ),
     )
@@ -1287,6 +1360,11 @@ def test_run_scrubs_ambient_python_environment_and_sets_controlled_policy(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     env = captured["env"]
@@ -1352,6 +1430,11 @@ def test_run_preserves_unrelated_environment_while_scrubbing_python_prefix(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     env = captured["env"]
@@ -1405,6 +1488,11 @@ def test_run_evidence_marks_python_import_policy_as_non_hermetic(
         expected_pytest_package_manifest_sha256=str(
             adapter.preview_pytest_package_state()[
                 "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
             ]
         ),
     )
@@ -1516,6 +1604,11 @@ def test_run_blocks_changed_pytest_verifier_before_subprocess(
                 "pytest_package_manifest_sha256"
             ]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     assert evidence["error"] == "PYTEST_VERIFIER_CHANGED_AFTER_PREVIEW"
@@ -1564,6 +1657,11 @@ def test_run_invalidates_if_pytest_verifier_changes_during_run(
         expected_pytest_package_manifest_sha256=str(
             adapter.preview_pytest_package_state()[
                 "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
             ]
         ),
     )
@@ -1741,6 +1839,11 @@ def test_run_blocks_changed_pytest_package_before_subprocess(
         expected_pytest_package_manifest_sha256=str(
             package_state["pytest_package_manifest_sha256"]
         ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
+        ),
     )
 
     assert evidence["error"] == "PYTEST_PACKAGE_STATE_CHANGED_AFTER_PREVIEW"
@@ -1797,6 +1900,11 @@ def test_run_invalidates_if_pytest_package_changes_during_run(
         expected_pytest_verifier_sha256=str(verifier["pytest_verifier_sha256"]),
         expected_pytest_package_manifest_sha256=str(
             package_state["pytest_package_manifest_sha256"]
+        ),
+        expected_python_runtime_state_sha256=str(
+            adapter.preview_python_runtime_state()[
+                "python_runtime_state_sha256"
+            ]
         ),
     )
 
@@ -1856,3 +1964,222 @@ def test_catalog_documents_pytest_package_state_guard() -> None:
     assert "pytest/_pytest" in definition.description
     assert "manifesto SHA-256" in definition.description
     assert "dependency closure" in definition.description
+
+def _m81_fake_runtime_state(tmp_path: Path) -> tuple[Path, Path]:
+    venv_root = tmp_path / "venv"
+    scripts = venv_root / "Scripts"
+    scripts.mkdir(parents=True)
+    runtime = scripts / "python.exe"
+    config = venv_root / "pyvenv.cfg"
+    runtime.write_bytes(b"M81_PYTHON_RUNTIME")
+    config.write_text("home = C:\\Python\n", encoding="utf-8")
+    return runtime, config
+
+
+def test_preview_hashes_python_runtime_bootstrap_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _ = _project(tmp_path)
+    runtime, config = _m81_fake_runtime_state(tmp_path)
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_python_runtime_executable",
+        staticmethod(lambda: runtime),
+    )
+
+    evidence = WindowsPythonUnitTestAdapter(root).preview_python_runtime_state()
+
+    assert evidence["python_runtime_path"] == str(runtime.resolve())
+    assert evidence["pyvenv_config_path"] == str(config.resolve())
+    assert len(str(evidence["python_runtime_sha256"])) == 64
+    assert len(str(evidence["pyvenv_config_sha256"])) == 64
+    assert len(str(evidence["python_runtime_state_sha256"])) == 64
+    assert evidence["python_runtime_state_content_returned"] is False
+
+
+def test_preview_rejects_oversized_pyvenv_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _ = _project(tmp_path)
+    runtime, config = _m81_fake_runtime_state(tmp_path)
+    config.write_bytes(b"x" * (64 * 1024 + 1))
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_python_runtime_executable",
+        staticmethod(lambda: runtime),
+    )
+
+    evidence = WindowsPythonUnitTestAdapter(root).preview_python_runtime_state()
+
+    assert evidence["error"] == "PYVENV_CONFIG_TOO_LARGE"
+    assert "python_runtime_state_sha256" not in evidence
+
+
+def test_run_blocks_changed_python_runtime_state_before_subprocess(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_runtime_before.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"M81_VERIFIER")
+    runtime, config = _m81_fake_runtime_state(tmp_path)
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_python_runtime_executable",
+        staticmethod(lambda: runtime),
+    )
+
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    verifier = adapter.preview_pytest_verifier()
+    runtime_state = adapter.preview_python_runtime_state()
+    config.write_text("home = C:\\Changed\n", encoding="utf-8")
+
+    def must_not_run(*args, **kwargs):
+        _ = args, kwargs
+        raise AssertionError("pytest must not start after runtime-state mismatch")
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        must_not_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+        expected_pytest_verifier_path=str(verifier["pytest_verifier_path"]),
+        expected_pytest_verifier_sha256=str(verifier["pytest_verifier_sha256"]),
+        expected_pytest_package_manifest_sha256=str(
+            adapter.preview_pytest_package_state()[
+                "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            runtime_state["python_runtime_state_sha256"]
+        ),
+    )
+
+    assert evidence["error"] == "PYTHON_RUNTIME_STATE_CHANGED_AFTER_PREVIEW"
+    assert evidence["test_code_executed"] is False
+
+
+def test_run_invalidates_if_python_runtime_state_changes_during_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_runtime_during.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"M81_VERIFIER")
+    runtime, config = _m81_fake_runtime_state(tmp_path)
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_python_runtime_executable",
+        staticmethod(lambda: runtime),
+    )
+
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    verifier = adapter.preview_pytest_verifier()
+    runtime_state = adapter.preview_python_runtime_state()
+
+    def fake_run(command, **kwargs):
+        _ = kwargs
+        _write_junit(list(command), tests=1, failures=0)
+        config.write_text("home = C:\\Changed\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+        expected_pytest_verifier_path=str(verifier["pytest_verifier_path"]),
+        expected_pytest_verifier_sha256=str(verifier["pytest_verifier_sha256"]),
+        expected_pytest_package_manifest_sha256=str(
+            adapter.preview_pytest_package_state()[
+                "pytest_package_manifest_sha256"
+            ]
+        ),
+        expected_python_runtime_state_sha256=str(
+            runtime_state["python_runtime_state_sha256"]
+        ),
+    )
+
+    assert evidence["error"] == "PYTHON_RUNTIME_STATE_CHANGED_DURING_RUN"
+    assert evidence["test_code_executed"] is True
+    assert evidence["python_runtime_state_unchanged"] is False
+
+
+def test_action_preview_binds_python_runtime_bootstrap_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_action_runtime_state.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    runtime, _ = _m81_fake_runtime_state(tmp_path)
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_python_runtime_executable",
+        staticmethod(lambda: runtime),
+    )
+
+    action = RunPythonUnitTestFileAction(WindowsPythonUnitTestAdapter(root))
+    preview = action.confirmation_preview(
+        ActionRequest(
+            action="run_python_unit_test_file",
+            arguments={"path": str(target)},
+        )
+    )
+
+    assert preview.allowed is True
+    digest = preview.execution_guard[
+        "_expected_python_runtime_state_sha256"
+    ]
+    assert len(digest) == 64
+    assert "Estado bootstrap Python do venv" in preview.text
+    assert "pyvenv.cfg" in preview.text
+    assert "não é runtime dependency closure" in preview.text
+
+
+def test_catalog_documents_python_runtime_bootstrap_state_guard() -> None:
+    catalog = build_default_tool_catalog()
+    definitions = {item.name: item for item in catalog.definitions()}
+    definition = definitions["run_python_unit_test_file"]
+
+    assert len(definitions) == 42
+    assert set(definition.parameters["properties"]) == {"path"}
+    assert set(definition.parameters["required"]) == {"path"}
+    assert definition.parameters["additionalProperties"] is False
+    assert "Scripts/python.exe" in definition.description
+    assert "pyvenv.cfg" in definition.description
+    assert "runtime dependency closure" in definition.description
