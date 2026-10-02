@@ -67,6 +67,16 @@ from theos.core.window_targets import (
 ArgumentValidator = Callable[[Mapping[str, object]], dict[str, object]]
 MAX_WRITE_CONTENT_BYTES = 16 * 1024
 
+_HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
+    " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
+    "exatamente o mesmo título e exatamente uma usar um processo específico do "
+    "aplicativo enquanto as demais usarem ApplicationFrameHost.exe, escolha PID, "
+    "título e target_token da linha do processo específico. O adapter revalida essa "
+    "identidade exata antes de normalizar localmente a moldura visual; não peça "
+    "esclarecimento apenas por esses aliases hospedados. Se permanecer mais de um "
+    "processo específico plausível ou títulos distintos plausíveis, peça esclarecimento."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class _ToolRegistration:
@@ -455,6 +465,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "PID, título limitado e target_token retornados pelo mesmo window_snapshot. "
                 "Use somente esse alvo conhecido; nunca invente PID, título ou token. "
                 "A ativação é bloqueada se o alvo opaco não existir ou não for único."
+                + _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE
             ),
             parameters={
                 "type": "object",
@@ -1196,6 +1207,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "window_snapshot. Use somente esse alvo conhecido; nunca invente PID, "
                 "título ou token. A operação é normal, revalida o alvo opaco localmente "
                 "e verifica que a janela exata não está minimizada nem maximizada."
+                + _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE
             ),
             parameters={
                 "type": "object",
@@ -1237,6 +1249,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "Use somente esse alvo conhecido; nunca invente PID, título ou token. "
                 "A operação é normal, revalida o alvo opaco localmente e verifica "
                 "que a janela exata entrou no estado maximizado."
+                + _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE
             ),
             parameters={
                 "type": "object",
@@ -1278,6 +1291,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "Use somente esse alvo conhecido; nunca invente PID, título ou token. "
                 "A operação é normal, revalida o alvo opaco localmente e verifica "
                 "que a janela exata entrou no estado minimizado."
+                + _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE
             ),
             parameters={
                 "type": "object",
@@ -1319,6 +1333,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "window_snapshot. Use somente esse alvo conhecido; nunca invente PID, "
                 "título ou token. A ação exige confirmação destrutiva, revalida o alvo "
                 "opaco após a aprovação e não usa encerramento forçado do processo."
+                + _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE
             ),
             parameters={
                 "type": "object",
