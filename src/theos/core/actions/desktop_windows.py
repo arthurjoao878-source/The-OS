@@ -31,6 +31,7 @@ from theos.core.mouse_scroll import (
     get_mouse_scroll_spec,
 )
 from theos.core.window_layout_pairs import get_window_pair_layout_spec
+from theos.core.window_layout_sets import get_window_set_layout_spec
 from theos.core.window_placements import get_window_placement_spec
 from theos.core.window_targets import (
     is_window_target_token,
@@ -3008,6 +3009,180 @@ class PlaceWindowPairAction:
                 f"({layout_spec.label_pt}) e ambos os retângulos verificados: "
                 f"{evidence['first_title']} (PID {evidence['first_pid']}) + "
                 f"{evidence['second_title']} (PID {evidence['second_pid']})."
+            ),
+            evidence=evidence,
+        )
+
+
+class PlaceWindowSetAction:
+    name = "place_window_set"
+    risk = ActionRisk.NORMAL
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        layout_spec = get_window_set_layout_spec(
+            request.arguments.get("arrangement")
+        )
+        if layout_spec is None:
+            return ActionRisk.NORMAL
+        return layout_spec.risk
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_tokens = request.arguments.get("target_tokens")
+        arrangement = request.arguments.get("arrangement")
+        layout_spec = get_window_set_layout_spec(arrangement)
+
+        if not isinstance(raw_tokens, (list, tuple)):
+            tokens: tuple[object, ...] = ()
+        else:
+            tokens = tuple(raw_tokens)
+
+        if (
+            layout_spec is None
+            or len(tokens) not in (3, 4)
+            or len(tokens) != layout_spec.target_count
+            or any(not is_window_target_token(token) for token in tokens)
+            or len(set(tokens)) != len(tokens)
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "São obrigatórios 3 ou 4 tokens opacos distintos compatíveis "
+                    "com um arranjo multi-janela registrado."
+                ),
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        target_tokens = tuple(str(token) for token in tokens)
+
+        try:
+            evidence = self._windows.place_window_set(
+                target_tokens,
+                arrangement,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            base_reason = reason.split(":", 1)[0]
+            error_map = {
+                "SELF_WINDOW_SET_PLACEMENT_BLOCKED": (
+                    "A LYRA bloqueou o reposicionamento da própria janela.",
+                    "SELF_WINDOW_SET_PLACEMENT_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "Um dos identificadores opacos de janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_SET_DUPLICATE_TARGET": (
+                    "Os alvos do conjunto precisam ser distintos.",
+                    "WINDOW_SET_DUPLICATE_TARGET",
+                ),
+                "WINDOW_SET_TARGET_COUNT_MISMATCH": (
+                    "A quantidade de janelas não corresponde ao arranjo registrado.",
+                    "WINDOW_SET_TARGET_COUNT_MISMATCH",
+                ),
+                "WINDOW_SET_LAYOUT_NOT_ALLOWED": (
+                    "Esse arranjo multi-janela não está permitido.",
+                    "WINDOW_SET_LAYOUT_NOT_ALLOWED",
+                ),
+                "WINDOW_SET_TARGET_NOT_FOUND": (
+                    "Não encontrei uma das janelas visíveis exatas pelo token opaco.",
+                    "WINDOW_SET_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_SET_TARGET_AMBIGUOUS": (
+                    "Um token opaco não resolveu uma única janela.",
+                    "WINDOW_SET_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_SET_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei uma moldura visual operável e única para uma janela hospedada.",
+                    "WINDOW_SET_VISUAL_FRAME_NOT_FOUND",
+                ),
+                "WINDOW_SET_VISUAL_FRAME_AMBIGUOUS": (
+                    "Mais de uma moldura visual operável correspondeu a uma janela hospedada.",
+                    "WINDOW_SET_VISUAL_FRAME_AMBIGUOUS",
+                ),
+                "WINDOW_SET_SAME_RESOLVED_TARGET": (
+                    "Dois tokens diferentes resolveram para a mesma moldura visual.",
+                    "WINDOW_SET_SAME_RESOLVED_TARGET",
+                ),
+                "WINDOW_SET_NORMAL_STATE_REQUIRED": (
+                    "Todas as janelas precisam estar em estado normal antes do arranjo.",
+                    "WINDOW_SET_NORMAL_STATE_REQUIRED",
+                ),
+                "WINDOW_SET_ORIGINAL_RECT_FAILED": (
+                    "Não foi possível guardar todos os retângulos originais.",
+                    "WINDOW_SET_ORIGINAL_RECT_FAILED",
+                ),
+                "WINDOW_SET_MONITOR_NOT_FOUND": (
+                    "Não foi possível identificar o monitor de todas as janelas.",
+                    "WINDOW_SET_MONITOR_NOT_FOUND",
+                ),
+                "WINDOW_SET_MONITOR_MISMATCH": (
+                    "Todas as janelas precisam estar no mesmo monitor.",
+                    "WINDOW_SET_MONITOR_MISMATCH",
+                ),
+                "WINDOW_SET_MONITOR_INFO_FAILED": (
+                    "Não foi possível obter a área útil do monitor compartilhado.",
+                    "WINDOW_SET_MONITOR_INFO_FAILED",
+                ),
+                "WINDOW_SET_WORK_AREA_INVALID": (
+                    "A área útil do monitor compartilhado é inválida.",
+                    "WINDOW_SET_WORK_AREA_INVALID",
+                ),
+                "WINDOW_SET_MOVE_NOT_ACCEPTED": (
+                    "O Windows não aceitou uma das movimentações do conjunto.",
+                    "WINDOW_SET_MOVE_NOT_ACCEPTED",
+                ),
+                "WINDOW_SET_NOT_VERIFIED": (
+                    "O Windows não confirmou um dos retângulos finais exatos.",
+                    "WINDOW_SET_NOT_VERIFIED",
+                ),
+                "WINDOW_SET_ROLLBACK_FAILED": (
+                    "O arranjo falhou e o rollback exato do conjunto não foi verificado.",
+                    "WINDOW_SET_ROLLBACK_FAILED",
+                ),
+            }
+            mapped = error_map.get(base_reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui aplicar o arranjo multi-janela.",
+                evidence={"reason": reason},
+                error_code="WINDOW_SET_PLACEMENT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui aplicar o arranjo multi-janela.",
+                evidence={"exception": type(exc).__name__},
+                error_code="WINDOW_SET_PLACEMENT_FAILED",
+            )
+
+        targets = evidence["targets"]
+        summary = " + ".join(
+            f"{target['title']} (PID {target['pid']})"
+            for target in targets
+        )
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"{len(targets)} janelas organizadas em {arrangement} "
+                f"({layout_spec.label_pt}) e todos os retângulos verificados: "
+                f"{summary}."
             ),
             evidence=evidence,
         )

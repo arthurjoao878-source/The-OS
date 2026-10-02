@@ -45,6 +45,11 @@ from theos.core.window_layout_pairs import (
     build_window_pair_layout_tool_description,
     is_allowed_window_pair_layout,
 )
+from theos.core.window_layout_sets import (
+    ALLOWED_WINDOW_SET_LAYOUTS,
+    build_window_set_layout_tool_description,
+    get_window_set_layout_spec,
+)
 from theos.core.window_placements import (
     ALLOWED_WINDOW_PLACEMENTS,
     build_window_placement_tool_description,
@@ -1120,6 +1125,52 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="place_window_set",
+            description=(
+                build_window_set_layout_tool_description()
+                + " Copie os target_tokens exatos das linhas escolhidas na ordem "
+                "espacial desejada. Não repita PID ou título. Para aplicativos Windows "
+                "hospedados, o adapter normaliza localmente CoreWindow/frame stale para "
+                "uma única ApplicationFrameWindow operável do mesmo título. Se várias "
+                "linhas tiverem exatamente o mesmo título e exatamente uma usar um "
+                "processo específico do aplicativo enquanto as demais usarem "
+                "ApplicationFrameHost.exe, escolha o token da linha do processo "
+                "específico e deixe o adapter validar/normalizar a moldura visual "
+                "localmente; não peça esclarecimento apenas por esses aliases hospedados. "
+                "Se permanecer mais de um processo específico plausível ou títulos "
+                "distintos plausíveis, peça esclarecimento."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_tokens": {
+                        "type": "array",
+                        "minItems": 3,
+                        "maxItems": 4,
+                        "items": {
+                            "type": "string",
+                            "minLength": 64,
+                            "maxLength": 64,
+                            "pattern": "^[0-9a-f]{64}$",
+                        },
+                        "description": (
+                            "Três ou quatro tokens opacos exatos na ordem do arranjo."
+                        ),
+                    },
+                    "arrangement": {
+                        "type": "string",
+                        "enum": list(ALLOWED_WINDOW_SET_LAYOUTS),
+                        "description": "Arranjo registrado de três ou quatro janelas.",
+                    },
+                },
+                "required": ["target_tokens", "arrangement"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_window_set_placement_input,
+    )
+    catalog.register(
+        ToolDefinition(
             name="restore_window",
             description=(
                 "Restaura para o tamanho normal uma janela visível exata já identificada "
@@ -1882,6 +1933,44 @@ def _validate_window_pair_placement_input(
     return {
         "first_target_token": first_target_token,
         "second_target_token": second_target_token,
+        "arrangement": arrangement,
+    }
+
+
+def _validate_window_set_placement_input(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"target_tokens", "arrangement"}:
+        raise ToolValidationError(
+            "place_window_set requires only 'target_tokens' and 'arrangement'"
+        )
+
+    raw_tokens = arguments.get("target_tokens")
+    arrangement = arguments.get("arrangement")
+    if not isinstance(raw_tokens, (list, tuple)):
+        raise ToolValidationError("target_tokens must be an array of opaque tokens")
+
+    tokens = tuple(raw_tokens)
+    if len(tokens) not in (3, 4):
+        raise ToolValidationError("target_tokens must contain exactly 3 or 4 entries")
+    if any(not is_window_target_token(token) for token in tokens):
+        raise ToolValidationError("every target token must be a valid opaque token")
+    if len(set(tokens)) != len(tokens):
+        raise ToolValidationError("target_tokens must be distinct")
+
+    layout_spec = get_window_set_layout_spec(arrangement)
+    if layout_spec is None:
+        raise ToolValidationError(
+            "arrangement must be one of: "
+            + ", ".join(ALLOWED_WINDOW_SET_LAYOUTS)
+        )
+    if layout_spec.target_count != len(tokens):
+        raise ToolValidationError(
+            "target_tokens count does not match the registered arrangement"
+        )
+
+    return {
+        "target_tokens": list(tokens),
         "arrangement": arrangement,
     }
 
