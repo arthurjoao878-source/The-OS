@@ -11,6 +11,10 @@ from pathlib import Path
 MAX_PYTHON_UNIT_TEST_FILE_BYTES = 256 * 1024
 MAX_PYTEST_JUNIT_BYTES = 256 * 1024
 PYTHON_UNIT_TEST_TIMEOUT_SECONDS = 30.0
+MAX_PYTEST_FAILURE_DIAGNOSTICS = 3
+MAX_PYTEST_DIAGNOSTIC_NAME_CHARS = 160
+MAX_PYTEST_DIAGNOSTIC_CLASSNAME_CHARS = 160
+MAX_PYTEST_DIAGNOSTIC_MESSAGE_CHARS = 240
 
 
 class WindowsPythonUnitTestAdapter:
@@ -116,7 +120,22 @@ class WindowsPythonUnitTestAdapter:
         return Path(sys.executable).resolve().with_name("pytest.exe")
 
     @staticmethod
-    def _parse_junit_summary(report: Path) -> dict[str, int]:
+    def _bounded_junit_attribute(
+        value: str | None,
+        *,
+        limit: int,
+    ) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        if not normalized:
+            return None
+        if len(normalized) > limit:
+            return normalized[: limit - 1] + "…"
+        return normalized
+
+    @classmethod
+    def _parse_junit_report(cls, report: Path) -> dict[str, object]:
         root = ET.parse(report).getroot()
         suites = []
         if root.tag.rsplit("}", 1)[-1] == "testsuite":
@@ -143,7 +162,46 @@ class WindowsPythonUnitTestAdapter:
                 if value < 0:
                     raise ValueError("negative junit count")
                 totals[key] += value
-        return totals
+
+        diagnostics: list[dict[str, object]] = []
+        diagnostic_total = 0
+        for suite in suites:
+            for testcase in suite.iter():
+                if testcase.tag.rsplit("}", 1)[-1] != "testcase":
+                    continue
+                for outcome in testcase:
+                    kind = outcome.tag.rsplit("}", 1)[-1]
+                    if kind not in {"failure", "error"}:
+                        continue
+                    diagnostic_total += 1
+                    if len(diagnostics) >= MAX_PYTEST_FAILURE_DIAGNOSTICS:
+                        continue
+                    diagnostics.append(
+                        {
+                            "kind": kind,
+                            "test_name": cls._bounded_junit_attribute(
+                                testcase.attrib.get("name"),
+                                limit=MAX_PYTEST_DIAGNOSTIC_NAME_CHARS,
+                            ),
+                            "class_name": cls._bounded_junit_attribute(
+                                testcase.attrib.get("classname"),
+                                limit=MAX_PYTEST_DIAGNOSTIC_CLASSNAME_CHARS,
+                            ),
+                            "message": cls._bounded_junit_attribute(
+                                outcome.attrib.get("message"),
+                                limit=MAX_PYTEST_DIAGNOSTIC_MESSAGE_CHARS,
+                            ),
+                        }
+                    )
+
+        return {
+            **totals,
+            "failure_diagnostic_total": diagnostic_total,
+            "failure_diagnostics": diagnostics,
+            "failure_diagnostics_truncated": (
+                diagnostic_total > MAX_PYTEST_FAILURE_DIAGNOSTICS
+            ),
+        }
 
     def run_test_file(
         self,
@@ -165,7 +223,10 @@ class WindowsPythonUnitTestAdapter:
                 "pytest_cache_enabled": False,
                 "bytecode_write_enabled": False,
                 "raw_pytest_output_returned": False,
-                "junit_structural_summary_only": True,
+                "junit_bounded_structured_evidence_only": True,
+                "junit_failure_body_returned": False,
+                "failure_diagnostics_untrusted": True,
+                "max_failure_diagnostics": MAX_PYTEST_FAILURE_DIAGNOSTICS,
                 "test_code_executed": False,
                 "project_imports_may_execute": True,
                 "sandboxed": False,
@@ -264,7 +325,7 @@ class WindowsPythonUnitTestAdapter:
                 return evidence
 
             try:
-                summary = self._parse_junit_summary(report)
+                summary = self._parse_junit_report(report)
             except (ET.ParseError, OSError, ValueError):
                 evidence["error"] = "PYTEST_REPORT_INVALID"
                 return evidence
@@ -279,6 +340,11 @@ class WindowsPythonUnitTestAdapter:
                 "failures": failures,
                 "errors": errors,
                 "skipped": skipped,
+                "failure_diagnostic_total": summary["failure_diagnostic_total"],
+                "failure_diagnostics": summary["failure_diagnostics"],
+                "failure_diagnostics_truncated": summary[
+                    "failure_diagnostics_truncated"
+                ],
                 "passed": (
                     completed.returncode == 0
                     and tests_run > 0

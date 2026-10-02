@@ -340,8 +340,10 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "fornece sandbox. Após aprovação usa somente o pytest.exe do mesmo venv, "
                 "sem shell e com argv fixo para um único arquivo, maxfail=1, sem traceback "
                 "textual, sem conftest, sem plugin autoload, sem cacheprovider e sem bytecode, "
-                "com timeout de 30s. stdout/stderr não são devolvidos ao modelo; somente "
-                "contagens estruturadas de um JUnit temporário e o status pass/fail."
+                "com timeout de 30s. stdout/stderr não são devolvidos ao modelo. O JUnit "
+                "temporário fornece contagens e, em falha/erro, até 3 diagnósticos "
+                "estruturados com nomes/mensagem limitados; o corpo de traceback XML "
+                "não é devolvido."
             ),
             parameters={
                 "type": "object",

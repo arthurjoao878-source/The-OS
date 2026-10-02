@@ -398,3 +398,233 @@ def test_python_unit_test_progress_message_is_specific() -> None:
     assert message == (
         r"Executando teste unitário Python C:\Repo\tests\unit\test_one.py..."
     )
+
+def _write_junit_cases(
+    command: list[str],
+    cases: str,
+    *,
+    tests: int,
+    failures: int,
+    errors: int = 0,
+) -> None:
+    report_arg = next(item for item in command if item.startswith("--junitxml="))
+    report = Path(report_arg.split("=", 1)[1])
+    report.write_text(
+        (
+            '<testsuites><testsuite '
+            f'tests="{tests}" failures="{failures}" errors="{errors}" skipped="0">'
+            f"{cases}"
+            "</testsuite></testsuites>"
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_run_exposes_bounded_failure_diagnostic_without_failure_body(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_failure_detail.py"
+    target.write_text("def test_no():\n    assert False\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    long_message = "bounded failure " + ("x" * 400)
+
+    def fake_run(command, **kwargs):
+        _ = kwargs
+        cases = (
+            '<testcase classname="tests.unit.test_failure_detail" name="test_no">'
+            f'<failure message="{long_message}">'
+            "TRACEBACK_BODY_MUST_NOT_LEAK"
+            "</failure></testcase>"
+        )
+        _write_junit_cases(list(command), cases, tests=1, failures=1)
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+    )
+
+    diagnostics = evidence["failure_diagnostics"]
+    assert len(diagnostics) == 1
+    diagnostic = diagnostics[0]
+    assert diagnostic["kind"] == "failure"
+    assert diagnostic["test_name"] == "test_no"
+    assert diagnostic["class_name"] == "tests.unit.test_failure_detail"
+    assert len(diagnostic["message"]) == 240
+    assert diagnostic["message"].endswith("…")
+    assert "TRACEBACK_BODY_MUST_NOT_LEAK" not in repr(evidence)
+    assert evidence["junit_failure_body_returned"] is False
+    assert evidence["failure_diagnostics_untrusted"] is True
+
+
+def test_run_caps_failure_diagnostics_at_three(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_many_failures.py"
+    target.write_text("def test_no():\n    assert False\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        _ = kwargs
+        cases = "".join(
+            (
+                f'<testcase classname="suite" name="test_{index}">'
+                f'<failure message="failure {index}">BODY_{index}</failure>'
+                "</testcase>"
+            )
+            for index in range(5)
+        )
+        _write_junit_cases(list(command), cases, tests=5, failures=5)
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+    )
+
+    assert evidence["failure_diagnostic_total"] == 5
+    assert len(evidence["failure_diagnostics"]) == 3
+    assert evidence["failure_diagnostics_truncated"] is True
+    assert [item["test_name"] for item in evidence["failure_diagnostics"]] == [
+        "test_0",
+        "test_1",
+        "test_2",
+    ]
+
+
+def test_run_exposes_error_kind_and_bounds_identifiers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_error_detail.py"
+    target.write_text("def test_error():\n    raise RuntimeError\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        _ = kwargs
+        cases = (
+            f'<testcase classname="{"C" * 220}" name="{"N" * 220}">'
+            '<error message="collection error&#10;second line">SECRET_BODY</error>'
+            "</testcase>"
+        )
+        _write_junit_cases(list(command), cases, tests=1, failures=0, errors=1)
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+    )
+
+    diagnostic = evidence["failure_diagnostics"][0]
+    assert diagnostic["kind"] == "error"
+    assert len(diagnostic["test_name"]) == 160
+    assert len(diagnostic["class_name"]) == 160
+    assert diagnostic["message"] == "collection error second line"
+    assert "SECRET_BODY" not in repr(evidence)
+
+
+def test_action_failure_result_keeps_structured_diagnostics() -> None:
+    class FakeAdapter:
+        def run_test_file(self, raw_path, *, expected_path, expected_sha256):
+            _ = raw_path, expected_path, expected_sha256
+            return {
+                "path": r"C:\Repo\tests\unit\test_failure.py",
+                "tests_run": 1,
+                "failures": 1,
+                "errors": 0,
+                "skipped": 0,
+                "passed": False,
+                "no_tests_collected": False,
+                "failure_diagnostic_total": 1,
+                "failure_diagnostics": [
+                    {
+                        "kind": "failure",
+                        "test_name": "test_expected_value",
+                        "class_name": "tests.unit.test_failure",
+                        "message": "assert 1 == 2",
+                    }
+                ],
+                "failure_diagnostics_truncated": False,
+                "failure_diagnostics_untrusted": True,
+                "junit_failure_body_returned": False,
+            }
+
+    action = RunPythonUnitTestFileAction(FakeAdapter())
+    result = action.execute(
+        ActionRequest(
+            action="run_python_unit_test_file",
+            arguments={
+                "path": r"C:\Repo\tests\unit\test_failure.py",
+                "_expected_test_path": r"C:\Repo\tests\unit\test_failure.py",
+                "_expected_test_sha256": "a" * 64,
+            },
+        )
+    )
+
+    assert result.success is True
+    assert result.evidence["failure_diagnostics"][0]["test_name"] == (
+        "test_expected_value"
+    )
+    assert "1 diagnóstico(s) limitado(s)" in result.message
+
+
+def test_catalog_documents_failure_diagnostics_without_new_authority() -> None:
+    catalog = build_default_tool_catalog()
+    definitions = {item.name: item for item in catalog.definitions()}
+    definition = definitions["run_python_unit_test_file"]
+
+    assert len(definitions) == 42
+    assert set(definition.parameters["properties"]) == {"path"}
+    assert "até 3 diagnósticos" in definition.description
+    assert "corpo de traceback" in definition.description

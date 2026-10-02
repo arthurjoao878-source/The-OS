@@ -88,8 +88,9 @@ class RunPythonUnitTestFileAction:
                 "A seleção é estreita: somente este tests/unit/test_*.py explícito. "
                 "THE OS usa somente pytest.exe do mesmo venv, argv fixo, sem shell, "
                 "sem plugin autoload, sem conftest, sem cacheprovider e sem bytecode. "
-                "stdout/stderr brutos não são enviados ao modelo; somente contagens "
-                "estruturadas do relatório JUnit temporário."
+                "stdout/stderr brutos não são enviados ao modelo. Em falha/erro, "
+                "o JUnit temporário pode fornecer até 3 diagnósticos estruturados e "
+                "limitados; o corpo de traceback do XML não é devolvido."
             ),
             execution_guard={
                 _EXPECTED_TEST_PATH: path,
@@ -192,10 +193,13 @@ class RunPythonUnitTestFileAction:
                 "mas nenhum teste foi coletado."
             )
         else:
+            diagnostics = evidence.get("failure_diagnostics", [])
+            diagnostic_count = len(diagnostics) if isinstance(diagnostics, list) else 0
             message = (
                 f"Teste unitário controlado concluiu com falha em {path.name}: "
                 f"{failures} falha(s), {errors} erro(s), "
-                f"{tests_run} teste(s) executado(s)."
+                f"{tests_run} teste(s) executado(s); "
+                f"{diagnostic_count} diagnóstico(s) limitado(s) disponível(is)."
             )
 
         return ActionResult(
