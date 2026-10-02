@@ -5,8 +5,11 @@ import ctypes
 import difflib
 import hashlib
 import io
+import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import tokenize
 from collections.abc import Callable
@@ -38,6 +41,12 @@ MAX_LITERAL_BLOCK_LINES = 40
 MAX_PYTHON_SYNTAX_FILE_BYTES = 256 * 1024
 MAX_PYTHON_SYNTAX_MESSAGE_CHARS = 240
 PYTHON_SYNTAX_SUFFIXES = frozenset({".py", ".pyw"})
+MAX_PYTHON_STATIC_FILE_BYTES = 256 * 1024
+MAX_PYTHON_STATIC_DIAGNOSTICS = 20
+MAX_PYTHON_STATIC_MESSAGE_CHARS = 240
+MAX_PYTHON_STATIC_OUTPUT_BYTES = 256 * 1024
+PYTHON_STATIC_TIMEOUT_SECONDS = 5.0
+PYTHON_STATIC_RULES = ("E4", "E7", "E9", "F")
 MAX_WRITE_PREVIEW_CHARS = 3500
 MAX_COPY_ENTRIES = 256
 MAX_COPY_BYTES = 64 * 1024 * 1024
@@ -542,6 +551,202 @@ class WindowsFileSystemAdapter:
                 "diagnostic_code": None,
                 "diagnostic_message": None,
                 "diagnostic_is_untrusted_data": True,
+            }
+        )
+        return evidence
+
+    def check_python_static(
+        self,
+        raw_path: str,
+        *,
+        max_bytes: int = MAX_PYTHON_STATIC_FILE_BYTES,
+        max_diagnostics: int = MAX_PYTHON_STATIC_DIAGNOSTICS,
+    ) -> dict[str, object]:
+        if max_bytes < 1 or max_bytes > MAX_PYTHON_STATIC_FILE_BYTES:
+            raise ValueError("invalid max_bytes")
+        if (
+            max_diagnostics < 1
+            or max_diagnostics > MAX_PYTHON_STATIC_DIAGNOSTICS
+        ):
+            raise ValueError("invalid max_diagnostics")
+
+        path = self.resolve(raw_path)
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "max_bytes": max_bytes,
+            "max_diagnostics": max_diagnostics,
+            "max_output_bytes": MAX_PYTHON_STATIC_OUTPUT_BYTES,
+            "timeout_seconds": PYTHON_STATIC_TIMEOUT_SECONDS,
+            "rules": list(PYTHON_STATIC_RULES),
+            "source_content_returned": False,
+            "target_code_executed": False,
+            "target_imported": False,
+            "target_modified": False,
+            "shell_used": False,
+            "ruff_fix_enabled": False,
+            "ruff_cache_enabled": False,
+            "isolated_mode": True,
+            "diagnostic_is_untrusted_data": True,
+        }
+        if not path.exists():
+            return evidence
+
+        evidence["is_file"] = path.is_file()
+        if not path.is_file():
+            return evidence
+
+        if self._is_link_like(path):
+            evidence["error"] = "LINK_TARGET_NOT_ALLOWED"
+            return evidence
+
+        suffix = path.suffix.casefold()
+        evidence["suffix"] = suffix
+        if suffix not in PYTHON_SYNTAX_SUFFIXES:
+            evidence["error"] = "PYTHON_SOURCE_SUFFIX_REQUIRED"
+            return evidence
+
+        size_bytes = path.stat().st_size
+        evidence["size_bytes"] = size_bytes
+        if size_bytes > max_bytes:
+            evidence["error"] = "FILE_TOO_LARGE"
+            return evidence
+
+        before_bytes = path.read_bytes()
+        before_sha256 = hashlib.sha256(before_bytes).hexdigest()
+        evidence["before_sha256"] = before_sha256
+        evidence["bytes_read_for_guard"] = len(before_bytes)
+
+        python_executable = Path(sys.executable).resolve()
+        ruff_executable = python_executable.with_name("ruff.exe")
+        if not ruff_executable.is_file():
+            evidence["error"] = "RUFF_VERIFIER_NOT_AVAILABLE"
+            return evidence
+
+        command = [
+            str(ruff_executable),
+            "check",
+            "--isolated",
+            "--no-cache",
+            "--no-fix",
+            "--output-format=json",
+            "--target-version=py314",
+            "--select=E4,E7,E9,F",
+            str(path),
+        ]
+        environment = os.environ.copy()
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        environment["NO_COLOR"] = "1"
+
+        try:
+            completed = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                check=False,
+                shell=False,
+                timeout=PYTHON_STATIC_TIMEOUT_SECONDS,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired:
+            after_bytes = path.read_bytes()
+            after_sha256 = hashlib.sha256(after_bytes).hexdigest()
+            evidence.update(
+                {
+                    "after_sha256": after_sha256,
+                    "target_unchanged": after_sha256 == before_sha256,
+                    "target_modified": after_sha256 != before_sha256,
+                    "error": "RUFF_VERIFIER_TIMEOUT",
+                }
+            )
+            return evidence
+
+        after_bytes = path.read_bytes()
+        after_sha256 = hashlib.sha256(after_bytes).hexdigest()
+        target_unchanged = after_sha256 == before_sha256
+        evidence.update(
+            {
+                "after_sha256": after_sha256,
+                "target_unchanged": target_unchanged,
+                "target_modified": not target_unchanged,
+                "verifier_exit_code": completed.returncode,
+                "stdout_bytes": len(completed.stdout),
+                "stderr_bytes": len(completed.stderr),
+            }
+        )
+        if not target_unchanged:
+            evidence["error"] = "TARGET_CHANGED_DURING_STATIC_CHECK"
+            return evidence
+
+        if (
+            len(completed.stdout) > MAX_PYTHON_STATIC_OUTPUT_BYTES
+            or len(completed.stderr) > MAX_PYTHON_STATIC_OUTPUT_BYTES
+        ):
+            evidence["error"] = "RUFF_VERIFIER_OUTPUT_TOO_LARGE"
+            return evidence
+
+        if completed.returncode not in {0, 1}:
+            stderr = completed.stderr.decode("utf-8", errors="replace").strip()
+            if len(stderr) > MAX_PYTHON_STATIC_MESSAGE_CHARS:
+                stderr = stderr[: MAX_PYTHON_STATIC_MESSAGE_CHARS - 1] + "…"
+            evidence.update(
+                {
+                    "error": "RUFF_VERIFIER_FAILED",
+                    "verifier_error": stderr or None,
+                }
+            )
+            return evidence
+
+        try:
+            raw_diagnostics = json.loads(completed.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+            return evidence
+
+        if not isinstance(raw_diagnostics, list):
+            evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+            return evidence
+
+        diagnostics: list[dict[str, object]] = []
+        for raw_diagnostic in raw_diagnostics[:max_diagnostics]:
+            if not isinstance(raw_diagnostic, dict):
+                evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+                return evidence
+
+            location = raw_diagnostic.get("location")
+            end_location = raw_diagnostic.get("end_location")
+            if not isinstance(location, dict) or not isinstance(end_location, dict):
+                evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+                return evidence
+
+            message = raw_diagnostic.get("message")
+            if not isinstance(message, str):
+                evidence["error"] = "RUFF_VERIFIER_PROTOCOL_INVALID"
+                return evidence
+            if len(message) > MAX_PYTHON_STATIC_MESSAGE_CHARS:
+                message = message[: MAX_PYTHON_STATIC_MESSAGE_CHARS - 1] + "…"
+
+            code = raw_diagnostic.get("code")
+            diagnostics.append(
+                {
+                    "code": code if isinstance(code, str) else None,
+                    "message": message,
+                    "line": location.get("row"),
+                    "column": location.get("column"),
+                    "end_line": end_location.get("row"),
+                    "end_column": end_location.get("column"),
+                    "fix_available": raw_diagnostic.get("fix") is not None,
+                }
+            )
+
+        total_diagnostics = len(raw_diagnostics)
+        evidence.update(
+            {
+                "verifier": "ruff",
+                "lint_clean": total_diagnostics == 0,
+                "total_diagnostics": total_diagnostics,
+                "diagnostics": diagnostics,
+                "diagnostics_truncated": total_diagnostics > max_diagnostics,
             }
         )
         return evidence

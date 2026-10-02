@@ -10,6 +10,8 @@ from theos.core.actions.contracts import (
     ConfirmationPreview,
 )
 from theos.integrations.windows.file_system import (
+    MAX_PYTHON_STATIC_DIAGNOSTICS,
+    MAX_PYTHON_STATIC_FILE_BYTES,
     MAX_PYTHON_SYNTAX_FILE_BYTES,
     MAX_TEXT_SEARCH_BYTES_PER_FILE,
     MAX_TEXT_SEARCH_DEPTH,
@@ -17,6 +19,7 @@ from theos.integrations.windows.file_system import (
     MAX_TEXT_SEARCH_RESULTS,
     MAX_TEXT_SEARCH_SNIPPET_CHARS,
     MAX_TEXT_SEARCH_TOTAL_BYTES,
+    PYTHON_STATIC_TIMEOUT_SECONDS,
     WindowsFileSystemAdapter,
 )
 
@@ -436,6 +439,154 @@ class CheckPythonSyntaxAction:
             message = (
                 f"Verificação concluída: sintaxe Python inválida em "
                 f"{resolved.name or resolved}{location}."
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=message,
+            evidence=evidence,
+        )
+
+
+class CheckPythonStaticAction:
+    name = "check_python_static"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if not raw_path:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: caminho vazio.",
+            )
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "VERIFICAR PYTHON ESTATICAMENTE COM RUFF\n"
+                f"Caminho: {raw_path}\n"
+                "O arquivo só será lido após esta confirmação. Apenas .py/.pyw são "
+                "aceitos e o limite local é de "
+                f"{MAX_PYTHON_STATIC_FILE_BYTES} byte(s).\n"
+                "THE OS inicia somente o executável Ruff irmão do Python do venv, "
+                "com argv fixo, sem shell, em modo isolado, sem cache e sem --fix. "
+                "Regras fixas: E4,E7,E9,F; target Python: py314; timeout: "
+                f"{PYTHON_STATIC_TIMEOUT_SECONDS:g}s.\n"
+                "O arquivo-alvo não é importado nem executado. No máximo "
+                f"{MAX_PYTHON_STATIC_DIAGNOSTICS} diagnósticos estruturais são "
+                "retornados; linhas-fonte e sugestões de fix não são devolvidas."
+            ),
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if not raw_path:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O caminho do arquivo Python é obrigatório.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.check_python_static(raw_path)
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui executar a verificação estática Python.",
+                evidence={"exception": type(exc).__name__},
+                error_code="PYTHON_STATIC_CHECK_FAILED",
+            )
+
+        if not bool(evidence.get("exists")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"Não encontrei o arquivo {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FOUND",
+            )
+        if not bool(evidence.get("is_file")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"O caminho não é um arquivo: {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FILE",
+            )
+
+        error = evidence.get("error")
+        error_map = {
+            "LINK_TARGET_NOT_ALLOWED": (
+                "Links e junctions não são aceitos para análise estática Python.",
+                "LINK_TARGET_NOT_ALLOWED",
+            ),
+            "PYTHON_SOURCE_SUFFIX_REQUIRED": (
+                "A análise estática aceita somente arquivos .py ou .pyw.",
+                "PYTHON_SOURCE_SUFFIX_REQUIRED",
+            ),
+            "FILE_TOO_LARGE": (
+                "O arquivo Python excede o limite local de análise estática.",
+                "FILE_TOO_LARGE",
+            ),
+            "RUFF_VERIFIER_NOT_AVAILABLE": (
+                "O Ruff controlado do ambiente THE OS não está disponível.",
+                "RUFF_VERIFIER_NOT_AVAILABLE",
+            ),
+            "RUFF_VERIFIER_TIMEOUT": (
+                "O Ruff excedeu o tempo local permitido.",
+                "RUFF_VERIFIER_TIMEOUT",
+            ),
+            "RUFF_VERIFIER_OUTPUT_TOO_LARGE": (
+                "A saída do Ruff excedeu o limite local permitido.",
+                "RUFF_VERIFIER_OUTPUT_TOO_LARGE",
+            ),
+            "RUFF_VERIFIER_FAILED": (
+                "O processo Ruff controlado falhou.",
+                "RUFF_VERIFIER_FAILED",
+            ),
+            "RUFF_VERIFIER_PROTOCOL_INVALID": (
+                "O Ruff retornou um formato que THE OS não reconheceu.",
+                "RUFF_VERIFIER_PROTOCOL_INVALID",
+            ),
+            "TARGET_CHANGED_DURING_STATIC_CHECK": (
+                "O arquivo mudou durante a análise; o resultado foi descartado.",
+                "TARGET_CHANGED_DURING_STATIC_CHECK",
+            ),
+        }
+        if isinstance(error, str):
+            mapped = error_map.get(error)
+            if mapped is None:
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message="A análise estática Python falhou de forma não reconhecida.",
+                    evidence=evidence,
+                    error_code="PYTHON_STATIC_CHECK_FAILED",
+                )
+            message, error_code = mapped
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=message,
+                evidence=evidence,
+                error_code=error_code,
+            )
+
+        resolved = Path(str(evidence["path"]))
+        total = evidence.get("total_diagnostics")
+        count = total if isinstance(total, int) else 0
+        if bool(evidence.get("lint_clean")):
+            message = f"Análise estática Python limpa em {resolved.name or resolved}."
+        else:
+            message = (
+                f"Análise estática concluída em {resolved.name or resolved}: "
+                f"{count} diagnóstico(s)."
             )
 
         return ActionResult(

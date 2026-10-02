@@ -455,6 +455,9 @@ class ToolLoopExecutor:
         if request.action == "check_python_syntax":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Verificando sintaxe Python em {target}..."
+        if request.action == "check_python_static":
+            target = str(request.arguments.get("path", "arquivo"))
+            return f"Analisando Python estaticamente em {target}..."
         if request.action == "search_text":
             query = str(request.arguments.get("query", "texto"))
             root = str(request.arguments.get("root", "pasta"))
