@@ -598,6 +598,28 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="git_status_snapshot",
+            description=(
+                "Inspeciona de forma confirmada e somente leitura o status Git do "
+                "checkout fixo do próprio THE OS. Não aceita argumentos: o modelo não "
+                "escolhe repositório, comando, flags, revisão, remote ou executável. "
+                "Após aprovação, THE OS usa somente argv Git fixo sem shell, com "
+                "GIT_* herdadas removidas e GIT_OPTIONAL_LOCKS=0. Retorna branch, "
+                "HEAD, clean/dirty e no máximo 64 caminhos alterados com códigos "
+                "index/worktree. Não retorna conteúdo de diff, blobs, mensagens de "
+                "commit, remotes, credenciais ou stdout/stderr brutos e não possui "
+                "autoridade para stage, commit, checkout, reset, fetch, pull ou push."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="system_status",
             description=(
                 "Coleta um snapshot local e somente leitura do uso atual do computador: "
