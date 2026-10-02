@@ -11,6 +11,7 @@ from theos.core.actions.contracts import (
 from theos.integrations.windows.python_tests import (
     MAX_PROJECT_PYTHON_FILES,
     MAX_PROJECT_PYTHON_TOTAL_BYTES,
+    MAX_PYTEST_VERIFIER_BYTES,
     MAX_PYTHON_UNIT_TEST_FILE_BYTES,
     PYTHON_UNIT_TEST_TIMEOUT_SECONDS,
     WindowsPythonUnitTestAdapter,
@@ -21,6 +22,8 @@ _EXPECTED_TEST_SHA256 = "_expected_test_sha256"
 _EXPECTED_PROJECT_PYTHON_MANIFEST_SHA256 = (
     "_expected_project_python_manifest_sha256"
 )
+_EXPECTED_PYTEST_VERIFIER_PATH = "_expected_pytest_verifier_path"
+_EXPECTED_PYTEST_VERIFIER_SHA256 = "_expected_pytest_verifier_sha256"
 
 
 class RunPythonUnitTestFileAction:
@@ -67,6 +70,18 @@ class RunPythonUnitTestFileAction:
             "PROJECT_PYTHON_FILE_COUNT_EXCEEDED": (
                 "O manifesto Python do projeto excede o limite local de arquivos."
             ),
+            "PYTEST_VERIFIER_NOT_AVAILABLE": (
+                "O pytest.exe controlado do venv não está disponível."
+            ),
+            "PYTEST_VERIFIER_LINK_NOT_ALLOWED": (
+                "O pytest.exe controlado não pode ser link/junction."
+            ),
+            "PYTEST_VERIFIER_TOO_LARGE": (
+                "O pytest.exe controlado excede o limite local."
+            ),
+            "PYTEST_VERIFIER_UNREADABLE": (
+                "Não foi possível hashear o pytest.exe controlado."
+            ),
         }
         return ConfirmationPreview(
             allowed=False,
@@ -95,6 +110,16 @@ class RunPythonUnitTestFileAction:
         if evidence.get("error") is not None:
             return self._blocked_preview(evidence)
 
+        try:
+            verifier = self._adapter.preview_pytest_verifier()
+        except (OSError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível validar o pytest.exe controlado.",
+            )
+        if verifier.get("error") is not None:
+            return self._blocked_preview(verifier)
+
         path = str(evidence["path"])
         sha256 = str(evidence["sha256"])
         project_manifest_sha256 = str(
@@ -102,6 +127,9 @@ class RunPythonUnitTestFileAction:
         )
         project_file_count = int(evidence["project_python_file_count"])
         project_total_bytes = int(evidence["project_python_total_bytes"])
+        pytest_verifier_path = str(verifier["pytest_verifier_path"])
+        pytest_verifier_sha256 = str(verifier["pytest_verifier_sha256"])
+        pytest_verifier_size_bytes = int(verifier["pytest_verifier_size_bytes"])
         return ConfirmationPreview(
             allowed=True,
             text=(
@@ -115,6 +143,10 @@ class RunPythonUnitTestFileAction:
                 f"{MAX_PROJECT_PYTHON_FILES} arquivo(s) e "
                 f"{MAX_PROJECT_PYTHON_TOTAL_BYTES} byte(s) totais.\n"
                 f"Limite do arquivo: {MAX_PYTHON_UNIT_TEST_FILE_BYTES} byte(s).\n"
+                f"pytest.exe aprovado: {pytest_verifier_path}\n"
+                f"SHA-256 do pytest.exe: {pytest_verifier_sha256}\n"
+                f"pytest.exe: {pytest_verifier_size_bytes} byte(s); limite de "
+                f"{MAX_PYTEST_VERIFIER_BYTES} byte(s).\n"
                 f"Timeout: {PYTHON_UNIT_TEST_TIMEOUT_SECONDS:g}s.\n"
                 "RISCO PRIVILEGIADO: pytest executará código Python do arquivo de teste "
                 "e dos módulos que ele importar com as permissões do usuário atual. "
@@ -137,6 +169,8 @@ class RunPythonUnitTestFileAction:
                 _EXPECTED_PROJECT_PYTHON_MANIFEST_SHA256: (
                     project_manifest_sha256
                 ),
+                _EXPECTED_PYTEST_VERIFIER_PATH: pytest_verifier_path,
+                _EXPECTED_PYTEST_VERIFIER_SHA256: pytest_verifier_sha256,
             },
         )
 
@@ -147,6 +181,12 @@ class RunPythonUnitTestFileAction:
         expected_project_manifest_sha256 = request.arguments.get(
             _EXPECTED_PROJECT_PYTHON_MANIFEST_SHA256
         )
+        expected_pytest_verifier_path = request.arguments.get(
+            _EXPECTED_PYTEST_VERIFIER_PATH
+        )
+        expected_pytest_verifier_sha256 = request.arguments.get(
+            _EXPECTED_PYTEST_VERIFIER_SHA256
+        )
         if (
             not raw_path
             or not isinstance(expected_path, str)
@@ -155,6 +195,10 @@ class RunPythonUnitTestFileAction:
             or len(expected_sha256) != 64
             or not isinstance(expected_project_manifest_sha256, str)
             or len(expected_project_manifest_sha256) != 64
+            or not isinstance(expected_pytest_verifier_path, str)
+            or not expected_pytest_verifier_path
+            or not isinstance(expected_pytest_verifier_sha256, str)
+            or len(expected_pytest_verifier_sha256) != 64
         ):
             return ActionResult(
                 request_id=request.request_id,
@@ -170,6 +214,10 @@ class RunPythonUnitTestFileAction:
                 expected_sha256=expected_sha256,
                 expected_project_python_manifest_sha256=(
                     expected_project_manifest_sha256
+                ),
+                expected_pytest_verifier_path=expected_pytest_verifier_path,
+                expected_pytest_verifier_sha256=(
+                    expected_pytest_verifier_sha256
                 ),
             )
         except (OSError, ValueError) as exc:
@@ -224,7 +272,22 @@ class RunPythonUnitTestFileAction:
                 "PYTEST_VERIFIER_NOT_AVAILABLE": (
                     "O pytest.exe controlado do venv não está disponível."
                 ),
+                "PYTEST_VERIFIER_LINK_NOT_ALLOWED": (
+                    "O pytest.exe controlado virou link/junction e foi bloqueado."
+                ),
+                "PYTEST_VERIFIER_TOO_LARGE": (
+                    "O pytest.exe controlado excede o limite local."
+                ),
+                "PYTEST_VERIFIER_UNREADABLE": (
+                    "Não foi possível validar o pytest.exe controlado."
+                ),
+                "PYTEST_VERIFIER_CHANGED_AFTER_PREVIEW": (
+                    "O pytest.exe controlado mudou após a aprovação; execução bloqueada."
+                ),
                 "PYTEST_TIMEOUT": "O teste excedeu o timeout local de 30 segundos.",
+                "PYTEST_VERIFIER_CHANGED_DURING_RUN": (
+                    "O pytest.exe controlado mudou durante a execução; resultado descartado."
+                ),
                 "TEST_TARGET_CHANGED_DURING_RUN": (
                     "O arquivo de teste mudou durante a execução; resultado descartado."
                 ),

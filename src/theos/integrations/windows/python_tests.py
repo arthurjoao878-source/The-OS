@@ -19,6 +19,7 @@ PROJECT_PYTHON_MANIFEST_ROOTS = ("src/theos", "tests/unit")
 MAX_PROJECT_PYTHON_FILES = 256
 MAX_PROJECT_PYTHON_FILE_BYTES = 256 * 1024
 MAX_PROJECT_PYTHON_TOTAL_BYTES = 4 * 1024 * 1024
+MAX_PYTEST_VERIFIER_BYTES = 4 * 1024 * 1024
 
 
 class WindowsPythonUnitTestAdapter:
@@ -209,6 +210,45 @@ class WindowsPythonUnitTestAdapter:
     def _pytest_executable() -> Path:
         return Path(sys.executable).resolve().with_name("pytest.exe")
 
+    def preview_pytest_verifier(self) -> dict[str, object]:
+        raw_path = self._pytest_executable()
+        path = Path(os.path.abspath(raw_path))
+        evidence: dict[str, object] = {
+            "pytest_verifier_path": str(path),
+            "max_pytest_verifier_bytes": MAX_PYTEST_VERIFIER_BYTES,
+            "pytest_verifier_content_returned": False,
+        }
+
+        try:
+            if not path.exists() or not path.is_file():
+                evidence["error"] = "PYTEST_VERIFIER_NOT_AVAILABLE"
+                return evidence
+            if self._is_link_like(path):
+                evidence["error"] = "PYTEST_VERIFIER_LINK_NOT_ALLOWED"
+                return evidence
+            resolved = path.resolve(strict=True)
+            if self._is_link_like(resolved):
+                evidence["error"] = "PYTEST_VERIFIER_LINK_NOT_ALLOWED"
+                return evidence
+            size_bytes = resolved.stat().st_size
+            evidence["pytest_verifier_path"] = str(resolved)
+            evidence["pytest_verifier_size_bytes"] = size_bytes
+            if size_bytes > MAX_PYTEST_VERIFIER_BYTES:
+                evidence["error"] = "PYTEST_VERIFIER_TOO_LARGE"
+                return evidence
+            payload = resolved.read_bytes()
+        except OSError:
+            evidence["error"] = "PYTEST_VERIFIER_UNREADABLE"
+            return evidence
+
+        evidence.update(
+            {
+                "pytest_verifier_sha256": hashlib.sha256(payload).hexdigest(),
+                "pytest_verifier_hash_only_preflight": True,
+            }
+        )
+        return evidence
+
     @staticmethod
     def _bounded_junit_attribute(
         value: str | None,
@@ -300,6 +340,8 @@ class WindowsPythonUnitTestAdapter:
         expected_path: str,
         expected_sha256: str,
         expected_project_python_manifest_sha256: str,
+        expected_pytest_verifier_path: str,
+        expected_pytest_verifier_sha256: str,
     ) -> dict[str, object]:
         preview = self.preview_test_target(raw_path)
         evidence = dict(preview)
@@ -307,6 +349,7 @@ class WindowsPythonUnitTestAdapter:
             {
                 "risk_boundary": "PRIVILEGED_TEST_CODE_EXECUTION",
                 "pytest_executable_fixed": True,
+                "pytest_verifier_identity_guard_enabled": True,
                 "pytest_arguments_fixed": True,
                 "shell_used": False,
                 "plugin_autoload_enabled": False,
@@ -349,10 +392,21 @@ class WindowsPythonUnitTestAdapter:
             evidence["error"] = "PROJECT_PYTHON_STATE_CHANGED_AFTER_PREVIEW"
             return evidence
 
-        pytest_executable = self._pytest_executable()
-        if not pytest_executable.is_file():
-            evidence["error"] = "PYTEST_VERIFIER_NOT_AVAILABLE"
+        verifier = self.preview_pytest_verifier()
+        verifier_error = verifier.get("error")
+        if isinstance(verifier_error, str):
+            evidence.update(verifier)
             return evidence
+        evidence.update(verifier)
+        if (
+            evidence.get("pytest_verifier_path") != expected_pytest_verifier_path
+            or evidence.get("pytest_verifier_sha256")
+            != expected_pytest_verifier_sha256
+        ):
+            evidence["error"] = "PYTEST_VERIFIER_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        pytest_executable = Path(expected_pytest_verifier_path)
 
         environment = os.environ.copy()
         for key in tuple(environment):
@@ -398,9 +452,26 @@ class WindowsPythonUnitTestAdapter:
                     env=environment,
                 )
             except subprocess.TimeoutExpired:
+                evidence["test_code_executed"] = True
+                after_verifier = self.preview_pytest_verifier()
+                after_verifier_error = after_verifier.get("error")
+                if (
+                    isinstance(after_verifier_error, str)
+                    or after_verifier.get("pytest_verifier_path")
+                    != expected_pytest_verifier_path
+                    or after_verifier.get("pytest_verifier_sha256")
+                    != expected_pytest_verifier_sha256
+                ):
+                    evidence.update(
+                        {
+                            "pytest_verifier_unchanged": False,
+                            "error": "PYTEST_VERIFIER_CHANGED_DURING_RUN",
+                        }
+                    )
+                    return evidence
                 evidence.update(
                     {
-                        "test_code_executed": True,
+                        "pytest_verifier_unchanged": True,
                         "error": "PYTEST_TIMEOUT",
                     }
                 )
@@ -412,6 +483,24 @@ class WindowsPythonUnitTestAdapter:
                     "pytest_exit_code": completed.returncode,
                 }
             )
+
+            after_verifier = self.preview_pytest_verifier()
+            after_verifier_error = after_verifier.get("error")
+            if (
+                isinstance(after_verifier_error, str)
+                or after_verifier.get("pytest_verifier_path")
+                != expected_pytest_verifier_path
+                or after_verifier.get("pytest_verifier_sha256")
+                != expected_pytest_verifier_sha256
+            ):
+                evidence.update(
+                    {
+                        "pytest_verifier_unchanged": False,
+                        "error": "PYTEST_VERIFIER_CHANGED_DURING_RUN",
+                    }
+                )
+                return evidence
+            evidence["pytest_verifier_unchanged"] = True
 
             try:
                 after_payload = path.read_bytes()
