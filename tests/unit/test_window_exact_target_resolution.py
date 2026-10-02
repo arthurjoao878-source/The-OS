@@ -62,8 +62,9 @@ def test_shared_exact_resolver_remains_transport_free() -> None:
     source = inspect.getsource(
         WindowsDesktopWindowAdapter._resolve_exact_window_target
     )
-    assert source.count("user32.EnumWindows(callback, 0)") == 1
-    assert "DwmGetWindowAttribute" in source
+    assert source.count("self._enumerate_action_window_candidates(") == 1
+    assert "user32.EnumWindows(callback, 0)" not in source
+    assert "DwmGetWindowAttribute" not in source
     assert "resolve_hosted_visual_frame_for_single_placement" in source
     assert "MoveWindow" not in source
     assert "SendInput" not in source

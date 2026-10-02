@@ -487,23 +487,15 @@ class WindowsDesktopWindowAdapter:
         }
 
 
-    def _resolve_exact_window_target(
+    def _enumerate_action_window_candidates(
         self,
         user32: object,
         callback_type: object,
-        pid: int,
-        title: str,
-        target_token: str,
-        *,
-        stale_detail: bool = False,
     ) -> tuple[
-        HostedWindowCandidate,
-        HostedWindowCandidate,
-        str,
-        str,
-        bool,
-        bool,
-        int | None,
+        tuple[HostedWindowCandidate, ...],
+        dict[int, str],
+        dict[int, int | None],
+        frozenset[int],
     ]:
         user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
         user32.EnumWindows.restype = wintypes.BOOL
@@ -569,15 +561,12 @@ class WindowsDesktopWindowAdapter:
                 return None
             return int(value.value)
 
-        all_candidates: list[HostedWindowCandidate] = []
+        candidates: list[HostedWindowCandidate] = []
         full_titles: dict[int, str] = {}
         dwm_cloaked_by_hwnd: dict[int, int | None] = {}
-        visible_pid_matches = 0
-        visible_pid_title_matches = 0
+        visible_pids: set[int] = set()
 
         def visit_window(hwnd: int, _lparam: int) -> bool:
-            nonlocal visible_pid_matches, visible_pid_title_matches
-
             if not user32.IsWindowVisible(hwnd):
                 return True
 
@@ -586,8 +575,7 @@ class WindowsDesktopWindowAdapter:
             candidate_pid = int(process_id.value)
             if candidate_pid <= 0:
                 return True
-            if candidate_pid == pid:
-                visible_pid_matches += 1
+            visible_pids.add(candidate_pid)
 
             title_length = int(user32.GetWindowTextLengthW(hwnd))
             if title_length <= 0:
@@ -604,8 +592,6 @@ class WindowsDesktopWindowAdapter:
             if not full_title:
                 return True
             bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if candidate_pid == pid and bounded_title == title:
-                visible_pid_title_matches += 1
 
             candidate_token = _window_target_token(
                 int(hwnd),
@@ -634,7 +620,7 @@ class WindowsDesktopWindowAdapter:
             hwnd_value = int(hwnd)
             full_titles[hwnd_value] = full_title
             dwm_cloaked_by_hwnd[hwnd_value] = get_dwm_cloaked(hwnd)
-            all_candidates.append(
+            candidates.append(
                 HostedWindowCandidate(
                     hwnd=hwnd_value,
                     pid=candidate_pid,
@@ -652,6 +638,47 @@ class WindowsDesktopWindowAdapter:
         callback = callback_type(visit_window)
         if not user32.EnumWindows(callback, 0):
             raise OSError(ctypes.get_last_error(), "EnumWindows failed")
+
+        return (
+            tuple(candidates),
+            full_titles,
+            dwm_cloaked_by_hwnd,
+            frozenset(visible_pids),
+        )
+
+    def _resolve_exact_window_target(
+        self,
+        user32: object,
+        callback_type: object,
+        pid: int,
+        title: str,
+        target_token: str,
+        *,
+        stale_detail: bool = False,
+    ) -> tuple[
+        HostedWindowCandidate,
+        HostedWindowCandidate,
+        str,
+        str,
+        bool,
+        bool,
+        int | None,
+    ]:
+        (
+            all_candidates,
+            full_titles,
+            dwm_cloaked_by_hwnd,
+            visible_pids,
+        ) = self._enumerate_action_window_candidates(
+            user32,
+            callback_type,
+        )
+
+        visible_pid_matches = pid in visible_pids
+        visible_pid_title_matches = any(
+            candidate.pid == pid and candidate.title == title
+            for candidate in all_candidates
+        )
 
         matches = [
             candidate
@@ -674,7 +701,7 @@ class WindowsDesktopWindowAdapter:
             resolved, normalized, dwm_tiebreak_used = (
                 resolve_hosted_visual_frame_for_single_placement(
                     requested,
-                    tuple(all_candidates),
+                    all_candidates,
                     dwm_cloaked_by_hwnd,
                 )
             )
@@ -694,6 +721,7 @@ class WindowsDesktopWindowAdapter:
             dwm_tiebreak_used,
             dwm_cloaked_by_hwnd.get(resolved.hwnd),
         )
+
 
     def activate_window(
         self,
@@ -3542,38 +3570,6 @@ class WindowsDesktopWindowAdapter:
             wintypes.LPARAM,
         )
 
-        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
-        user32.EnumWindows.restype = wintypes.BOOL
-        user32.IsWindowVisible.argtypes = [wintypes.HWND]
-        user32.IsWindowVisible.restype = wintypes.BOOL
-        user32.IsIconic.argtypes = [wintypes.HWND]
-        user32.IsIconic.restype = wintypes.BOOL
-        user32.IsZoomed.argtypes = [wintypes.HWND]
-        user32.IsZoomed.restype = wintypes.BOOL
-        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-        user32.GetWindowTextLengthW.restype = ctypes.c_int
-        user32.GetWindowTextW.argtypes = [
-            wintypes.HWND,
-            wintypes.LPWSTR,
-            ctypes.c_int,
-        ]
-        user32.GetWindowTextW.restype = ctypes.c_int
-        user32.GetWindowThreadProcessId.argtypes = [
-            wintypes.HWND,
-            ctypes.POINTER(wintypes.DWORD),
-        ]
-        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-        user32.GetClassNameW.argtypes = [
-            wintypes.HWND,
-            wintypes.LPWSTR,
-            ctypes.c_int,
-        ]
-        user32.GetClassNameW.restype = ctypes.c_int
-        user32.GetClientRect.argtypes = [
-            wintypes.HWND,
-            ctypes.POINTER(wintypes.RECT),
-        ]
-        user32.GetClientRect.restype = wintypes.BOOL
         user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
         user32.MonitorFromWindow.restype = wintypes.HANDLE
         user32.GetMonitorInfoW.argtypes = [
@@ -3596,110 +3592,15 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.GetWindowRect.restype = wintypes.BOOL
 
-        dwmapi = None
-        try:
-            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
-        except OSError:
-            pass
-
-        if dwmapi is not None:
-            dwmapi.DwmGetWindowAttribute.argtypes = [
-                wintypes.HWND,
-                wintypes.DWORD,
-                wintypes.LPVOID,
-                wintypes.DWORD,
-            ]
-            dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
-
-        def get_dwm_cloaked(hwnd: wintypes.HWND) -> int | None:
-            if dwmapi is None:
-                return None
-            value = wintypes.DWORD()
-            result = int(
-                dwmapi.DwmGetWindowAttribute(
-                    hwnd,
-                    14,
-                    ctypes.byref(value),
-                    ctypes.sizeof(value),
-                )
-            )
-            if result != 0:
-                return None
-            return int(value.value)
-
-        all_candidates: list[HostedWindowCandidate] = []
-        full_titles: dict[int, str] = {}
-        dwm_cloaked_by_hwnd: dict[int, int | None] = {}
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(user32.GetWindowTextW(hwnd, buffer, title_length + 1))
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            pid = int(process_id.value)
-            if pid <= 0:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-
-            class_buffer = ctypes.create_unicode_buffer(256)
-            class_length = int(
-                user32.GetClassNameW(
-                    hwnd,
-                    class_buffer,
-                    len(class_buffer),
-                )
-            )
-            class_name = class_buffer.value if class_length > 0 else ""
-
-            client_rect = wintypes.RECT()
-            if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
-                client_width = int(client_rect.right - client_rect.left)
-                client_height = int(client_rect.bottom - client_rect.top)
-            else:
-                client_width = 0
-                client_height = 0
-
-            hwnd_value = int(hwnd)
-            full_titles[hwnd_value] = full_title
-            dwm_cloaked_by_hwnd[hwnd_value] = get_dwm_cloaked(hwnd)
-            all_candidates.append(
-                HostedWindowCandidate(
-                    hwnd=hwnd_value,
-                    pid=pid,
-                    title=bounded_title,
-                    target_token=candidate_token,
-                    class_name=class_name,
-                    is_iconic=bool(user32.IsIconic(hwnd)),
-                    is_zoomed=bool(user32.IsZoomed(hwnd)),
-                    client_width=client_width,
-                    client_height=client_height,
-                )
-            )
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
+        (
+            all_candidates,
+            full_titles,
+            dwm_cloaked_by_hwnd,
+            _visible_pids,
+        ) = self._enumerate_action_window_candidates(
+            user32,
+            callback_type,
+        )
 
         first_matches = [
             candidate
@@ -3721,7 +3622,7 @@ class WindowsDesktopWindowAdapter:
         if len(second_matches) != 1:
             raise RuntimeError("WINDOW_PAIR_SECOND_TARGET_AMBIGUOUS")
 
-        candidate_tuple = tuple(all_candidates)
+        candidate_tuple = all_candidates
         try:
             (
                 first_resolved,
@@ -4009,38 +3910,6 @@ class WindowsDesktopWindowAdapter:
             wintypes.LPARAM,
         )
 
-        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
-        user32.EnumWindows.restype = wintypes.BOOL
-        user32.IsWindowVisible.argtypes = [wintypes.HWND]
-        user32.IsWindowVisible.restype = wintypes.BOOL
-        user32.IsIconic.argtypes = [wintypes.HWND]
-        user32.IsIconic.restype = wintypes.BOOL
-        user32.IsZoomed.argtypes = [wintypes.HWND]
-        user32.IsZoomed.restype = wintypes.BOOL
-        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-        user32.GetWindowTextLengthW.restype = ctypes.c_int
-        user32.GetWindowTextW.argtypes = [
-            wintypes.HWND,
-            wintypes.LPWSTR,
-            ctypes.c_int,
-        ]
-        user32.GetWindowTextW.restype = ctypes.c_int
-        user32.GetWindowThreadProcessId.argtypes = [
-            wintypes.HWND,
-            ctypes.POINTER(wintypes.DWORD),
-        ]
-        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-        user32.GetClassNameW.argtypes = [
-            wintypes.HWND,
-            wintypes.LPWSTR,
-            ctypes.c_int,
-        ]
-        user32.GetClassNameW.restype = ctypes.c_int
-        user32.GetClientRect.argtypes = [
-            wintypes.HWND,
-            ctypes.POINTER(wintypes.RECT),
-        ]
-        user32.GetClientRect.restype = wintypes.BOOL
         user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
         user32.MonitorFromWindow.restype = wintypes.HANDLE
         user32.GetMonitorInfoW.argtypes = [
@@ -4063,112 +3932,17 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.GetWindowRect.restype = wintypes.BOOL
 
-        dwmapi = None
-        try:
-            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
-        except OSError:
-            pass
+        (
+            all_candidates,
+            full_titles,
+            dwm_cloaked_by_hwnd,
+            _visible_pids,
+        ) = self._enumerate_action_window_candidates(
+            user32,
+            callback_type,
+        )
 
-        if dwmapi is not None:
-            dwmapi.DwmGetWindowAttribute.argtypes = [
-                wintypes.HWND,
-                wintypes.DWORD,
-                wintypes.LPVOID,
-                wintypes.DWORD,
-            ]
-            dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
-
-        def get_dwm_cloaked(hwnd: wintypes.HWND) -> int | None:
-            if dwmapi is None:
-                return None
-            value = wintypes.DWORD()
-            result = int(
-                dwmapi.DwmGetWindowAttribute(
-                    hwnd,
-                    14,
-                    ctypes.byref(value),
-                    ctypes.sizeof(value),
-                )
-            )
-            if result != 0:
-                return None
-            return int(value.value)
-
-        all_candidates: list[HostedWindowCandidate] = []
-        full_titles: dict[int, str] = {}
-        dwm_cloaked_by_hwnd: dict[int, int | None] = {}
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(user32.GetWindowTextW(hwnd, buffer, title_length + 1))
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            pid = int(process_id.value)
-            if pid <= 0:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-
-            class_buffer = ctypes.create_unicode_buffer(256)
-            class_length = int(
-                user32.GetClassNameW(
-                    hwnd,
-                    class_buffer,
-                    len(class_buffer),
-                )
-            )
-            class_name = class_buffer.value if class_length > 0 else ""
-
-            client_rect = wintypes.RECT()
-            if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
-                client_width = int(client_rect.right - client_rect.left)
-                client_height = int(client_rect.bottom - client_rect.top)
-            else:
-                client_width = 0
-                client_height = 0
-
-            hwnd_value = int(hwnd)
-            full_titles[hwnd_value] = full_title
-            dwm_cloaked_by_hwnd[hwnd_value] = get_dwm_cloaked(hwnd)
-            all_candidates.append(
-                HostedWindowCandidate(
-                    hwnd=hwnd_value,
-                    pid=pid,
-                    title=bounded_title,
-                    target_token=candidate_token,
-                    class_name=class_name,
-                    is_iconic=bool(user32.IsIconic(hwnd)),
-                    is_zoomed=bool(user32.IsZoomed(hwnd)),
-                    client_width=client_width,
-                    client_height=client_height,
-                )
-            )
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
-
-        candidate_tuple = tuple(all_candidates)
+        candidate_tuple = all_candidates
         resolved_candidates: list[HostedWindowCandidate] = []
         normalized_flags: list[bool] = []
         dwm_tiebreak_flags: list[bool] = []

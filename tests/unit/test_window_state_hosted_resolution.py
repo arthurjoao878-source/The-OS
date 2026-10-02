@@ -65,8 +65,9 @@ def test_shared_exact_resolver_contains_hosted_dwm_normalization_only() -> None:
     source = inspect.getsource(
         WindowsDesktopWindowAdapter._resolve_exact_window_target
     )
-    assert source.count("user32.EnumWindows(callback, 0)") == 1
-    assert "DwmGetWindowAttribute" in source
+    assert source.count("self._enumerate_action_window_candidates(") == 1
+    assert "user32.EnumWindows(callback, 0)" not in source
+    assert "DwmGetWindowAttribute" not in source
     assert "resolve_hosted_visual_frame_for_single_placement" in source
     assert "WINDOW_TARGET_TOKEN_STALE" in source
     assert "WINDOW_TARGET_TITLE_CHANGED" in source
