@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
+from theos.core.window_targets import build_hosted_window_target_guidance
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,4 +102,4 @@ def build_mouse_click_tool_description() -> str:
         "double-click e wheel permanecem bloqueados. O THE OS verifica alvo, posição "
         "do cursor, envio dos dois eventos e foco, mas não lê o conteúdo da janela nem "
         "afirma o efeito semântico do clique."
-    )
+    ) + build_hosted_window_target_guidance()

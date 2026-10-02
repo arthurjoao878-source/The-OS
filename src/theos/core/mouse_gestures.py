@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
+from theos.core.window_targets import build_hosted_window_target_guidance
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,4 +78,4 @@ def build_mouse_double_click_tool_description() -> str:
         "wheel. O THE OS verifica alvo, cursor, quantidade de eventos aceita e foco, "
         "mas não lê controles nem afirma que o aplicativo reconheceu semanticamente "
         "o duplo clique."
-    )
+    ) + build_hosted_window_target_guidance()

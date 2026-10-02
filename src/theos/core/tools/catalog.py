@@ -59,6 +59,7 @@ from theos.core.window_targets import (
     MAX_WINDOW_MULTI_QUERIES,
     MAX_WINDOW_QUERY_CHARS,
     MIN_WINDOW_MULTI_QUERIES,
+    build_hosted_window_target_guidance,
     is_window_target_token,
     normalize_window_queries,
     normalize_window_query,
@@ -632,6 +633,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "trajeto arbitrários. A execução verifica alvo, posição final do "
                 "cursor e continuidade de foco; nenhum SendInput é enviado e o THE OS "
                 "não afirma efeitos de hover ou alterações internas."
+                + build_hosted_window_target_guidance()
             ),
             parameters={
                 "type": "object",
@@ -782,6 +784,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "quantidade de cliques, intervalo ou âncora arbitrários. O THE OS "
                 "verifica geometria, envio dos quatro eventos e foco, mas não afirma "
                 "o reconhecimento semântico do duplo clique."
+                + build_hosted_window_target_guidance()
             ),
             parameters={
                 "type": "object",
@@ -901,6 +904,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "Windows wheel delta. Não aceita quantidade, scroll horizontal, x/y "
                 "ou âncora arbitrários. O THE OS verifica geometria, envio e foco, "
                 "mas não inspeciona o efeito semântico da rolagem."
+                + build_hosted_window_target_guidance()
             ),
             parameters={
                 "type": "object",
@@ -1001,6 +1005,7 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "Exige confirmação local; depois da confirmação, o THE OS reativa e "
                 "verifica o alvo opaco exato antes do envio. Não envia Enter, Tab, "
                 "atalhos, teclas especiais nem caracteres de controle."
+                + build_hosted_window_target_guidance()
             ),
             parameters={
                 "type": "object",

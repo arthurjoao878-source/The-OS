@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
+from theos.core.window_targets import build_hosted_window_target_guidance
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,4 +95,4 @@ def build_mouse_scroll_tool_description() -> str:
         "scroll horizontal, drag e double-click permanecem bloqueados. O THE OS "
         "verifica alvo, posição do cursor, envio e foco, mas não inspeciona o efeito "
         "semântico da rolagem."
-    )
+    ) + build_hosted_window_target_guidance()

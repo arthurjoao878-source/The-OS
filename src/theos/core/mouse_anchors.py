@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from theos.core.window_targets import build_hosted_window_target_guidance
+
 
 @dataclass(frozen=True, slots=True)
 class MouseAnchorSpec:
@@ -121,4 +123,4 @@ def build_mouse_anchor_click_tool_description() -> str:
         "quando o pedido for especificamente o centro geométrico da janela inteira. "
         "O THE OS verifica alvo, posição do cursor, envio dos dois eventos e foco, "
         "mas não lê controles nem afirma o efeito semântico do clique."
-    )
+    ) + build_hosted_window_target_guidance()

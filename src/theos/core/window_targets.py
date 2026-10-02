@@ -4,6 +4,21 @@ WINDOW_TARGET_TOKEN_CHARS = 64
 MAX_WINDOW_QUERY_CHARS = 80
 
 
+_HOSTED_WINDOW_TARGET_GUIDANCE_PT = (
+    " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
+    "exatamente o mesmo título e exatamente uma usar um processo específico do "
+    "aplicativo enquanto as demais usarem ApplicationFrameHost.exe, escolha PID, "
+    "título e target_token da linha do processo específico. O adapter revalida essa "
+    "identidade exata antes de normalizar localmente a moldura visual; não peça "
+    "esclarecimento apenas por esses aliases hospedados. Se permanecer mais de um "
+    "processo específico plausível ou títulos distintos plausíveis, peça esclarecimento."
+)
+
+
+def build_hosted_window_target_guidance() -> str:
+    return _HOSTED_WINDOW_TARGET_GUIDANCE_PT
+
+
 def is_window_target_token(value: object) -> bool:
     return (
         isinstance(value, str)

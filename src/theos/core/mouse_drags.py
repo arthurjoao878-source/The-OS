@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
+from theos.core.window_targets import build_hosted_window_target_guidance
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,4 +78,4 @@ def build_mouse_drag_tool_description() -> str:
         "LEFTUP. Não aceita x/y, botão arbitrário, caminho intermediário, duração, "
         "quantidade de eventos ou origem igual ao destino. O THE OS não lê controles "
         "nem afirma o efeito semântico do arrasto."
-    )
+    ) + build_hosted_window_target_guidance()

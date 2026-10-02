@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
+from theos.core.window_targets import build_hosted_window_target_guidance
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,4 +124,4 @@ def build_window_key_tool_description() -> str:
         f"Classificação local atual: CONFIRM = {confirm}; DESTRUCTIVE = {destructive}. "
         "Teclas não registradas, modificadores e combinações arbitrárias permanecem "
         "bloqueados. O efeito interno do aplicativo não é lido nem inferido."
-    )
+    ) + build_hosted_window_target_guidance()

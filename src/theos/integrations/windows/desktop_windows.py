@@ -855,63 +855,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(
-                hwnd,
-                ctypes.byref(process_id),
-            )
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -1045,7 +1004,19 @@ class WindowsDesktopWindowAdapter:
             ),
             "input_method": f"SendInput_MOUSE_{button}",
             "button_allowlist": list(ALLOWED_MOUSE_BUTTONS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -1114,42 +1085,22 @@ class WindowsDesktopWindowAdapter:
         user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
         user32.GetCursorPos.restype = wintypes.BOOL
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            if int(process_id.value) != pid:
-                return True
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(user32.GetWindowTextW(hwnd, buffer, title_length + 1))
-            if copied <= 0:
-                return True
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-            candidate_token = _window_target_token(int(hwnd), pid, bounded_title)
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -1247,7 +1198,19 @@ class WindowsDesktopWindowAdapter:
             "verification": "client_anchor_cursor_position_and_foreground_only",
             "input_method": "SetCursorPos_ONLY",
             "anchor_allowlist": list(ALLOWED_MOUSE_ANCHORS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -1317,63 +1280,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(
-                hwnd,
-                ctypes.byref(process_id),
-            )
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -1474,7 +1396,19 @@ class WindowsDesktopWindowAdapter:
             ),
             "input_method": f"SendInput_MOUSE_WHEEL_{direction}",
             "direction_allowlist": list(ALLOWED_MOUSE_SCROLL_DIRECTIONS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -1553,63 +1487,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(
-                hwnd,
-                ctypes.byref(process_id),
-            )
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -1767,7 +1660,19 @@ class WindowsDesktopWindowAdapter:
             "input_method": f"SendInput_MOUSE_{button}_ANCHOR_{anchor}",
             "button_allowlist": list(ALLOWED_MOUSE_BUTTONS),
             "anchor_allowlist": list(ALLOWED_MOUSE_ANCHORS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -1837,63 +1742,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(
-                hwnd,
-                ctypes.byref(process_id),
-            )
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -2018,7 +1882,19 @@ class WindowsDesktopWindowAdapter:
             ),
             "input_method": f"SendInput_MOUSE_{gesture}",
             "gesture_allowlist": list(ALLOWED_MOUSE_GESTURES),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -2095,60 +1971,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -2303,7 +2141,19 @@ class WindowsDesktopWindowAdapter:
             "input_method": f"SendInput_MOUSE_{gesture}_ANCHOR_{anchor}",
             "gesture_allowlist": list(ALLOWED_MOUSE_GESTURES),
             "anchor_allowlist": list(ALLOWED_MOUSE_ANCHORS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -2388,44 +2238,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            if int(process_id.value) != pid:
-                return True
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(hwnd, buffer, title_length + 1)
-            )
-            if copied <= 0:
-                return True
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-            candidate_token = _window_target_token(int(hwnd), pid, bounded_title)
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -2596,7 +2424,19 @@ class WindowsDesktopWindowAdapter:
             "input_method": "SendInput_MOUSE_LEFT_DRAG_ANCHOR_TO_ANCHOR",
             "gesture_allowlist": list(ALLOWED_MOUSE_DRAGS),
             "anchor_allowlist": list(ALLOWED_MOUSE_ANCHORS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -2673,42 +2513,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            if int(process_id.value) != pid:
-                return True
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(user32.GetWindowTextW(hwnd, buffer, title_length + 1))
-            if copied <= 0:
-                return True
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-            candidate_token = _window_target_token(int(hwnd), pid, bounded_title)
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -2836,7 +2656,19 @@ class WindowsDesktopWindowAdapter:
             "input_method": f"SendInput_MOUSE_WHEEL_{direction}_ANCHOR_{anchor}",
             "direction_allowlist": list(ALLOWED_MOUSE_SCROLL_DIRECTIONS),
             "anchor_allowlist": list(ALLOWED_MOUSE_ANCHORS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -2896,63 +2728,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(
-                hwnd,
-                ctypes.byref(process_id),
-            )
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -3041,7 +2832,19 @@ class WindowsDesktopWindowAdapter:
             "input_method": f"SendInput_VK_{key}",
             "clipboard_used": False,
             "key_allowlist": list(ALLOWED_WINDOW_KEYS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
 
@@ -3104,63 +2907,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(
-                hwnd,
-                ctypes.byref(process_id),
-            )
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -3314,7 +3076,19 @@ class WindowsDesktopWindowAdapter:
             "clipboard_content_provider_visible": False,
             "content_mutation_expected": shortcut_spec.content_mutation_expected,
             "shortcut_allowlist": list(ALLOWED_WINDOW_SHORTCUTS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
     def type_text(
@@ -3376,63 +3150,22 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.SendInput.restype = wintypes.UINT
 
-        matches: list[tuple[int, str]] = []
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(
-                hwnd,
-                ctypes.byref(process_id),
-            )
-            if int(process_id.value) != pid:
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(
-                    hwnd,
-                    buffer,
-                    title_length + 1,
-                )
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                pid,
-                bounded_title,
-            )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            error_code = ctypes.get_last_error()
-            raise OSError(error_code, "EnumWindows failed")
-
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        hwnd_value, full_title = matches[0]
+        (
+            requested_candidate,
+            resolved_candidate,
+            requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_window_state_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+        hwnd_value = resolved_candidate.hwnd
         hwnd = wintypes.HWND(hwnd_value)
 
         foreground = user32.GetForegroundWindow()
@@ -3537,7 +3270,19 @@ class WindowsDesktopWindowAdapter:
             "clipboard_used": False,
             "special_keys_used": False,
             "control_characters_allowed": False,
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_candidate.pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
+            "requested_window_class": requested_candidate.class_name,
+            "requested_full_title": requested_full_title[:MAX_WINDOW_TITLE_CHARS],
+            "title_match": "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution",
         }
 
     def place_window(

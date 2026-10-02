@@ -6,6 +6,7 @@ from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
 from theos.core.keyboard_keys import WINDOW_KEY_REGISTRY
+from theos.core.window_targets import build_hosted_window_target_guidance
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,4 +311,4 @@ def build_window_shortcut_tool_description() -> str:
         f"CONFIRM = {confirm}; DESTRUCTIVE = {destructive}; PRIVILEGED = {privileged}. "
         "Atalhos não registrados e combinações arbitrárias permanecem bloqueados. "
         "O THE OS não lê a área de transferência nem envia seu conteúdo ao provedor."
-    )
+    ) + build_hosted_window_target_guidance()
