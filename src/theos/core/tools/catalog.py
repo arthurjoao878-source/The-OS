@@ -75,6 +75,8 @@ MAX_LITERAL_BLOCK_CHARS = 1024
 MAX_LITERAL_BLOCK_LINES = 40
 MIN_PYTHON_STATIC_MANY_PATHS = 2
 MAX_PYTHON_STATIC_MANY_PATHS = 8
+MIN_PYTHON_UNIT_TEST_MANY_PATHS = 2
+MAX_PYTHON_UNIT_TEST_MANY_PATHS = 4
 
 _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
     " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
@@ -374,6 +376,48 @@ def build_default_tool_catalog() -> ToolCatalog:
             },
         ),
         _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="run_python_unit_test_files",
+            description=(
+                "Executa de forma PRIVILEGED um lote explícito de 2 a 4 arquivos "
+                "tests/unit/test_*.py sob uma única confirmação. Não aceita diretórios, "
+                "globs, node selectors, project root, flags pytest ou comandos. Cada "
+                "arquivo é limitado a 256 KiB e o lote a 768 KiB. THE OS vincula a "
+                "aprovação aos caminhos/SHA de todos os alvos e aos mesmos guards do "
+                "runner single-file: manifesto Python do projeto, identidade do "
+                "pytest.exe, manifesto pytest/_pytest e bootstrap "
+                "Scripts/python.exe + pyvenv.cfg. Depois da aprovação, compõe o runner "
+                "single-file sequencialmente, na ordem aprovada, iniciando no máximo "
+                "4 subprocessos pytest de argv fixo, 30s cada, sem shell, sem plugin "
+                "autoload, sem conftest, sem cacheprovider e sem bytecode. Um erro "
+                "operacional/guard interrompe os arquivos restantes; falhas normais "
+                "de teste permanecem resultados. A evidência agregada expõe somente "
+                "contagens estruturais e até 3 diagnósticos limitados no lote. "
+                "Não fornece sandbox nem autoridade project-wide."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "minItems": MIN_PYTHON_UNIT_TEST_MANY_PATHS,
+                        "maxItems": MAX_PYTHON_UNIT_TEST_MANY_PATHS,
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                        },
+                        "description": (
+                            "Lista explícita de 2 a 4 tests/unit/test_*.py."
+                        ),
+                    }
+                },
+                "required": ["paths"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_python_unit_test_many,
     )
     catalog.register(
         ToolDefinition(
@@ -2476,6 +2520,44 @@ def _validate_python_static_many(
             "paths must contain between "
             f"{MIN_PYTHON_STATIC_MANY_PATHS} and "
             f"{MAX_PYTHON_STATIC_MANY_PATHS} items"
+        )
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        if not isinstance(path, str) or not path.strip():
+            raise ToolValidationError(
+                "each paths item must be a non-blank string"
+            )
+        value = path.strip()
+        key = value.casefold()
+        if key in seen:
+            raise ToolValidationError("paths must be distinct")
+        seen.add(key)
+        normalized.append(value)
+
+    return {"paths": normalized}
+
+
+def _validate_python_unit_test_many(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"paths"}:
+        raise ToolValidationError(
+            "run_python_unit_test_files requires only 'paths'"
+        )
+
+    paths = arguments.get("paths")
+    if not isinstance(paths, list):
+        raise ToolValidationError("paths must be an array")
+    if (
+        len(paths) < MIN_PYTHON_UNIT_TEST_MANY_PATHS
+        or len(paths) > MAX_PYTHON_UNIT_TEST_MANY_PATHS
+    ):
+        raise ToolValidationError(
+            "paths must contain between "
+            f"{MIN_PYTHON_UNIT_TEST_MANY_PATHS} and "
+            f"{MAX_PYTHON_UNIT_TEST_MANY_PATHS} items"
         )
 
     normalized: list[str] = []

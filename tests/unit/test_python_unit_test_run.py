@@ -804,7 +804,7 @@ def test_catalog_documents_failure_diagnostics_without_new_authority() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["run_python_unit_test_file"]
 
-    assert len(definitions) == 42
+    assert len(definitions) == 43
     assert set(definition.parameters["properties"]) == {"path"}
     assert "até 3 diagnósticos" in definition.description
     assert "corpo de traceback" in definition.description
@@ -1057,7 +1057,7 @@ def test_catalog_documents_project_python_state_guard_without_schema_change() ->
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["run_python_unit_test_file"]
 
-    assert len(definitions) == 42
+    assert len(definitions) == 43
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert "manifesto SHA-256" in definition.description
@@ -1292,7 +1292,7 @@ def test_catalog_documents_pytest_invocation_isolation_without_schema_change() -
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["run_python_unit_test_file"]
 
-    assert len(definitions) == 42
+    assert len(definitions) == 43
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert definition.parameters["additionalProperties"] is False
@@ -1531,7 +1531,7 @@ def test_catalog_documents_controlled_python_import_environment() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["run_python_unit_test_file"]
 
-    assert len(definitions) == 42
+    assert len(definitions) == 43
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert definition.parameters["additionalProperties"] is False
@@ -1729,7 +1729,7 @@ def test_catalog_documents_pytest_verifier_identity_guard() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["run_python_unit_test_file"]
 
-    assert len(definitions) == 42
+    assert len(definitions) == 43
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert definition.parameters["additionalProperties"] is False
@@ -1957,7 +1957,7 @@ def test_catalog_documents_pytest_package_state_guard() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["run_python_unit_test_file"]
 
-    assert len(definitions) == 42
+    assert len(definitions) == 43
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert definition.parameters["additionalProperties"] is False
@@ -2176,7 +2176,7 @@ def test_catalog_documents_python_runtime_bootstrap_state_guard() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["run_python_unit_test_file"]
 
-    assert len(definitions) == 42
+    assert len(definitions) == 43
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert definition.parameters["additionalProperties"] is False

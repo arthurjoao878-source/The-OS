@@ -45,7 +45,10 @@ from theos.core.actions.file_system import (
 )
 from theos.core.actions.open_application import OpenApplicationAction
 from theos.core.actions.processes import ProcessSnapshotAction, TerminateProcessAction
-from theos.core.actions.python_tests import RunPythonUnitTestFileAction
+from theos.core.actions.python_tests import (
+    RunPythonUnitTestFileAction,
+    RunPythonUnitTestFilesAction,
+)
 from theos.core.actions.registry import ActionRegistry
 from theos.core.actions.system_status import SystemStatusAction
 from theos.core.applications.registry import ApplicationRegistry
@@ -79,6 +82,7 @@ def build_action_registry() -> ActionRegistry:
     check_python_static = CheckPythonStaticAction(windows_files)
     check_python_static_many = CheckPythonStaticManyAction(windows_files)
     run_python_unit_test_file = RunPythonUnitTestFileAction(python_tests)
+    run_python_unit_test_files = RunPythonUnitTestFilesAction(python_tests)
     find_path = FindPathAction(windows_files)
     open_path = OpenPathAction(windows_files)
     read_text_file = ReadTextFileAction(windows_files)
@@ -150,6 +154,12 @@ def build_action_registry() -> ActionRegistry:
         run_python_unit_test_file.execute,
         risk=run_python_unit_test_file.risk,
         confirmation_preview=run_python_unit_test_file.confirmation_preview,
+    )
+    registry.register(
+        run_python_unit_test_files.name,
+        run_python_unit_test_files.execute,
+        risk=run_python_unit_test_files.risk,
+        confirmation_preview=run_python_unit_test_files.confirmation_preview,
     )
     registry.register(
         find_path.name,

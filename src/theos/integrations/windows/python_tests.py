@@ -26,6 +26,9 @@ MAX_PYTEST_PACKAGE_FILE_BYTES = 2 * 1024 * 1024
 MAX_PYTEST_PACKAGE_TOTAL_BYTES = 16 * 1024 * 1024
 MAX_PYTHON_RUNTIME_EXE_BYTES = 16 * 1024 * 1024
 MAX_PYVENV_CONFIG_BYTES = 64 * 1024
+MIN_PYTHON_UNIT_TEST_MANY_FILES = 2
+MAX_PYTHON_UNIT_TEST_MANY_FILES = 4
+MAX_PYTHON_UNIT_TEST_MANY_TOTAL_BYTES = 768 * 1024
 
 
 class WindowsPythonUnitTestAdapter:
@@ -203,6 +206,89 @@ class WindowsPythonUnitTestAdapter:
                 "hash_only_preflight": True,
             }
         )
+
+        manifest = self._project_python_manifest()
+        manifest_error = manifest.get("error")
+        if isinstance(manifest_error, str):
+            evidence["error"] = manifest_error
+            return evidence
+        evidence.update(manifest)
+        return evidence
+
+    def preview_test_targets(self, raw_paths: list[object]) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "min_selected_files": MIN_PYTHON_UNIT_TEST_MANY_FILES,
+            "max_selected_files": MAX_PYTHON_UNIT_TEST_MANY_FILES,
+            "max_selected_total_bytes": MAX_PYTHON_UNIT_TEST_MANY_TOTAL_BYTES,
+            "max_file_bytes": MAX_PYTHON_UNIT_TEST_FILE_BYTES,
+            "source_content_returned": False,
+            "test_code_executed": False,
+            "sandboxed": False,
+            "external_side_effects_not_contained": True,
+            "targets": [],
+            "selected_file_count": len(raw_paths),
+            "selected_total_bytes": 0,
+        }
+        if not (
+            MIN_PYTHON_UNIT_TEST_MANY_FILES
+            <= len(raw_paths)
+            <= MAX_PYTHON_UNIT_TEST_MANY_FILES
+        ):
+            evidence["error"] = "TEST_BATCH_FILE_COUNT_OUT_OF_RANGE"
+            return evidence
+
+        targets: list[dict[str, object]] = []
+        seen: set[str] = set()
+        total_bytes = 0
+        for index, raw_path in enumerate(raw_paths):
+            if not isinstance(raw_path, str):
+                evidence["error"] = "PATH_REQUIRED"
+                evidence["error_target_index"] = index
+                return evidence
+            path, error = self._resolve_explicit_unit_test(raw_path)
+            if error is not None:
+                evidence["error"] = error
+                evidence["error_target_index"] = index
+                if path is not None:
+                    evidence["error_target_path"] = str(path)
+                return evidence
+            assert path is not None
+
+            key = os.path.normcase(str(path))
+            if key in seen:
+                evidence["error"] = "DUPLICATE_RESOLVED_TARGET"
+                evidence["error_target_index"] = index
+                evidence["error_target_path"] = str(path)
+                return evidence
+            seen.add(key)
+
+            size_bytes = path.stat().st_size
+            if size_bytes > MAX_PYTHON_UNIT_TEST_FILE_BYTES:
+                evidence["error"] = "FILE_TOO_LARGE"
+                evidence["error_target_index"] = index
+                evidence["error_target_path"] = str(path)
+                return evidence
+
+            payload = path.read_bytes()
+            total_bytes += len(payload)
+            evidence["selected_total_bytes"] = total_bytes
+            if total_bytes > MAX_PYTHON_UNIT_TEST_MANY_TOTAL_BYTES:
+                evidence["error"] = "TEST_BATCH_TOTAL_BYTES_TOO_LARGE"
+                evidence["error_target_index"] = index
+                evidence["error_target_path"] = str(path)
+                return evidence
+
+            targets.append(
+                {
+                    "path": str(path),
+                    "size_bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+
+        evidence["targets"] = targets
+        evidence["selected_file_count"] = len(targets)
+        evidence["selected_total_bytes"] = total_bytes
 
         manifest = self._project_python_manifest()
         manifest_error = manifest.get("error")
