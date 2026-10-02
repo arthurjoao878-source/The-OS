@@ -1032,7 +1032,18 @@ def build_default_tool_catalog() -> ToolCatalog:
     catalog.register(
         ToolDefinition(
             name="place_window",
-            description=build_window_placement_tool_description(),
+            description=(
+                build_window_placement_tool_description()
+                + " Para aplicativos Windows hospedados, se várias linhas da descoberta "
+                "tiverem exatamente o mesmo título e exatamente uma usar um processo "
+                "específico do aplicativo enquanto as demais usarem "
+                "ApplicationFrameHost.exe, escolha PID, título e target_token da linha "
+                "do processo específico. O adapter valida esse alvo exato e normaliza "
+                "localmente um CoreWindow para a moldura visual operável; não peça "
+                "esclarecimento apenas por esses aliases hospedados. Se permanecer mais "
+                "de um processo específico plausível ou títulos distintos plausíveis, "
+                "peça esclarecimento."
+            ),
             parameters={
                 "type": "object",
                 "properties": {

@@ -27,6 +27,7 @@ from theos.core.mouse_scroll import ALLOWED_MOUSE_SCROLL_DIRECTIONS
 from theos.core.window_layout_pairs import (
     HostedWindowCandidate,
     get_window_pair_layout_spec,
+    resolve_hosted_visual_frame_for_single_placement,
     resolve_hosted_visual_frame_with_dwm_tiebreak,
 )
 from theos.core.window_layout_sets import (
@@ -3417,6 +3418,17 @@ class WindowsDesktopWindowAdapter:
             ctypes.POINTER(wintypes.DWORD),
         ]
         user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.GetClassNameW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.GetClientRect.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.RECT),
+        ]
+        user32.GetClientRect.restype = wintypes.BOOL
         user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
         user32.ShowWindow.restype = wintypes.BOOL
         user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
@@ -3441,15 +3453,43 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.GetWindowRect.restype = wintypes.BOOL
 
-        matches: list[tuple[int, str]] = []
+        dwmapi = None
+        try:
+            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+        except OSError:
+            pass
+
+        if dwmapi is not None:
+            dwmapi.DwmGetWindowAttribute.argtypes = [
+                wintypes.HWND,
+                wintypes.DWORD,
+                wintypes.LPVOID,
+                wintypes.DWORD,
+            ]
+            dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+
+        def get_dwm_cloaked(hwnd: wintypes.HWND) -> int | None:
+            if dwmapi is None:
+                return None
+            value = wintypes.DWORD()
+            result = int(
+                dwmapi.DwmGetWindowAttribute(
+                    hwnd,
+                    14,
+                    ctypes.byref(value),
+                    ctypes.sizeof(value),
+                )
+            )
+            if result != 0:
+                return None
+            return int(value.value)
+
+        all_candidates: list[HostedWindowCandidate] = []
+        full_titles: dict[int, str] = {}
+        dwm_cloaked_by_hwnd: dict[int, int | None] = {}
 
         def visit_window(hwnd: int, _lparam: int) -> bool:
             if not user32.IsWindowVisible(hwnd):
-                return True
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            if int(process_id.value) != pid:
                 return True
 
             title_length = int(user32.GetWindowTextLengthW(hwnd))
@@ -3466,30 +3506,100 @@ class WindowsDesktopWindowAdapter:
             full_title = buffer.value.strip()
             if not full_title:
                 return True
-
             bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-            if bounded_title != title:
+
+            process_id = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+            candidate_pid = int(process_id.value)
+            if candidate_pid <= 0:
                 return True
 
             candidate_token = _window_target_token(
                 int(hwnd),
-                pid,
+                candidate_pid,
                 bounded_title,
             )
-            if candidate_token == target_token:
-                matches.append((int(hwnd), full_title))
+
+            class_buffer = ctypes.create_unicode_buffer(256)
+            class_length = int(
+                user32.GetClassNameW(
+                    hwnd,
+                    class_buffer,
+                    len(class_buffer),
+                )
+            )
+            class_name = class_buffer.value if class_length > 0 else ""
+
+            client_rect = wintypes.RECT()
+            if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
+                client_width = int(client_rect.right - client_rect.left)
+                client_height = int(client_rect.bottom - client_rect.top)
+            else:
+                client_width = 0
+                client_height = 0
+
+            hwnd_value = int(hwnd)
+            full_titles[hwnd_value] = full_title
+            dwm_cloaked_by_hwnd[hwnd_value] = get_dwm_cloaked(hwnd)
+            all_candidates.append(
+                HostedWindowCandidate(
+                    hwnd=hwnd_value,
+                    pid=candidate_pid,
+                    title=bounded_title,
+                    target_token=candidate_token,
+                    class_name=class_name,
+                    is_iconic=bool(user32.IsIconic(hwnd)),
+                    is_zoomed=bool(user32.IsZoomed(hwnd)),
+                    client_width=client_width,
+                    client_height=client_height,
+                )
+            )
             return True
 
         callback = callback_type(visit_window)
         if not user32.EnumWindows(callback, 0):
             raise OSError(ctypes.get_last_error(), "EnumWindows failed")
 
+        matches = [
+            candidate
+            for candidate in all_candidates
+            if candidate.pid == pid
+            and candidate.title == title
+            and candidate.target_token == target_token
+        ]
         if not matches:
             raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
         if len(matches) != 1:
             raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
 
-        hwnd_value, full_title = matches[0]
+        requested_candidate = matches[0]
+        try:
+            (
+                resolved_candidate,
+                visual_frame_normalized,
+                visual_frame_dwm_tiebreak_used,
+            ) = resolve_hosted_visual_frame_for_single_placement(
+                requested_candidate,
+                tuple(all_candidates),
+                dwm_cloaked_by_hwnd,
+            )
+        except ValueError as exc:
+            if str(exc) == "HOSTED_VISUAL_FRAME_NOT_FOUND":
+                raise RuntimeError(
+                    "WINDOW_PLACEMENT_VISUAL_FRAME_NOT_FOUND"
+                ) from exc
+            if str(exc) == "HOSTED_VISUAL_FRAME_AMBIGUOUS":
+                raise RuntimeError(
+                    "WINDOW_PLACEMENT_VISUAL_FRAME_AMBIGUOUS"
+                ) from exc
+            raise
+
+        if resolved_candidate.pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_PLACEMENT_BLOCKED")
+
+        hwnd_value = resolved_candidate.hwnd
+        resolved_pid = resolved_candidate.pid
+        full_title = full_titles[hwnd_value]
         hwnd = wintypes.HWND(hwnd_value)
         was_minimized = bool(user32.IsIconic(hwnd))
         was_maximized = bool(user32.IsZoomed(hwnd))
@@ -3584,6 +3694,10 @@ class WindowsDesktopWindowAdapter:
             process_name = psutil.Process(pid).name()
         except psutil.Error:
             process_name = "processo-indisponivel"
+        try:
+            resolved_process_name = psutil.Process(resolved_pid).name()
+        except psutil.Error:
+            resolved_process_name = "processo-indisponivel"
 
         return {
             "pid": pid,
@@ -3609,11 +3723,26 @@ class WindowsDesktopWindowAdapter:
             "was_minimized": was_minimized,
             "was_maximized": was_maximized,
             "restored_to_normal_before_move": restored_to_normal,
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_pid,
+            "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "resolved_process_name": resolved_process_name,
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": dwm_cloaked_by_hwnd.get(
+                resolved_candidate.hwnd
+            ),
+            "requested_pid": pid,
+            "requested_title": title,
+            "requested_target_token": target_token,
             "native_snap_semantics_claimed": False,
             "content_effect_verified": False,
             "input_method": "MoveWindow_MONITOR_WORK_AREA_REGISTERED_LAYOUT",
             "placement_allowlist": list(ALLOWED_WINDOW_PLACEMENTS),
-            "title_match": "pid_bounded_title_and_opaque_token_exact",
+            "title_match": (
+                "pid_bounded_title_and_opaque_token_then_hosted_visual_frame_resolution"
+            ),
         }
 
 

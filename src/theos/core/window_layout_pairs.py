@@ -188,3 +188,36 @@ def resolve_hosted_visual_frame_with_dwm_tiebreak(
         raise ValueError("HOSTED_VISUAL_FRAME_AMBIGUOUS")
 
     return unique_uncloaked[0], True, True
+
+
+def resolve_hosted_visual_frame_for_single_placement(
+    selected: HostedWindowCandidate,
+    candidates: tuple[HostedWindowCandidate, ...],
+    dwm_cloaked_by_hwnd: Mapping[int, int | None],
+) -> tuple[HostedWindowCandidate, bool, bool]:
+    """Resolve a CoreWindow alias while preserving single-placement restore semantics."""
+    if selected.class_name != HOSTED_CONTENT_WINDOW_CLASS:
+        return selected, False, False
+
+    eligible_frames = tuple(
+        candidate
+        for candidate in candidates
+        if candidate.title == selected.title
+        and candidate.class_name == HOSTED_FRAME_WINDOW_CLASS
+        and candidate.client_width > 0
+        and candidate.client_height > 0
+    )
+    if not eligible_frames:
+        raise ValueError("HOSTED_VISUAL_FRAME_NOT_FOUND")
+    if len(eligible_frames) == 1:
+        return eligible_frames[0], True, False
+
+    unique_uncloaked = tuple(
+        candidate
+        for candidate in eligible_frames
+        if dwm_cloaked_by_hwnd.get(candidate.hwnd) == 0
+    )
+    if len(unique_uncloaked) != 1:
+        raise ValueError("HOSTED_VISUAL_FRAME_AMBIGUOUS")
+
+    return unique_uncloaked[0], True, True
