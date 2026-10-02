@@ -1084,7 +1084,14 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "das linhas escolhidas; não repita PID ou título no argumento. Não tente "
                 "inferir a moldura visual pelo nome do processo: para aplicativos Windows "
                 "hospedados, o adapter normaliza localmente CoreWindow/frame stale para "
-                "uma única ApplicationFrameWindow operável do mesmo título."
+                "uma única ApplicationFrameWindow operável do mesmo título. Se várias "
+                "linhas tiverem exatamente o mesmo título e exatamente uma usar um "
+                "processo específico do aplicativo enquanto as demais usarem "
+                "ApplicationFrameHost.exe, escolha o token da linha do processo "
+                "específico e deixe o adapter validar/normalizar a moldura visual "
+                "localmente; não peça esclarecimento apenas por esses aliases hospedados. "
+                "Se permanecer mais de um processo específico plausível ou títulos "
+                "distintos plausíveis, peça esclarecimento."
             ),
             parameters={
                 "type": "object",

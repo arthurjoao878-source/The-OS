@@ -151,3 +151,40 @@ def resolve_hosted_visual_frame(
         raise ValueError("HOSTED_VISUAL_FRAME_AMBIGUOUS")
 
     return eligible_frames[0], True
+
+
+def resolve_hosted_visual_frame_with_dwm_tiebreak(
+    selected: HostedWindowCandidate,
+    candidates: tuple[HostedWindowCandidate, ...],
+    dwm_cloaked_by_hwnd: Mapping[int, int | None],
+) -> tuple[HostedWindowCandidate, bool, bool]:
+    """Resolve hosted frame and use DWM cloaking only to break prior ambiguity."""
+    try:
+        resolved, normalized = resolve_hosted_visual_frame(
+            selected,
+            candidates,
+        )
+        return resolved, normalized, False
+    except ValueError as exc:
+        if str(exc) != "HOSTED_VISUAL_FRAME_AMBIGUOUS":
+            raise
+
+    eligible_frames = tuple(
+        candidate
+        for candidate in candidates
+        if candidate.title == selected.title
+        and candidate.class_name == HOSTED_FRAME_WINDOW_CLASS
+        and not candidate.is_iconic
+        and not candidate.is_zoomed
+        and candidate.client_width > 0
+        and candidate.client_height > 0
+    )
+    unique_uncloaked = tuple(
+        candidate
+        for candidate in eligible_frames
+        if dwm_cloaked_by_hwnd.get(candidate.hwnd) == 0
+    )
+    if len(unique_uncloaked) != 1:
+        raise ValueError("HOSTED_VISUAL_FRAME_AMBIGUOUS")
+
+    return unique_uncloaked[0], True, True

@@ -6,9 +6,8 @@ from types import MappingProxyType
 
 from theos.core.actions.contracts import ActionRisk
 from theos.core.window_layout_pairs import (
-    HOSTED_FRAME_WINDOW_CLASS,
     HostedWindowCandidate,
-    resolve_hosted_visual_frame,
+    resolve_hosted_visual_frame_with_dwm_tiebreak,
 )
 from theos.core.window_placements import get_window_placement_spec
 
@@ -163,36 +162,12 @@ def resolve_hosted_visual_frame_for_set(
     candidates: tuple[HostedWindowCandidate, ...],
     dwm_cloaked_by_hwnd: Mapping[int, int | None],
 ) -> tuple[HostedWindowCandidate, bool, bool]:
-    """Resolve hosted frame, using unique uncloaked frame only as ambiguity tie-break."""
-    try:
-        resolved, normalized = resolve_hosted_visual_frame(
-            selected,
-            candidates,
-        )
-        return resolved, normalized, False
-    except ValueError as exc:
-        if str(exc) != "HOSTED_VISUAL_FRAME_AMBIGUOUS":
-            raise
-
-    eligible_frames = tuple(
-        candidate
-        for candidate in candidates
-        if candidate.title == selected.title
-        and candidate.class_name == HOSTED_FRAME_WINDOW_CLASS
-        and not candidate.is_iconic
-        and not candidate.is_zoomed
-        and candidate.client_width > 0
-        and candidate.client_height > 0
+    """Compatibility facade for the shared hosted-window resolver."""
+    return resolve_hosted_visual_frame_with_dwm_tiebreak(
+        selected,
+        candidates,
+        dwm_cloaked_by_hwnd,
     )
-    unique_uncloaked = tuple(
-        candidate
-        for candidate in eligible_frames
-        if dwm_cloaked_by_hwnd.get(candidate.hwnd) == 0
-    )
-    if len(unique_uncloaked) != 1:
-        raise ValueError("HOSTED_VISUAL_FRAME_AMBIGUOUS")
-
-    return unique_uncloaked[0], True, True
 
 
 def build_window_set_layout_tool_description() -> str:

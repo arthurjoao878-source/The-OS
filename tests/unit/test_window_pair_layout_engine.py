@@ -11,6 +11,7 @@ from theos.core.window_layout_pairs import (
     WINDOW_PAIR_LAYOUT_SPECS,
     HostedWindowCandidate,
     resolve_hosted_visual_frame,
+    resolve_hosted_visual_frame_with_dwm_tiebreak,
 )
 
 
@@ -197,6 +198,10 @@ def test_window_pair_schema_is_token_only_registry_driven_and_strict() -> None:
     }
     assert set(schema["required"]) == set(schema["properties"])
     assert schema["additionalProperties"] is False
+    description = definitions["place_window_pair"].description
+    assert "ApplicationFrameHost.exe" in description
+    assert "processo específico" in description
+    assert "não peça esclarecimento apenas por esses aliases hospedados" in description
 
     with pytest.raises(ToolValidationError):
         catalog.build_action_request(
@@ -251,3 +256,126 @@ def test_hosted_visual_frame_resolution_blocks_multiple_eligible_frames() -> Non
     )
     with pytest.raises(ValueError, match="HOSTED_VISUAL_FRAME_AMBIGUOUS"):
         resolve_hosted_visual_frame(selected, (selected, frame_one, frame_two))
+
+def _shared_hosted_candidate(
+    hwnd: int,
+    *,
+    class_name: str,
+    token_char: str,
+) -> HostedWindowCandidate:
+    return HostedWindowCandidate(
+        hwnd=hwnd,
+        pid=1000 + hwnd,
+        title="Calculadora",
+        target_token=token_char * 64,
+        class_name=class_name,
+        is_iconic=False,
+        is_zoomed=False,
+        client_width=600,
+        client_height=620,
+    )
+
+
+def test_shared_hosted_resolver_uses_unique_uncloaked_frame_on_ambiguity() -> None:
+    selected = _shared_hosted_candidate(
+        10,
+        class_name="Windows.UI.Core.CoreWindow",
+        token_char="a",
+    )
+    active = _shared_hosted_candidate(
+        20,
+        class_name="ApplicationFrameWindow",
+        token_char="b",
+    )
+    stale = _shared_hosted_candidate(
+        30,
+        class_name="ApplicationFrameWindow",
+        token_char="c",
+    )
+
+    resolved, normalized, tie_break_used = (
+        resolve_hosted_visual_frame_with_dwm_tiebreak(
+            selected,
+            (selected, active, stale),
+            {20: 0, 30: 2},
+        )
+    )
+
+    assert resolved == active
+    assert normalized is True
+    assert tie_break_used is True
+
+
+def test_shared_hosted_resolver_blocks_zero_uncloaked_frames_on_ambiguity() -> None:
+    selected = _shared_hosted_candidate(
+        10,
+        class_name="Windows.UI.Core.CoreWindow",
+        token_char="a",
+    )
+    first = _shared_hosted_candidate(
+        20,
+        class_name="ApplicationFrameWindow",
+        token_char="b",
+    )
+    second = _shared_hosted_candidate(
+        30,
+        class_name="ApplicationFrameWindow",
+        token_char="c",
+    )
+
+    with pytest.raises(ValueError, match="HOSTED_VISUAL_FRAME_AMBIGUOUS"):
+        resolve_hosted_visual_frame_with_dwm_tiebreak(
+            selected,
+            (selected, first, second),
+            {20: 2, 30: 2},
+        )
+
+
+def test_shared_hosted_resolver_blocks_multiple_uncloaked_frames_on_ambiguity() -> None:
+    selected = _shared_hosted_candidate(
+        10,
+        class_name="Windows.UI.Core.CoreWindow",
+        token_char="a",
+    )
+    first = _shared_hosted_candidate(
+        20,
+        class_name="ApplicationFrameWindow",
+        token_char="b",
+    )
+    second = _shared_hosted_candidate(
+        30,
+        class_name="ApplicationFrameWindow",
+        token_char="c",
+    )
+
+    with pytest.raises(ValueError, match="HOSTED_VISUAL_FRAME_AMBIGUOUS"):
+        resolve_hosted_visual_frame_with_dwm_tiebreak(
+            selected,
+            (selected, first, second),
+            {20: 0, 30: 0},
+        )
+
+
+def test_shared_hosted_resolver_does_not_gate_single_frame_on_dwm_value() -> None:
+    selected = _shared_hosted_candidate(
+        10,
+        class_name="Windows.UI.Core.CoreWindow",
+        token_char="a",
+    )
+    only_frame = _shared_hosted_candidate(
+        20,
+        class_name="ApplicationFrameWindow",
+        token_char="b",
+    )
+
+    resolved, normalized, tie_break_used = (
+        resolve_hosted_visual_frame_with_dwm_tiebreak(
+            selected,
+            (selected, only_frame),
+            {20: 2},
+        )
+    )
+
+    assert resolved == only_frame
+    assert normalized is True
+    assert tie_break_used is False

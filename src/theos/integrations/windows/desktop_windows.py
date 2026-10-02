@@ -27,7 +27,7 @@ from theos.core.mouse_scroll import ALLOWED_MOUSE_SCROLL_DIRECTIONS
 from theos.core.window_layout_pairs import (
     HostedWindowCandidate,
     get_window_pair_layout_spec,
-    resolve_hosted_visual_frame,
+    resolve_hosted_visual_frame_with_dwm_tiebreak,
 )
 from theos.core.window_layout_sets import (
     get_window_set_layout_spec,
@@ -3704,8 +3704,40 @@ class WindowsDesktopWindowAdapter:
         ]
         user32.GetWindowRect.restype = wintypes.BOOL
 
+        dwmapi = None
+        try:
+            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+        except OSError:
+            pass
+
+        if dwmapi is not None:
+            dwmapi.DwmGetWindowAttribute.argtypes = [
+                wintypes.HWND,
+                wintypes.DWORD,
+                wintypes.LPVOID,
+                wintypes.DWORD,
+            ]
+            dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+
+        def get_dwm_cloaked(hwnd: wintypes.HWND) -> int | None:
+            if dwmapi is None:
+                return None
+            value = wintypes.DWORD()
+            result = int(
+                dwmapi.DwmGetWindowAttribute(
+                    hwnd,
+                    14,
+                    ctypes.byref(value),
+                    ctypes.sizeof(value),
+                )
+            )
+            if result != 0:
+                return None
+            return int(value.value)
+
         all_candidates: list[HostedWindowCandidate] = []
         full_titles: dict[int, str] = {}
+        dwm_cloaked_by_hwnd: dict[int, int | None] = {}
 
         def visit_window(hwnd: int, _lparam: int) -> bool:
             if not user32.IsWindowVisible(hwnd):
@@ -3757,6 +3789,7 @@ class WindowsDesktopWindowAdapter:
 
             hwnd_value = int(hwnd)
             full_titles[hwnd_value] = full_title
+            dwm_cloaked_by_hwnd[hwnd_value] = get_dwm_cloaked(hwnd)
             all_candidates.append(
                 HostedWindowCandidate(
                     hwnd=hwnd_value,
@@ -3798,11 +3831,23 @@ class WindowsDesktopWindowAdapter:
 
         candidate_tuple = tuple(all_candidates)
         try:
-            first_resolved, first_visual_frame_normalized = (
-                resolve_hosted_visual_frame(first_matches[0], candidate_tuple)
+            (
+                first_resolved,
+                first_visual_frame_normalized,
+                first_dwm_tiebreak_used,
+            ) = resolve_hosted_visual_frame_with_dwm_tiebreak(
+                first_matches[0],
+                candidate_tuple,
+                dwm_cloaked_by_hwnd,
             )
-            second_resolved, second_visual_frame_normalized = (
-                resolve_hosted_visual_frame(second_matches[0], candidate_tuple)
+            (
+                second_resolved,
+                second_visual_frame_normalized,
+                second_dwm_tiebreak_used,
+            ) = resolve_hosted_visual_frame_with_dwm_tiebreak(
+                second_matches[0],
+                candidate_tuple,
+                dwm_cloaked_by_hwnd,
             )
         except ValueError as exc:
             if str(exc) == "HOSTED_VISUAL_FRAME_NOT_FOUND":
@@ -4016,6 +4061,17 @@ class WindowsDesktopWindowAdapter:
             "hosted_visual_frame_resolution": True,
             "first_visual_frame_normalized": first_visual_frame_normalized,
             "second_visual_frame_normalized": second_visual_frame_normalized,
+            "first_visual_frame_dwm_tiebreak_used": first_dwm_tiebreak_used,
+            "second_visual_frame_dwm_tiebreak_used": second_dwm_tiebreak_used,
+            "dwm_uncloaked_tiebreak_used": (
+                first_dwm_tiebreak_used or second_dwm_tiebreak_used
+            ),
+            "first_resolved_dwm_cloaked": dwm_cloaked_by_hwnd.get(
+                first_resolved.hwnd
+            ),
+            "second_resolved_dwm_cloaked": dwm_cloaked_by_hwnd.get(
+                second_resolved.hwnd
+            ),
             "first_resolved_window_class": first_resolved.class_name,
             "second_resolved_window_class": second_resolved.class_name,
             "first_requested_target_token": first_target_token,
