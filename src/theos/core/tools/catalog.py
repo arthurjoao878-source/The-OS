@@ -335,7 +335,8 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "Executa de forma PRIVILEGED um único arquivo de teste unitário Python "
                 "explícito do checkout atual. Aceita somente tests/unit/test_*.py existente, "
                 "não-link e de até 256 KiB. A prévia local calcula SHA-256 do conteúdo e "
-                "a aprovação fica vinculada ao caminho resolvido e a esse hash. pytest "
+                "um manifesto SHA-256 bounded dos .py em src/theos e tests/unit; a aprovação "
+                "fica vinculada ao caminho, ao hash do teste e a esse estado Python. pytest "
                 "executa código Python e imports com as permissões atuais; THE OS não "
                 "fornece sandbox. Após aprovação usa somente o pytest.exe do mesmo venv, "
                 "sem shell e com argv fixo para um único arquivo, maxfail=1, sem traceback "
@@ -343,7 +344,8 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "com timeout de 30s. stdout/stderr não são devolvidos ao modelo. O JUnit "
                 "temporário fornece contagens e, em falha/erro, até 3 diagnósticos "
                 "estruturados com nomes/mensagem limitados; o corpo de traceback XML "
-                "não é devolvido."
+                "não é devolvido. O manifesto Python é revalidado antes e depois do pytest; "
+                "mudança bloqueia a execução ou invalida o resultado."
             ),
             parameters={
                 "type": "object",

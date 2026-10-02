@@ -18,7 +18,10 @@ from theos.lyra.execution import ToolLoopExecutor
 def _project(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "project"
     unit = root / "tests" / "unit"
+    source = root / "src" / "theos"
     unit.mkdir(parents=True)
+    source.mkdir(parents=True)
+    (source / "__init__.py").write_text("", encoding="utf-8")
     (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
     return root, unit
 
@@ -129,6 +132,9 @@ def test_run_uses_fixed_pytest_policy_and_parses_pass(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     command = captured["command"]
@@ -182,6 +188,9 @@ def test_run_treats_test_failure_as_verified_result(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     assert evidence["passed"] is False
@@ -214,6 +223,9 @@ def test_run_blocks_changed_target_before_pytest(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     assert evidence["error"] == "TEST_TARGET_CHANGED_AFTER_PREVIEW"
@@ -251,6 +263,9 @@ def test_run_reports_timeout(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     assert evidence["error"] == "PYTEST_TIMEOUT"
@@ -288,6 +303,9 @@ def test_run_rejects_operational_pytest_exit(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     assert evidence["error"] == "PYTEST_PROCESS_FAILED"
@@ -460,6 +478,9 @@ def test_run_exposes_bounded_failure_diagnostic_without_failure_body(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     diagnostics = evidence["failure_diagnostics"]
@@ -515,6 +536,9 @@ def test_run_caps_failure_diagnostics_at_three(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     assert evidence["failure_diagnostic_total"] == 5
@@ -564,6 +588,9 @@ def test_run_exposes_error_kind_and_bounds_identifiers(
         str(target),
         expected_path=str(preview["path"]),
         expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
     )
 
     diagnostic = evidence["failure_diagnostics"][0]
@@ -576,8 +603,20 @@ def test_run_exposes_error_kind_and_bounds_identifiers(
 
 def test_action_failure_result_keeps_structured_diagnostics() -> None:
     class FakeAdapter:
-        def run_test_file(self, raw_path, *, expected_path, expected_sha256):
-            _ = raw_path, expected_path, expected_sha256
+        def run_test_file(
+            self,
+            raw_path,
+            *,
+            expected_path,
+            expected_sha256,
+            expected_project_python_manifest_sha256,
+        ):
+            _ = (
+                raw_path,
+                expected_path,
+                expected_sha256,
+                expected_project_python_manifest_sha256,
+            )
             return {
                 "path": r"C:\Repo\tests\unit\test_failure.py",
                 "tests_run": 1,
@@ -608,6 +647,7 @@ def test_action_failure_result_keeps_structured_diagnostics() -> None:
                 "path": r"C:\Repo\tests\unit\test_failure.py",
                 "_expected_test_path": r"C:\Repo\tests\unit\test_failure.py",
                 "_expected_test_sha256": "a" * 64,
+                "_expected_project_python_manifest_sha256": "b" * 64,
             },
         )
     )
@@ -628,3 +668,210 @@ def test_catalog_documents_failure_diagnostics_without_new_authority() -> None:
     assert set(definition.parameters["properties"]) == {"path"}
     assert "até 3 diagnósticos" in definition.description
     assert "corpo de traceback" in definition.description
+
+def test_preview_includes_bounded_project_python_manifest(tmp_path: Path) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_manifest.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    source = root / "src" / "theos" / "feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+
+    evidence = WindowsPythonUnitTestAdapter(root).preview_test_target(str(target))
+
+    assert len(str(evidence["project_python_manifest_sha256"])) == 64
+    assert evidence["project_python_file_count"] == 3
+    assert evidence["project_python_total_bytes"] > 0
+    assert evidence["project_python_manifest_roots"] == [
+        "src/theos",
+        "tests/unit",
+    ]
+    assert "project_python_manifest_entries" not in evidence
+    assert "project_python_source" not in evidence
+
+
+def test_project_manifest_changes_when_source_changes(tmp_path: Path) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_state.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    source = root / "src" / "theos" / "feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    adapter = WindowsPythonUnitTestAdapter(root)
+
+    before = adapter.preview_test_target(str(target))
+    source.write_text("VALUE = 2\n", encoding="utf-8")
+    after = adapter.preview_test_target(str(target))
+
+    assert before["sha256"] == after["sha256"]
+    assert (
+        before["project_python_manifest_sha256"]
+        != after["project_python_manifest_sha256"]
+    )
+
+
+def test_run_blocks_project_python_change_after_preview(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_guard_before.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    source = root / "src" / "theos" / "feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    source.write_text("VALUE = 2\n", encoding="utf-8")
+
+    def must_not_run(*args, **kwargs):
+        _ = args, kwargs
+        raise AssertionError("pytest must not start after project-state mismatch")
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        must_not_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    assert evidence["error"] == "PROJECT_PYTHON_STATE_CHANGED_AFTER_PREVIEW"
+    assert evidence["test_code_executed"] is False
+
+
+def test_run_invalidates_if_project_python_changes_during_pytest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_guard_during.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    source = root / "src" / "theos" / "feature.py"
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        _ = kwargs
+        _write_junit(list(command), tests=1, failures=0)
+        source.write_text("VALUE = 2\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    assert evidence["error"] == "PROJECT_PYTHON_STATE_CHANGED_DURING_RUN"
+    assert evidence["test_code_executed"] is True
+    assert evidence["project_python_state_unchanged"] is False
+
+
+def test_run_invalidates_if_python_file_is_added_during_pytest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_guard_added.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        _ = kwargs
+        _write_junit(list(command), tests=1, failures=0)
+        (unit / "new_helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    assert evidence["error"] == "PROJECT_PYTHON_STATE_CHANGED_DURING_RUN"
+    assert evidence["project_python_state_unchanged"] is False
+
+
+def test_project_manifest_rejects_oversized_python_file(tmp_path: Path) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_limit.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    source = root / "src" / "theos" / "oversized.py"
+    source.write_bytes(b"x" * (256 * 1024 + 1))
+
+    evidence = WindowsPythonUnitTestAdapter(root).preview_test_target(str(target))
+
+    assert evidence["error"] == "PROJECT_PYTHON_FILE_TOO_LARGE"
+    assert "project_python_manifest_sha256" not in evidence
+
+
+def test_action_preview_binds_project_python_manifest(tmp_path: Path) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_action_manifest.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    action = RunPythonUnitTestFileAction(WindowsPythonUnitTestAdapter(root))
+
+    preview = action.confirmation_preview(
+        ActionRequest(
+            action="run_python_unit_test_file",
+            arguments={"path": str(target)},
+        )
+    )
+
+    manifest = preview.execution_guard[
+        "_expected_project_python_manifest_sha256"
+    ]
+    assert len(manifest) == 64
+    assert "Manifesto Python do projeto" in preview.text
+    assert "src/theos + tests/unit" in preview.text
+
+
+def test_catalog_documents_project_python_state_guard_without_schema_change() -> None:
+    catalog = build_default_tool_catalog()
+    definitions = {item.name: item for item in catalog.definitions()}
+    definition = definitions["run_python_unit_test_file"]
+
+    assert len(definitions) == 42
+    assert set(definition.parameters["properties"]) == {"path"}
+    assert set(definition.parameters["required"]) == {"path"}
+    assert "manifesto SHA-256" in definition.description
+    assert "src/theos" in definition.description
+    assert "tests/unit" in definition.description

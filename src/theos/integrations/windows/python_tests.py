@@ -15,6 +15,10 @@ MAX_PYTEST_FAILURE_DIAGNOSTICS = 3
 MAX_PYTEST_DIAGNOSTIC_NAME_CHARS = 160
 MAX_PYTEST_DIAGNOSTIC_CLASSNAME_CHARS = 160
 MAX_PYTEST_DIAGNOSTIC_MESSAGE_CHARS = 240
+PROJECT_PYTHON_MANIFEST_ROOTS = ("src/theos", "tests/unit")
+MAX_PROJECT_PYTHON_FILES = 256
+MAX_PROJECT_PYTHON_FILE_BYTES = 256 * 1024
+MAX_PROJECT_PYTHON_TOTAL_BYTES = 4 * 1024 * 1024
 
 
 class WindowsPythonUnitTestAdapter:
@@ -80,6 +84,85 @@ class WindowsPythonUnitTestAdapter:
 
         return resolved, None
 
+    def _project_python_manifest(self) -> dict[str, object]:
+        records: list[tuple[str, int, str]] = []
+        total_bytes = 0
+        try:
+            for root_label in PROJECT_PYTHON_MANIFEST_ROOTS:
+                root = self._project_root / Path(root_label)
+                if not root.exists() or not root.is_dir():
+                    return {"error": "PROJECT_PYTHON_ROOT_UNAVAILABLE"}
+                if self._is_link_like(root):
+                    return {"error": "PROJECT_PYTHON_LINK_NOT_ALLOWED"}
+
+                for current_raw, dirnames, filenames in os.walk(
+                    root,
+                    topdown=True,
+                    followlinks=False,
+                ):
+                    current = Path(current_raw)
+                    if self._is_link_like(current):
+                        return {"error": "PROJECT_PYTHON_LINK_NOT_ALLOWED"}
+
+                    for dirname in tuple(dirnames):
+                        child = current / dirname
+                        if self._is_link_like(child):
+                            return {"error": "PROJECT_PYTHON_LINK_NOT_ALLOWED"}
+                    dirnames[:] = sorted(dirnames, key=str.casefold)
+
+                    for filename in sorted(filenames, key=str.casefold):
+                        if not filename.casefold().endswith(".py"):
+                            continue
+                        target = current / filename
+                        if self._is_link_like(target):
+                            return {"error": "PROJECT_PYTHON_LINK_NOT_ALLOWED"}
+                        if not target.is_file():
+                            return {"error": "PROJECT_PYTHON_STATE_UNAVAILABLE"}
+
+                        payload = target.read_bytes()
+                        size_bytes = len(payload)
+                        if size_bytes > MAX_PROJECT_PYTHON_FILE_BYTES:
+                            return {"error": "PROJECT_PYTHON_FILE_TOO_LARGE"}
+
+                        total_bytes += size_bytes
+                        if total_bytes > MAX_PROJECT_PYTHON_TOTAL_BYTES:
+                            return {"error": "PROJECT_PYTHON_TOTAL_TOO_LARGE"}
+
+                        relative = target.relative_to(self._project_root).as_posix()
+                        records.append(
+                            (
+                                relative,
+                                size_bytes,
+                                hashlib.sha256(payload).hexdigest(),
+                            )
+                        )
+                        if len(records) > MAX_PROJECT_PYTHON_FILES:
+                            return {"error": "PROJECT_PYTHON_FILE_COUNT_EXCEEDED"}
+        except OSError:
+            return {"error": "PROJECT_PYTHON_STATE_UNAVAILABLE"}
+
+        records.sort(key=lambda item: item[0].casefold())
+        digest = hashlib.sha256()
+        for relative, size_bytes, sha256 in records:
+            digest.update(relative.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(str(size_bytes).encode("ascii"))
+            digest.update(b"\0")
+            digest.update(sha256.encode("ascii"))
+            digest.update(b"\n")
+
+        return {
+            "project_python_manifest_sha256": digest.hexdigest(),
+            "project_python_file_count": len(records),
+            "project_python_total_bytes": total_bytes,
+            "project_python_manifest_roots": list(PROJECT_PYTHON_MANIFEST_ROOTS),
+            "project_python_manifest_entries_returned": False,
+            "project_python_source_content_returned": False,
+            "max_project_python_files": MAX_PROJECT_PYTHON_FILES,
+            "max_project_python_file_bytes": MAX_PROJECT_PYTHON_FILE_BYTES,
+            "max_project_python_total_bytes": MAX_PROJECT_PYTHON_TOTAL_BYTES,
+        }
+
     def preview_test_target(self, raw_path: str) -> dict[str, object]:
         path, error = self._resolve_explicit_unit_test(raw_path)
         evidence: dict[str, object] = {
@@ -113,6 +196,13 @@ class WindowsPythonUnitTestAdapter:
                 "hash_only_preflight": True,
             }
         )
+
+        manifest = self._project_python_manifest()
+        manifest_error = manifest.get("error")
+        if isinstance(manifest_error, str):
+            evidence["error"] = manifest_error
+            return evidence
+        evidence.update(manifest)
         return evidence
 
     @staticmethod
@@ -209,6 +299,7 @@ class WindowsPythonUnitTestAdapter:
         *,
         expected_path: str,
         expected_sha256: str,
+        expected_project_python_manifest_sha256: str,
     ) -> dict[str, object]:
         preview = self.preview_test_target(raw_path)
         evidence = dict(preview)
@@ -229,6 +320,8 @@ class WindowsPythonUnitTestAdapter:
                 "max_failure_diagnostics": MAX_PYTEST_FAILURE_DIAGNOSTICS,
                 "test_code_executed": False,
                 "project_imports_may_execute": True,
+                "project_python_manifest_guard_enabled": True,
+                "project_python_manifest_is_dependency_closure": False,
                 "sandboxed": False,
                 "external_side_effects_not_contained": True,
             }
@@ -239,6 +332,12 @@ class WindowsPythonUnitTestAdapter:
         path = Path(str(evidence["path"]))
         if str(path) != expected_path or evidence.get("sha256") != expected_sha256:
             evidence["error"] = "TEST_TARGET_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if (
+            evidence.get("project_python_manifest_sha256")
+            != expected_project_python_manifest_sha256
+        ):
+            evidence["error"] = "PROJECT_PYTHON_STATE_CHANGED_AFTER_PREVIEW"
             return evidence
 
         pytest_executable = self._pytest_executable()
@@ -309,6 +408,32 @@ class WindowsPythonUnitTestAdapter:
             evidence["target_unchanged"] = after_sha256 == expected_sha256
             if after_sha256 != expected_sha256:
                 evidence["error"] = "TEST_TARGET_CHANGED_DURING_RUN"
+                return evidence
+
+            after_manifest = self._project_python_manifest()
+            after_manifest_error = after_manifest.get("error")
+            if isinstance(after_manifest_error, str):
+                evidence.update(
+                    {
+                        "project_python_state_unchanged": False,
+                        "project_python_state_after_error": after_manifest_error,
+                        "error": "PROJECT_PYTHON_STATE_INVALID_AFTER_RUN",
+                    }
+                )
+                return evidence
+
+            after_manifest_sha256 = str(
+                after_manifest["project_python_manifest_sha256"]
+            )
+            evidence["after_project_python_manifest_sha256"] = (
+                after_manifest_sha256
+            )
+            evidence["project_python_state_unchanged"] = (
+                after_manifest_sha256
+                == expected_project_python_manifest_sha256
+            )
+            if not evidence["project_python_state_unchanged"]:
+                evidence["error"] = "PROJECT_PYTHON_STATE_CHANGED_DURING_RUN"
                 return evidence
 
             if completed.returncode not in {0, 1, 5}:

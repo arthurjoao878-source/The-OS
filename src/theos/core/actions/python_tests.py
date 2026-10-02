@@ -9,6 +9,8 @@ from theos.core.actions.contracts import (
     ConfirmationPreview,
 )
 from theos.integrations.windows.python_tests import (
+    MAX_PROJECT_PYTHON_FILES,
+    MAX_PROJECT_PYTHON_TOTAL_BYTES,
     MAX_PYTHON_UNIT_TEST_FILE_BYTES,
     PYTHON_UNIT_TEST_TIMEOUT_SECONDS,
     WindowsPythonUnitTestAdapter,
@@ -16,6 +18,9 @@ from theos.integrations.windows.python_tests import (
 
 _EXPECTED_TEST_PATH = "_expected_test_path"
 _EXPECTED_TEST_SHA256 = "_expected_test_sha256"
+_EXPECTED_PROJECT_PYTHON_MANIFEST_SHA256 = (
+    "_expected_project_python_manifest_sha256"
+)
 
 
 class RunPythonUnitTestFileAction:
@@ -43,6 +48,24 @@ class RunPythonUnitTestFileAction:
             ),
             "FILE_TOO_LARGE": (
                 "O arquivo de teste excede o limite local de 256 KiB."
+            ),
+            "PROJECT_PYTHON_ROOT_UNAVAILABLE": (
+                "Os roots Python fixos do projeto não estão disponíveis."
+            ),
+            "PROJECT_PYTHON_LINK_NOT_ALLOWED": (
+                "O manifesto Python do projeto encontrou link/junction e foi bloqueado."
+            ),
+            "PROJECT_PYTHON_STATE_UNAVAILABLE": (
+                "Não foi possível hashear o estado Python do projeto com segurança."
+            ),
+            "PROJECT_PYTHON_FILE_TOO_LARGE": (
+                "Um arquivo Python do manifesto excede o limite local de 256 KiB."
+            ),
+            "PROJECT_PYTHON_TOTAL_TOO_LARGE": (
+                "O manifesto Python do projeto excede o limite total local."
+            ),
+            "PROJECT_PYTHON_FILE_COUNT_EXCEEDED": (
+                "O manifesto Python do projeto excede o limite local de arquivos."
             ),
         }
         return ConfirmationPreview(
@@ -74,12 +97,23 @@ class RunPythonUnitTestFileAction:
 
         path = str(evidence["path"])
         sha256 = str(evidence["sha256"])
+        project_manifest_sha256 = str(
+            evidence["project_python_manifest_sha256"]
+        )
+        project_file_count = int(evidence["project_python_file_count"])
+        project_total_bytes = int(evidence["project_python_total_bytes"])
         return ConfirmationPreview(
             allowed=True,
             text=(
                 "EXECUTAR UM ARQUIVO DE TESTE PYTHON\n"
                 f"Caminho aprovado: {path}\n"
                 f"SHA-256 aprovado: {sha256}\n"
+                "Manifesto Python do projeto: src/theos + tests/unit\n"
+                f"Manifesto SHA-256 aprovado: {project_manifest_sha256}\n"
+                f"Manifesto: {project_file_count} arquivo(s), "
+                f"{project_total_bytes} byte(s); limites de "
+                f"{MAX_PROJECT_PYTHON_FILES} arquivo(s) e "
+                f"{MAX_PROJECT_PYTHON_TOTAL_BYTES} byte(s) totais.\n"
                 f"Limite do arquivo: {MAX_PYTHON_UNIT_TEST_FILE_BYTES} byte(s).\n"
                 f"Timeout: {PYTHON_UNIT_TEST_TIMEOUT_SECONDS:g}s.\n"
                 "RISCO PRIVILEGIADO: pytest executará código Python do arquivo de teste "
@@ -95,6 +129,9 @@ class RunPythonUnitTestFileAction:
             execution_guard={
                 _EXPECTED_TEST_PATH: path,
                 _EXPECTED_TEST_SHA256: sha256,
+                _EXPECTED_PROJECT_PYTHON_MANIFEST_SHA256: (
+                    project_manifest_sha256
+                ),
             },
         )
 
@@ -102,12 +139,17 @@ class RunPythonUnitTestFileAction:
         raw_path = str(request.arguments.get("path", "")).strip()
         expected_path = request.arguments.get(_EXPECTED_TEST_PATH)
         expected_sha256 = request.arguments.get(_EXPECTED_TEST_SHA256)
+        expected_project_manifest_sha256 = request.arguments.get(
+            _EXPECTED_PROJECT_PYTHON_MANIFEST_SHA256
+        )
         if (
             not raw_path
             or not isinstance(expected_path, str)
             or not expected_path
             or not isinstance(expected_sha256, str)
             or len(expected_sha256) != 64
+            or not isinstance(expected_project_manifest_sha256, str)
+            or len(expected_project_manifest_sha256) != 64
         ):
             return ActionResult(
                 request_id=request.request_id,
@@ -121,6 +163,9 @@ class RunPythonUnitTestFileAction:
                 raw_path,
                 expected_path=expected_path,
                 expected_sha256=expected_sha256,
+                expected_project_python_manifest_sha256=(
+                    expected_project_manifest_sha256
+                ),
             )
         except (OSError, ValueError) as exc:
             return ActionResult(
@@ -149,12 +194,42 @@ class RunPythonUnitTestFileAction:
                 "TEST_TARGET_CHANGED_AFTER_PREVIEW": (
                     "O arquivo de teste mudou após a aprovação; execução bloqueada."
                 ),
+                "PROJECT_PYTHON_ROOT_UNAVAILABLE": (
+                    "Os roots Python fixos do projeto deixaram de estar disponíveis."
+                ),
+                "PROJECT_PYTHON_LINK_NOT_ALLOWED": (
+                    "O estado Python do projeto contém link/junction e foi bloqueado."
+                ),
+                "PROJECT_PYTHON_STATE_UNAVAILABLE": (
+                    "Não foi possível validar o estado Python do projeto."
+                ),
+                "PROJECT_PYTHON_FILE_TOO_LARGE": (
+                    "Um arquivo Python do projeto excede o limite do manifesto."
+                ),
+                "PROJECT_PYTHON_TOTAL_TOO_LARGE": (
+                    "O estado Python do projeto excede o limite total do manifesto."
+                ),
+                "PROJECT_PYTHON_FILE_COUNT_EXCEEDED": (
+                    "O estado Python do projeto excede o limite de arquivos."
+                ),
+                "PROJECT_PYTHON_STATE_CHANGED_AFTER_PREVIEW": (
+                    "O estado Python do projeto mudou após a aprovação; "
+                    "pytest não foi iniciado."
+                ),
                 "PYTEST_VERIFIER_NOT_AVAILABLE": (
                     "O pytest.exe controlado do venv não está disponível."
                 ),
                 "PYTEST_TIMEOUT": "O teste excedeu o timeout local de 30 segundos.",
                 "TEST_TARGET_CHANGED_DURING_RUN": (
                     "O arquivo de teste mudou durante a execução; resultado descartado."
+                ),
+                "PROJECT_PYTHON_STATE_INVALID_AFTER_RUN": (
+                    "O estado Python do projeto ficou inválido durante o pytest; "
+                    "resultado descartado."
+                ),
+                "PROJECT_PYTHON_STATE_CHANGED_DURING_RUN": (
+                    "O estado Python do projeto mudou durante o pytest; "
+                    "resultado descartado."
                 ),
                 "PYTEST_PROCESS_FAILED": (
                     "O processo pytest terminou com falha operacional."
