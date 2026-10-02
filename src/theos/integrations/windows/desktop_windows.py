@@ -487,7 +487,7 @@ class WindowsDesktopWindowAdapter:
         }
 
 
-    def _resolve_window_state_target(
+    def _resolve_exact_window_target(
         self,
         user32: object,
         callback_type: object,
@@ -721,7 +721,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -863,7 +863,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -1093,7 +1093,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -1288,7 +1288,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -1495,7 +1495,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -1750,7 +1750,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -1979,7 +1979,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -2246,7 +2246,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -2521,7 +2521,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -2736,7 +2736,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -2915,7 +2915,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -3158,7 +3158,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -3309,38 +3309,40 @@ class WindowsDesktopWindowAdapter:
             wintypes.LPARAM,
         )
 
-        user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
-        user32.EnumWindows.restype = wintypes.BOOL
-        user32.IsWindowVisible.argtypes = [wintypes.HWND]
-        user32.IsWindowVisible.restype = wintypes.BOOL
-        user32.IsIconic.argtypes = [wintypes.HWND]
-        user32.IsIconic.restype = wintypes.BOOL
-        user32.IsZoomed.argtypes = [wintypes.HWND]
-        user32.IsZoomed.restype = wintypes.BOOL
-        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-        user32.GetWindowTextLengthW.restype = ctypes.c_int
-        user32.GetWindowTextW.argtypes = [
-            wintypes.HWND,
-            wintypes.LPWSTR,
-            ctypes.c_int,
-        ]
-        user32.GetWindowTextW.restype = ctypes.c_int
-        user32.GetWindowThreadProcessId.argtypes = [
-            wintypes.HWND,
-            ctypes.POINTER(wintypes.DWORD),
-        ]
-        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-        user32.GetClassNameW.argtypes = [
-            wintypes.HWND,
-            wintypes.LPWSTR,
-            ctypes.c_int,
-        ]
-        user32.GetClassNameW.restype = ctypes.c_int
-        user32.GetClientRect.argtypes = [
-            wintypes.HWND,
-            ctypes.POINTER(wintypes.RECT),
-        ]
-        user32.GetClientRect.restype = wintypes.BOOL
+        try:
+            (
+                _requested_candidate,
+                resolved_candidate,
+                _requested_full_title,
+                full_title,
+                visual_frame_normalized,
+                visual_frame_dwm_tiebreak_used,
+                resolved_dwm_cloaked,
+            ) = self._resolve_exact_window_target(
+                user32,
+                callback_type,
+                pid,
+                title,
+                target_token,
+            )
+        except RuntimeError as exc:
+            if str(exc) == "WINDOW_VISUAL_FRAME_NOT_FOUND":
+                raise RuntimeError(
+                    "WINDOW_PLACEMENT_VISUAL_FRAME_NOT_FOUND"
+                ) from exc
+            if str(exc) == "WINDOW_VISUAL_FRAME_AMBIGUOUS":
+                raise RuntimeError(
+                    "WINDOW_PLACEMENT_VISUAL_FRAME_AMBIGUOUS"
+                ) from exc
+            raise
+
+        if resolved_candidate.pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_PLACEMENT_BLOCKED")
+
+        hwnd_value = resolved_candidate.hwnd
+        resolved_pid = resolved_candidate.pid
+        hwnd = wintypes.HWND(hwnd_value)
+
         user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
         user32.ShowWindow.restype = wintypes.BOOL
         user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
@@ -3364,155 +3366,6 @@ class WindowsDesktopWindowAdapter:
             ctypes.POINTER(wintypes.RECT),
         ]
         user32.GetWindowRect.restype = wintypes.BOOL
-
-        dwmapi = None
-        try:
-            dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
-        except OSError:
-            pass
-
-        if dwmapi is not None:
-            dwmapi.DwmGetWindowAttribute.argtypes = [
-                wintypes.HWND,
-                wintypes.DWORD,
-                wintypes.LPVOID,
-                wintypes.DWORD,
-            ]
-            dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
-
-        def get_dwm_cloaked(hwnd: wintypes.HWND) -> int | None:
-            if dwmapi is None:
-                return None
-            value = wintypes.DWORD()
-            result = int(
-                dwmapi.DwmGetWindowAttribute(
-                    hwnd,
-                    14,
-                    ctypes.byref(value),
-                    ctypes.sizeof(value),
-                )
-            )
-            if result != 0:
-                return None
-            return int(value.value)
-
-        all_candidates: list[HostedWindowCandidate] = []
-        full_titles: dict[int, str] = {}
-        dwm_cloaked_by_hwnd: dict[int, int | None] = {}
-
-        def visit_window(hwnd: int, _lparam: int) -> bool:
-            if not user32.IsWindowVisible(hwnd):
-                return True
-
-            title_length = int(user32.GetWindowTextLengthW(hwnd))
-            if title_length <= 0:
-                return True
-
-            buffer = ctypes.create_unicode_buffer(title_length + 1)
-            copied = int(
-                user32.GetWindowTextW(hwnd, buffer, title_length + 1)
-            )
-            if copied <= 0:
-                return True
-
-            full_title = buffer.value.strip()
-            if not full_title:
-                return True
-            bounded_title = full_title[:MAX_WINDOW_TITLE_CHARS]
-
-            process_id = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-            candidate_pid = int(process_id.value)
-            if candidate_pid <= 0:
-                return True
-
-            candidate_token = _window_target_token(
-                int(hwnd),
-                candidate_pid,
-                bounded_title,
-            )
-
-            class_buffer = ctypes.create_unicode_buffer(256)
-            class_length = int(
-                user32.GetClassNameW(
-                    hwnd,
-                    class_buffer,
-                    len(class_buffer),
-                )
-            )
-            class_name = class_buffer.value if class_length > 0 else ""
-
-            client_rect = wintypes.RECT()
-            if user32.GetClientRect(hwnd, ctypes.byref(client_rect)):
-                client_width = int(client_rect.right - client_rect.left)
-                client_height = int(client_rect.bottom - client_rect.top)
-            else:
-                client_width = 0
-                client_height = 0
-
-            hwnd_value = int(hwnd)
-            full_titles[hwnd_value] = full_title
-            dwm_cloaked_by_hwnd[hwnd_value] = get_dwm_cloaked(hwnd)
-            all_candidates.append(
-                HostedWindowCandidate(
-                    hwnd=hwnd_value,
-                    pid=candidate_pid,
-                    title=bounded_title,
-                    target_token=candidate_token,
-                    class_name=class_name,
-                    is_iconic=bool(user32.IsIconic(hwnd)),
-                    is_zoomed=bool(user32.IsZoomed(hwnd)),
-                    client_width=client_width,
-                    client_height=client_height,
-                )
-            )
-            return True
-
-        callback = callback_type(visit_window)
-        if not user32.EnumWindows(callback, 0):
-            raise OSError(ctypes.get_last_error(), "EnumWindows failed")
-
-        matches = [
-            candidate
-            for candidate in all_candidates
-            if candidate.pid == pid
-            and candidate.title == title
-            and candidate.target_token == target_token
-        ]
-        if not matches:
-            raise RuntimeError("WINDOW_TARGET_NOT_FOUND")
-        if len(matches) != 1:
-            raise RuntimeError("WINDOW_TARGET_AMBIGUOUS")
-
-        requested_candidate = matches[0]
-        try:
-            (
-                resolved_candidate,
-                visual_frame_normalized,
-                visual_frame_dwm_tiebreak_used,
-            ) = resolve_hosted_visual_frame_for_single_placement(
-                requested_candidate,
-                tuple(all_candidates),
-                dwm_cloaked_by_hwnd,
-            )
-        except ValueError as exc:
-            if str(exc) == "HOSTED_VISUAL_FRAME_NOT_FOUND":
-                raise RuntimeError(
-                    "WINDOW_PLACEMENT_VISUAL_FRAME_NOT_FOUND"
-                ) from exc
-            if str(exc) == "HOSTED_VISUAL_FRAME_AMBIGUOUS":
-                raise RuntimeError(
-                    "WINDOW_PLACEMENT_VISUAL_FRAME_AMBIGUOUS"
-                ) from exc
-            raise
-
-        if resolved_candidate.pid == os.getpid():
-            raise RuntimeError("SELF_WINDOW_PLACEMENT_BLOCKED")
-
-        hwnd_value = resolved_candidate.hwnd
-        resolved_pid = resolved_candidate.pid
-        full_title = full_titles[hwnd_value]
-        hwnd = wintypes.HWND(hwnd_value)
         was_minimized = bool(user32.IsIconic(hwnd))
         was_maximized = bool(user32.IsZoomed(hwnd))
         restored_to_normal = False
@@ -3642,9 +3495,7 @@ class WindowsDesktopWindowAdapter:
             "resolved_title": full_title[:MAX_WINDOW_TITLE_CHARS],
             "resolved_process_name": resolved_process_name,
             "resolved_window_class": resolved_candidate.class_name,
-            "resolved_dwm_cloaked": dwm_cloaked_by_hwnd.get(
-                resolved_candidate.hwnd
-            ),
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
             "requested_pid": pid,
             "requested_title": title,
             "requested_target_token": target_token,
@@ -4604,7 +4455,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -4701,7 +4552,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -4793,7 +4644,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,
@@ -4885,7 +4736,7 @@ class WindowsDesktopWindowAdapter:
             visual_frame_normalized,
             visual_frame_dwm_tiebreak_used,
             resolved_dwm_cloaked,
-        ) = self._resolve_window_state_target(
+        ) = self._resolve_exact_window_target(
             user32,
             callback_type,
             pid,

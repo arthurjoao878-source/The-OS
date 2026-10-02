@@ -102,12 +102,12 @@ def test_all_input_descriptions_share_hosted_alias_guidance() -> None:
         assert guidance in definitions[name].description
 
 
-def test_all_input_methods_reuse_hosted_state_target_resolver() -> None:
+def test_all_input_methods_reuse_hosted_exact_target_resolver() -> None:
     for method_name in _INPUT_METHODS:
         source = inspect.getsource(
             getattr(WindowsDesktopWindowAdapter, method_name)
         )
-        assert source.count("self._resolve_window_state_target(") == 1
+        assert source.count("self._resolve_exact_window_target(") == 1
         assert "user32.EnumWindows(callback, 0)" not in source
 
 
@@ -127,7 +127,7 @@ def test_all_input_methods_report_hosted_resolution_evidence() -> None:
 
 def test_shared_resolver_remains_input_transport_free() -> None:
     source = inspect.getsource(
-        WindowsDesktopWindowAdapter._resolve_window_state_target
+        WindowsDesktopWindowAdapter._resolve_exact_window_target
     )
     assert source.count("user32.EnumWindows(callback, 0)") == 1
     assert "DwmGetWindowAttribute" in source

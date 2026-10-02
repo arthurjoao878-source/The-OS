@@ -48,22 +48,22 @@ def test_state_actions_use_one_shared_private_resolver() -> None:
         source = inspect.getsource(
             getattr(WindowsDesktopWindowAdapter, method_name)
         )
-        assert source.count("self._resolve_window_state_target(") == 1
+        assert source.count("self._resolve_exact_window_target(") == 1
         assert "EnumWindows(" not in source
 
 
 def test_close_uses_shared_resolver_with_stale_identity_detail() -> None:
     source = inspect.getsource(WindowsDesktopWindowAdapter.close_window)
-    assert source.count("self._resolve_window_state_target(") == 1
+    assert source.count("self._resolve_exact_window_target(") == 1
     assert "stale_detail=True" in source
     assert "EnumWindows(" not in source
     assert "WM_SYSCOMMAND" in source
     assert "SC_CLOSE" in source
 
 
-def test_shared_state_resolver_contains_hosted_dwm_normalization_only() -> None:
+def test_shared_exact_resolver_contains_hosted_dwm_normalization_only() -> None:
     source = inspect.getsource(
-        WindowsDesktopWindowAdapter._resolve_window_state_target
+        WindowsDesktopWindowAdapter._resolve_exact_window_target
     )
     assert source.count("user32.EnumWindows(callback, 0)") == 1
     assert "DwmGetWindowAttribute" in source
