@@ -71,6 +71,8 @@ MAX_TEXT_SEARCH_QUERY_CHARS = 120
 MAX_TEXT_LINE_START = 1_000_000
 MAX_TEXT_LINE_RANGE_LINES = 40
 MAX_LITERAL_REPLACE_TEXT_CHARS = 1024
+MAX_LITERAL_BLOCK_CHARS = 1024
+MAX_LITERAL_BLOCK_LINES = 40
 
 _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
     " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
@@ -1499,6 +1501,52 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="replace_text_block",
+            description=(
+                "Substitui exatamente uma ocorrência de um bloco textual literal em "
+                "um arquivo local já existente. old_block e new_block podem ter várias "
+                "linhas, mas cada um é limitado a 1024 caracteres e 40 linhas. THE OS "
+                "normaliza somente CRLF/CR/LF para localizar o bloco de modo determinístico, "
+                "sem regex ou fuzzy matching; zero ou múltiplas ocorrências são bloqueadas. "
+                "Fora do span substituído, o texto original permanece intacto. O bloco novo "
+                "usa a convenção de newline do trecho correspondente, ou do arquivo quando "
+                "o trecho não contém newline. O arquivo é limitado a 256 KiB. A mutação "
+                "exige preview/diff local, SHA-256 guards, escrita atômica e verificação "
+                "final. Código, scripts, credenciais/chaves e caminhos de sistema são "
+                "PRIVILEGED. Não cria arquivos e não aceita posição arbitrária."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local do arquivo textual existente.",
+                    },
+                    "old_block": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_LITERAL_BLOCK_CHARS,
+                        "description": (
+                            "Bloco literal não vazio que deve ocorrer exatamente uma vez "
+                            "após apenas a normalização de newlines."
+                        ),
+                    },
+                    "new_block": {
+                        "type": "string",
+                        "maxLength": MAX_LITERAL_BLOCK_CHARS,
+                        "description": (
+                            "Bloco literal substituto; vazio remove o bloco encontrado."
+                        ),
+                    },
+                },
+                "required": ["path", "old_block", "new_block"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_replace_text_block,
+    )
+    catalog.register(
+        ToolDefinition(
             name="write_text_file",
             description=(
                 "Cria um arquivo de texto UTF-8 ou substitui integralmente um arquivo "
@@ -2423,6 +2471,50 @@ def _validate_replace_text_literal(
         "path": path.strip(),
         "old_text": old_text,
         "new_text": new_text,
+    }
+
+
+def _validate_replace_text_block(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"path", "old_block", "new_block"}:
+        raise ToolValidationError(
+            "replace_text_block requires only 'path', 'old_block', and 'new_block'"
+        )
+
+    path = arguments.get("path")
+    old_block = arguments.get("old_block")
+    new_block = arguments.get("new_block")
+    if not isinstance(path, str) or not path.strip():
+        raise ToolValidationError("path must be a non-blank string")
+    if not isinstance(old_block, str):
+        raise ToolValidationError("old_block must be a string")
+    if not isinstance(new_block, str):
+        raise ToolValidationError("new_block must be a string")
+    if "\0" in old_block or "\0" in new_block:
+        raise ToolValidationError("literal blocks cannot contain NUL")
+    if len(old_block) > MAX_LITERAL_BLOCK_CHARS:
+        raise ToolValidationError("old_block exceeds the local character limit")
+    if len(new_block) > MAX_LITERAL_BLOCK_CHARS:
+        raise ToolValidationError("new_block exceeds the local character limit")
+
+    normalized_old = old_block.replace("\r\n", "\n").replace("\r", "\n")
+    normalized_new = new_block.replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized_old or not normalized_old.strip():
+        raise ToolValidationError("old_block must be non-blank")
+    if normalized_old == normalized_new:
+        raise ToolValidationError(
+            "old_block and new_block must differ after newline normalization"
+        )
+    if normalized_old.count("\n") + 1 > MAX_LITERAL_BLOCK_LINES:
+        raise ToolValidationError("old_block exceeds the local line limit")
+    if normalized_new.count("\n") + 1 > MAX_LITERAL_BLOCK_LINES:
+        raise ToolValidationError("new_block exceeds the local line limit")
+
+    return {
+        "path": path.strip(),
+        "old_block": old_block,
+        "new_block": new_block,
     }
 
 

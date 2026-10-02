@@ -30,6 +30,9 @@ MAX_TEXT_LINE_RANGE_OUTPUT_BYTES = 16 * 1024
 MAX_WRITE_BYTES = 16 * 1024
 MAX_LITERAL_REPLACE_FILE_BYTES = 256 * 1024
 MAX_LITERAL_REPLACE_TEXT_CHARS = 1024
+MAX_LITERAL_BLOCK_FILE_BYTES = 256 * 1024
+MAX_LITERAL_BLOCK_CHARS = 1024
+MAX_LITERAL_BLOCK_LINES = 40
 MAX_WRITE_PREVIEW_CHARS = 3500
 MAX_COPY_ENTRIES = 256
 MAX_COPY_BYTES = 64 * 1024 * 1024
@@ -989,6 +992,311 @@ class WindowsFileSystemAdapter:
             "write_verified": True,
             "encoding_preserved": True,
             "line_endings_outside_match_preserved": True,
+        }
+
+    @staticmethod
+    def _normalize_literal_block_newlines(value: str) -> str:
+        return value.replace("\r\n", "\n").replace("\r", "\n")
+
+    @staticmethod
+    def _normalized_newline_view_with_boundaries(
+        value: str,
+    ) -> tuple[str, tuple[int, ...]]:
+        characters: list[str] = []
+        boundaries = [0]
+        index = 0
+        while index < len(value):
+            character = value[index]
+            if character == "\r":
+                if index + 1 < len(value) and value[index + 1] == "\n":
+                    index += 2
+                else:
+                    index += 1
+                characters.append("\n")
+                boundaries.append(index)
+                continue
+
+            characters.append(character)
+            index += 1
+            boundaries.append(index)
+
+        return "".join(characters), tuple(boundaries)
+
+    @staticmethod
+    def _first_newline_sequence(value: str) -> str | None:
+        index = 0
+        while index < len(value):
+            character = value[index]
+            if character == "\r":
+                if index + 1 < len(value) and value[index + 1] == "\n":
+                    return "\r\n"
+                return "\r"
+            if character == "\n":
+                return "\n"
+            index += 1
+        return None
+
+    def preview_literal_block_replace(
+        self,
+        raw_path: str,
+        old_block: str,
+        new_block: str,
+    ) -> dict[str, object]:
+        path = self.resolve(raw_path)
+        normalized_old = self._normalize_literal_block_newlines(old_block)
+        normalized_new = self._normalize_literal_block_newlines(new_block)
+        old_sha256 = hashlib.sha256(old_block.encode("utf-8")).hexdigest()
+        new_sha256 = hashlib.sha256(new_block.encode("utf-8")).hexdigest()
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "old_block_sha256": old_sha256,
+            "new_block_sha256": new_sha256,
+            "allowed": False,
+        }
+
+        old_line_count = normalized_old.count("\n") + 1
+        new_line_count = normalized_new.count("\n") + 1
+        evidence["old_block_lines"] = old_line_count
+        evidence["new_block_lines"] = new_line_count
+
+        if (
+            not normalized_old
+            or not normalized_old.strip()
+            or normalized_old == normalized_new
+            or len(old_block) > MAX_LITERAL_BLOCK_CHARS
+            or len(new_block) > MAX_LITERAL_BLOCK_CHARS
+            or old_line_count > MAX_LITERAL_BLOCK_LINES
+            or new_line_count > MAX_LITERAL_BLOCK_LINES
+            or "\0" in old_block
+            or "\0" in new_block
+        ):
+            evidence["error"] = "INVALID_LITERAL_BLOCK_REPLACEMENT"
+            return evidence
+
+        if not path.exists():
+            evidence["error"] = "PATH_NOT_FOUND"
+            return evidence
+        if not path.is_file():
+            evidence["error"] = "PATH_NOT_FILE"
+            return evidence
+        if self._is_link_like(path):
+            evidence["error"] = "LINK_TARGET_NOT_ALLOWED"
+            return evidence
+
+        size_bytes = path.stat().st_size
+        evidence["size_bytes"] = size_bytes
+        if size_bytes > MAX_LITERAL_BLOCK_FILE_BYTES:
+            evidence["error"] = "FILE_TOO_LARGE"
+            return evidence
+
+        raw_before = path.read_bytes()
+        before_sha256 = hashlib.sha256(raw_before).hexdigest()
+        evidence["before_sha256"] = before_sha256
+
+        encoding = self._detect_text_encoding(raw_before)
+        if encoding is None:
+            evidence["error"] = "FILE_NOT_TEXT"
+            return evidence
+
+        try:
+            before = raw_before.decode(encoding)
+        except UnicodeDecodeError:
+            evidence["error"] = "FILE_NOT_TEXT"
+            return evidence
+
+        normalized_before, boundaries = self._normalized_newline_view_with_boundaries(
+            before
+        )
+        match_count = normalized_before.count(normalized_old)
+        evidence["match_count"] = match_count
+        if match_count != 1:
+            evidence["error"] = (
+                "LITERAL_BLOCK_NOT_FOUND"
+                if match_count == 0
+                else "LITERAL_BLOCK_NOT_UNIQUE"
+            )
+            return evidence
+
+        normalized_start = normalized_before.find(normalized_old)
+        normalized_end = normalized_start + len(normalized_old)
+        original_start = boundaries[normalized_start]
+        original_end = boundaries[normalized_end]
+        matched_original = before[original_start:original_end]
+
+        newline = (
+            self._first_newline_sequence(matched_original)
+            or self._first_newline_sequence(before)
+            or "\n"
+        )
+        replacement = normalized_new.replace("\n", newline)
+        after = before[:original_start] + replacement + before[original_end:]
+
+        write_encoding = encoding
+        if encoding == "utf-8-sig" and not raw_before.startswith(b"\xef\xbb\xbf"):
+            write_encoding = "utf-8"
+
+        try:
+            raw_after = after.encode(write_encoding)
+        except UnicodeEncodeError:
+            evidence["error"] = "REPLACEMENT_NOT_ENCODABLE"
+            return evidence
+
+        if len(raw_after) > MAX_LITERAL_BLOCK_FILE_BYTES:
+            evidence["error"] = "RESULT_TOO_LARGE"
+            return evidence
+
+        after_sha256 = hashlib.sha256(raw_after).hexdigest()
+        diff = "".join(
+            difflib.unified_diff(
+                before.splitlines(keepends=True),
+                after.splitlines(keepends=True),
+                fromfile=f"antes/{path.name}",
+                tofile=f"depois/{path.name}",
+                n=3,
+            )
+        )
+        if len(diff) > MAX_WRITE_PREVIEW_CHARS:
+            old_lines = normalized_old.split("\n")
+            new_lines = normalized_new.split("\n")
+            diff = (
+                f"--- antes/{path.name}\n"
+                f"+++ depois/{path.name}\n"
+                "@@ bloco literal único @@\n"
+                + "".join(f"-{line}\n" for line in old_lines)
+                + "".join(f"+{line}\n" for line in new_lines)
+                + "... contexto omitido pelo limite local; bloco exato preservado ..."
+            )
+            preview_truncated = True
+            preview_mode = "focused_block"
+        else:
+            preview_truncated = False
+            preview_mode = "unified_diff"
+
+        newline_style = {
+            "\r\n": "CRLF",
+            "\r": "CR",
+            "\n": "LF",
+        }[newline]
+        evidence.update(
+            {
+                "allowed": True,
+                "encoding": encoding,
+                "write_encoding": write_encoding,
+                "newline_style": newline_style,
+                "original_start": original_start,
+                "original_end": original_end,
+                "after_bytes": len(raw_after),
+                "after_sha256": after_sha256,
+                "diff": diff,
+                "preview_truncated": preview_truncated,
+                "preview_mode": preview_mode,
+            }
+        )
+        return evidence
+
+    def replace_text_block(
+        self,
+        raw_path: str,
+        old_block: str,
+        new_block: str,
+        *,
+        expected_path: str,
+        expected_before_sha256: str,
+        expected_after_sha256: str,
+    ) -> dict[str, object]:
+        preview = self.preview_literal_block_replace(
+            raw_path,
+            old_block,
+            new_block,
+        )
+
+        if str(preview.get("path")) != expected_path:
+            raise RuntimeError("LITERAL_BLOCK_TARGET_CHANGED")
+        if preview.get("before_sha256") != expected_before_sha256:
+            raise RuntimeError("LITERAL_BLOCK_TARGET_CHANGED")
+        if not bool(preview.get("allowed")):
+            raise ValueError(
+                str(preview.get("error", "LITERAL_BLOCK_PREVIEW_REJECTED"))
+            )
+        if str(preview.get("after_sha256")) != expected_after_sha256:
+            raise RuntimeError("LITERAL_BLOCK_CONTENT_CHANGED")
+
+        path = Path(str(preview["path"]))
+        raw_before = path.read_bytes()
+        encoding = str(preview["encoding"])
+        write_encoding = str(preview["write_encoding"])
+
+        try:
+            before = raw_before.decode(encoding)
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("LITERAL_BLOCK_ENCODING_CHANGED") from exc
+
+        normalized_before, boundaries = self._normalized_newline_view_with_boundaries(
+            before
+        )
+        normalized_old = self._normalize_literal_block_newlines(old_block)
+        normalized_new = self._normalize_literal_block_newlines(new_block)
+        if normalized_before.count(normalized_old) != 1:
+            raise RuntimeError("LITERAL_BLOCK_TARGET_CHANGED")
+
+        normalized_start = normalized_before.find(normalized_old)
+        normalized_end = normalized_start + len(normalized_old)
+        original_start = boundaries[normalized_start]
+        original_end = boundaries[normalized_end]
+        matched_original = before[original_start:original_end]
+        newline = (
+            self._first_newline_sequence(matched_original)
+            or self._first_newline_sequence(before)
+            or "\n"
+        )
+        replacement = normalized_new.replace("\n", newline)
+        after = before[:original_start] + replacement + before[original_end:]
+
+        try:
+            payload = after.encode(write_encoding)
+        except UnicodeEncodeError as exc:
+            raise RuntimeError("LITERAL_BLOCK_ENCODING_CHANGED") from exc
+
+        payload_sha256 = hashlib.sha256(payload).hexdigest()
+        if payload_sha256 != expected_after_sha256:
+            raise RuntimeError("LITERAL_BLOCK_CONTENT_CHANGED")
+
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".theos-block-replace.tmp",
+                delete=False,
+            ) as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+                temporary_path = Path(handle.name)
+
+            os.replace(temporary_path, path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+        written = path.read_bytes()
+        written_sha256 = hashlib.sha256(written).hexdigest()
+        if written_sha256 != expected_after_sha256:
+            raise RuntimeError("LITERAL_BLOCK_VERIFICATION_FAILED")
+
+        return {
+            "path": str(path),
+            "match_count": 1,
+            "bytes_written": len(written),
+            "sha256": written_sha256,
+            "atomic_replace": True,
+            "write_verified": True,
+            "encoding_preserved": True,
+            "untouched_text_preserved": True,
+            "newline_style": preview["newline_style"],
         }
 
     def path_signature(self, raw_path: str) -> str | None:

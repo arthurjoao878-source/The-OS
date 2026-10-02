@@ -90,6 +90,8 @@ _EXPECTED_SOURCE_SIGNATURE = "_theos_expected_source_signature"
 _EXPECTED_COPY_MANIFEST_SHA256 = "_theos_expected_copy_manifest_sha256"
 _EXPECTED_OLD_TEXT_SHA256 = "_theos_expected_old_text_sha256"
 _EXPECTED_NEW_TEXT_SHA256 = "_theos_expected_new_text_sha256"
+_EXPECTED_OLD_BLOCK_SHA256 = "_theos_expected_old_block_sha256"
+_EXPECTED_NEW_BLOCK_SHA256 = "_theos_expected_new_block_sha256"
 
 
 def _is_privileged_read_path(raw_path: str) -> bool:
@@ -892,6 +894,197 @@ class ReplaceTextLiteralAction:
             request_id=request.request_id,
             success=True,
             message=f"Substituição textual verificada em {resolved.name or resolved}.",
+            evidence=evidence,
+        )
+
+
+class ReplaceTextBlockAction:
+    name = "replace_text_block"
+    risk = ActionRisk.DESTRUCTIVE
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def risk_for(self, request: ActionRequest) -> ActionRisk:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        try:
+            protected = self._windows.is_protected_system_path(raw_path)
+        except OSError:
+            return ActionRisk.PRIVILEGED
+        if _is_sensitive_path(raw_path) or protected:
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.DESTRUCTIVE
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        old_block = request.arguments.get("old_block")
+        new_block = request.arguments.get("new_block")
+        if (
+            not raw_path
+            or not isinstance(old_block, str)
+            or not isinstance(new_block, str)
+        ):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: argumentos inválidos.",
+            )
+
+        try:
+            evidence = self._windows.preview_literal_block_replace(
+                raw_path,
+                old_block,
+                new_block,
+            )
+        except OSError as exc:
+            return ConfirmationPreview(
+                allowed=False,
+                text=f"Não foi possível preparar a prévia ({type(exc).__name__}).",
+            )
+
+        if not bool(evidence.get("allowed")):
+            reason = str(
+                evidence.get("error", "LITERAL_BLOCK_PREVIEW_REJECTED")
+            )
+            count = evidence.get("match_count")
+            suffix = (
+                f" Ocorrências encontradas: {count}."
+                if isinstance(count, int)
+                else ""
+            )
+            return ConfirmationPreview(
+                allowed=False,
+                text=f"Substituição bloqueada antes da confirmação: {reason}.{suffix}",
+            )
+
+        path = str(evidence["path"])
+        if _is_privileged_read_path(raw_path):
+            preview_text = (
+                "SUBSTITUIR BLOCO LITERAL\n"
+                f"Caminho: {path}\n"
+                "Prévia textual ocultada por ser um caminho de credencial/chave.\n"
+                "Bloco literal único verificado localmente.\n"
+                f"Linhas antigas: {evidence['old_block_lines']}\n"
+                f"Linhas novas: {evidence['new_block_lines']}\n"
+                f"SHA-256 atual: {evidence['before_sha256']}\n"
+                f"SHA-256 resultante: {evidence['after_sha256']}"
+            )
+        else:
+            diff = str(evidence.get("diff", ""))
+            preview_text = (
+                "SUBSTITUIR BLOCO LITERAL\n"
+                f"Caminho: {path}\n"
+                "Bloco literal único verificado localmente.\n"
+                f"Newline aplicado ao bloco novo: {evidence['newline_style']}\n\n"
+                f"{diff}"
+            )
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=preview_text,
+            execution_guard={
+                _EXPECTED_PATH: path,
+                _EXPECTED_BEFORE_SHA256: str(evidence["before_sha256"]),
+                _EXPECTED_CONTENT_SHA256: str(evidence["after_sha256"]),
+                _EXPECTED_OLD_BLOCK_SHA256: str(evidence["old_block_sha256"]),
+                _EXPECTED_NEW_BLOCK_SHA256: str(evidence["new_block_sha256"]),
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        old_block = request.arguments.get("old_block")
+        new_block = request.arguments.get("new_block")
+        if (
+            not raw_path
+            or not isinstance(old_block, str)
+            or not isinstance(new_block, str)
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Caminho, bloco antigo e bloco novo são obrigatórios.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        expected_path = request.arguments.get(_EXPECTED_PATH)
+        expected_before_sha256 = request.arguments.get(_EXPECTED_BEFORE_SHA256)
+        expected_after_sha256 = request.arguments.get(_EXPECTED_CONTENT_SHA256)
+        expected_old_sha256 = request.arguments.get(_EXPECTED_OLD_BLOCK_SHA256)
+        expected_new_sha256 = request.arguments.get(_EXPECTED_NEW_BLOCK_SHA256)
+        guarded = (
+            expected_path,
+            expected_before_sha256,
+            expected_after_sha256,
+            expected_old_sha256,
+            expected_new_sha256,
+        )
+        if not all(isinstance(value, str) for value in guarded):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A substituição não possui uma prévia local aprovada.",
+                error_code="LITERAL_BLOCK_PREVIEW_REQUIRED",
+            )
+
+        if (
+            hashlib.sha256(old_block.encode("utf-8")).hexdigest()
+            != expected_old_sha256
+            or hashlib.sha256(new_block.encode("utf-8")).hexdigest()
+            != expected_new_sha256
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O bloco proposto mudou depois da prévia; a ação foi bloqueada.",
+                error_code="BLOCK_CHANGED_AFTER_PREVIEW",
+            )
+
+        try:
+            evidence = self._windows.replace_text_block(
+                raw_path,
+                old_block,
+                new_block,
+                expected_path=expected_path,
+                expected_before_sha256=expected_before_sha256,
+                expected_after_sha256=expected_after_sha256,
+            )
+        except RuntimeError as exc:
+            code = str(exc)
+            if code in {
+                "LITERAL_BLOCK_TARGET_CHANGED",
+                "LITERAL_BLOCK_CONTENT_CHANGED",
+            }:
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "O arquivo ou o resultado proposto mudou depois da prévia; "
+                        "a substituição foi bloqueada."
+                    ),
+                    evidence={"reason": code},
+                    error_code="FILE_CHANGED_AFTER_PREVIEW",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A verificação da substituição do bloco falhou.",
+                evidence={"reason": code},
+                error_code="LITERAL_BLOCK_VERIFICATION_FAILED",
+            )
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui aplicar a substituição do bloco.",
+                evidence={"exception": type(exc).__name__, "reason": str(exc)},
+                error_code="LITERAL_BLOCK_REPLACE_FAILED",
+            )
+
+        resolved = Path(str(evidence["path"]))
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=f"Substituição de bloco verificada em {resolved.name or resolved}.",
             evidence=evidence,
         )
 
