@@ -452,6 +452,9 @@ class ToolLoopExecutor:
             query = str(request.arguments.get("query", "item"))
             root = str(request.arguments.get("root", "pasta"))
             return f"Procurando {query} em {root}..."
+        if request.action == "check_python_syntax":
+            target = str(request.arguments.get("path", "arquivo"))
+            return f"Verificando sintaxe Python em {target}..."
         if request.action == "search_text":
             query = str(request.arguments.get("query", "texto"))
             root = str(request.arguments.get("root", "pasta"))

@@ -24,6 +24,7 @@ from theos.core.actions.desktop_windows import (
     WindowSnapshotManyAction,
 )
 from theos.core.actions.file_system import (
+    CheckPythonSyntaxAction,
     CopyPathAction,
     CreateDirectoryAction,
     FindPathAction,
@@ -65,6 +66,7 @@ def build_action_registry() -> ActionRegistry:
 
     open_application = OpenApplicationAction(applications, windows_applications)
     inspect_path = InspectPathAction(windows_files)
+    check_python_syntax = CheckPythonSyntaxAction(windows_files)
     find_path = FindPathAction(windows_files)
     open_path = OpenPathAction(windows_files)
     read_text_file = ReadTextFileAction(windows_files)
@@ -112,6 +114,12 @@ def build_action_registry() -> ActionRegistry:
         inspect_path.name,
         inspect_path.execute,
         risk=inspect_path.risk,
+    )
+    registry.register(
+        check_python_syntax.name,
+        check_python_syntax.execute,
+        risk=check_python_syntax.risk,
+        confirmation_preview=check_python_syntax.confirmation_preview,
     )
     registry.register(
         find_path.name,

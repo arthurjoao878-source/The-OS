@@ -238,6 +238,32 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="check_python_syntax",
+            description=(
+                "Verifica a sintaxe/compilabilidade de um arquivo Python local sem "
+                "executá-lo. Exige confirmação antes de ler o conteúdo. Aceita apenas "
+                ".py/.pyw existentes de até 256 KiB, rejeita links/junctions, detecta "
+                "o encoding conforme as regras de arquivos-fonte Python e chama "
+                "compile() sem exec/import. Não grava .pyc e não retorna o conteúdo do "
+                "arquivo; em erro retorna somente diagnóstico estrutural limitado "
+                "(linha/offset/mensagem), marcado como dado não confiável."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Caminho local do arquivo .py ou .pyw a verificar.",
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
             name="open_path",
             description=(
                 "Pede ao Windows para abrir um arquivo ou pasta local existente. "

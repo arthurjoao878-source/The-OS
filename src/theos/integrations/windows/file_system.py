@@ -4,9 +4,11 @@ import codecs
 import ctypes
 import difflib
 import hashlib
+import io
 import os
 import shutil
 import tempfile
+import tokenize
 from collections.abc import Callable
 from ctypes import wintypes
 from datetime import UTC, datetime
@@ -33,6 +35,9 @@ MAX_LITERAL_REPLACE_TEXT_CHARS = 1024
 MAX_LITERAL_BLOCK_FILE_BYTES = 256 * 1024
 MAX_LITERAL_BLOCK_CHARS = 1024
 MAX_LITERAL_BLOCK_LINES = 40
+MAX_PYTHON_SYNTAX_FILE_BYTES = 256 * 1024
+MAX_PYTHON_SYNTAX_MESSAGE_CHARS = 240
+PYTHON_SYNTAX_SUFFIXES = frozenset({".py", ".pyw"})
 MAX_WRITE_PREVIEW_CHARS = 3500
 MAX_COPY_ENTRIES = 256
 MAX_COPY_BYTES = 64 * 1024 * 1024
@@ -433,6 +438,110 @@ class WindowsFileSystemAdapter:
                 "file_limit_reached": file_limit_reached,
                 "byte_limit_reached": byte_limit_reached,
                 "complete": complete,
+            }
+        )
+        return evidence
+
+    def check_python_syntax(
+        self,
+        raw_path: str,
+        *,
+        max_bytes: int = MAX_PYTHON_SYNTAX_FILE_BYTES,
+    ) -> dict[str, object]:
+        if max_bytes < 1 or max_bytes > MAX_PYTHON_SYNTAX_FILE_BYTES:
+            raise ValueError("invalid max_bytes")
+
+        path = self.resolve(raw_path)
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "max_bytes": max_bytes,
+            "source_content_returned": False,
+            "code_executed": False,
+            "imports_executed": False,
+            "bytecode_written": False,
+        }
+        if not path.exists():
+            return evidence
+
+        evidence["is_file"] = path.is_file()
+        if not path.is_file():
+            return evidence
+
+        if self._is_link_like(path):
+            evidence["error"] = "LINK_TARGET_NOT_ALLOWED"
+            return evidence
+
+        suffix = path.suffix.casefold()
+        evidence["suffix"] = suffix
+        if suffix not in PYTHON_SYNTAX_SUFFIXES:
+            evidence["error"] = "PYTHON_SOURCE_SUFFIX_REQUIRED"
+            return evidence
+
+        size_bytes = path.stat().st_size
+        evidence["size_bytes"] = size_bytes
+        if size_bytes > max_bytes:
+            evidence["error"] = "FILE_TOO_LARGE"
+            return evidence
+
+        raw = path.read_bytes()
+        evidence["bytes_read"] = len(raw)
+
+        try:
+            encoding, _ = tokenize.detect_encoding(io.BytesIO(raw).readline)
+        except SyntaxError:
+            evidence.update(
+                {
+                    "syntax_valid": False,
+                    "encoding": None,
+                    "diagnostic_code": "PYTHON_SOURCE_ENCODING_INVALID",
+                    "diagnostic_message": (
+                        "A declaração de encoding Python é inválida ou conflita com o BOM."
+                    ),
+                    "diagnostic_is_untrusted_data": True,
+                }
+            )
+            return evidence
+
+        evidence["encoding"] = encoding
+        try:
+            source = raw.decode(encoding)
+        except UnicodeDecodeError:
+            evidence["error"] = "PYTHON_SOURCE_DECODE_FAILED"
+            return evidence
+
+        try:
+            compile(
+                source,
+                str(path),
+                "exec",
+                dont_inherit=True,
+                optimize=0,
+            )
+        except SyntaxError as exc:
+            message = str(exc.msg)
+            if len(message) > MAX_PYTHON_SYNTAX_MESSAGE_CHARS:
+                message = message[: MAX_PYTHON_SYNTAX_MESSAGE_CHARS - 1] + "…"
+            evidence.update(
+                {
+                    "syntax_valid": False,
+                    "diagnostic_code": "PYTHON_SYNTAX_ERROR",
+                    "diagnostic_message": message,
+                    "diagnostic_line": exc.lineno,
+                    "diagnostic_offset": exc.offset,
+                    "diagnostic_end_line": exc.end_lineno,
+                    "diagnostic_end_offset": exc.end_offset,
+                    "diagnostic_is_untrusted_data": True,
+                }
+            )
+            return evidence
+
+        evidence.update(
+            {
+                "syntax_valid": True,
+                "diagnostic_code": None,
+                "diagnostic_message": None,
+                "diagnostic_is_untrusted_data": True,
             }
         )
         return evidence

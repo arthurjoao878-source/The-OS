@@ -10,6 +10,7 @@ from theos.core.actions.contracts import (
     ConfirmationPreview,
 )
 from theos.integrations.windows.file_system import (
+    MAX_PYTHON_SYNTAX_FILE_BYTES,
     MAX_TEXT_SEARCH_BYTES_PER_FILE,
     MAX_TEXT_SEARCH_DEPTH,
     MAX_TEXT_SEARCH_FILES,
@@ -315,6 +316,127 @@ class SearchTextAction:
             message = f"{qualifier}: {count} ocorrência(s) para {query}."
         else:
             message = f"{qualifier}: nenhuma ocorrência para {query}."
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=message,
+            evidence=evidence,
+        )
+
+
+class CheckPythonSyntaxAction:
+    name = "check_python_syntax"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if not raw_path:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: caminho vazio.",
+            )
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "VERIFICAR SINTAXE PYTHON\n"
+                f"Caminho: {raw_path}\n"
+                "O arquivo só será lido após esta confirmação. Apenas .py/.pyw são "
+                "aceitos e o limite local é de "
+                f"{MAX_PYTHON_SYNTAX_FILE_BYTES} byte(s).\n"
+                "THE OS usa compile() somente para compilação/validação: não executa "
+                "o código, não importa módulos, não grava bytecode e não devolve o "
+                "conteúdo-fonte ao modelo. Em erro, retorna apenas diagnóstico estrutural "
+                "limitado, sem a linha de código."
+            ),
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if not raw_path:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O caminho do arquivo Python é obrigatório.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.check_python_syntax(raw_path)
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui verificar a sintaxe desse arquivo Python.",
+                evidence={"exception": type(exc).__name__},
+                error_code="PYTHON_SYNTAX_CHECK_FAILED",
+            )
+
+        if not bool(evidence.get("exists")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"Não encontrei o arquivo {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FOUND",
+            )
+        if not bool(evidence.get("is_file")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"O caminho não é um arquivo: {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FILE",
+            )
+
+        error = evidence.get("error")
+        if error == "LINK_TARGET_NOT_ALLOWED":
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Links e junctions não são aceitos para verificação Python.",
+                evidence=evidence,
+                error_code="LINK_TARGET_NOT_ALLOWED",
+            )
+        if error == "PYTHON_SOURCE_SUFFIX_REQUIRED":
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A verificação aceita somente arquivos .py ou .pyw.",
+                evidence=evidence,
+                error_code="PYTHON_SOURCE_SUFFIX_REQUIRED",
+            )
+        if error == "FILE_TOO_LARGE":
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O arquivo Python excede o limite local de verificação.",
+                evidence=evidence,
+                error_code="FILE_TOO_LARGE",
+            )
+        if error == "PYTHON_SOURCE_DECODE_FAILED":
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui decodificar o arquivo Python com seu encoding declarado.",
+                evidence=evidence,
+                error_code="PYTHON_SOURCE_DECODE_FAILED",
+            )
+
+        resolved = Path(str(evidence["path"]))
+        if bool(evidence.get("syntax_valid")):
+            message = f"Sintaxe Python válida em {resolved.name or resolved}."
+        else:
+            line = evidence.get("diagnostic_line")
+            location = f" na linha {line}" if isinstance(line, int) else ""
+            message = (
+                f"Verificação concluída: sintaxe Python inválida em "
+                f"{resolved.name or resolved}{location}."
+            )
 
         return ActionResult(
             request_id=request.request_id,
