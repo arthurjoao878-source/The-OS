@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import tempfile
+from collections.abc import Callable
 from ctypes import wintypes
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,13 @@ from pathlib import Path
 MAX_DIRECTORY_ENTRIES = 30
 MAX_FIND_RESULTS = 20
 MAX_FIND_DEPTH = 4
+MAX_TEXT_SEARCH_QUERY_CHARS = 120
+MAX_TEXT_SEARCH_RESULTS = 20
+MAX_TEXT_SEARCH_DEPTH = 4
+MAX_TEXT_SEARCH_FILES = 64
+MAX_TEXT_SEARCH_BYTES_PER_FILE = 64 * 1024
+MAX_TEXT_SEARCH_TOTAL_BYTES = 512 * 1024
+MAX_TEXT_SEARCH_SNIPPET_CHARS = 240
 MAX_READ_BYTES = 16 * 1024
 MAX_WRITE_BYTES = 16 * 1024
 MAX_WRITE_PREVIEW_CHARS = 3500
@@ -173,6 +181,250 @@ class WindowsFileSystemAdapter:
         evidence["matches"] = matches
         evidence["scanned_directories"] = scanned_directories
         evidence["access_errors"] = access_errors
+        return evidence
+
+    def search_text(
+        self,
+        raw_root: str,
+        query: str,
+        *,
+        should_skip: Callable[[Path], bool] | None = None,
+        max_results: int = MAX_TEXT_SEARCH_RESULTS,
+        max_depth: int = MAX_TEXT_SEARCH_DEPTH,
+        max_files: int = MAX_TEXT_SEARCH_FILES,
+        max_bytes_per_file: int = MAX_TEXT_SEARCH_BYTES_PER_FILE,
+        max_total_bytes: int = MAX_TEXT_SEARCH_TOTAL_BYTES,
+    ) -> dict[str, object]:
+        if max_results < 1 or max_results > MAX_TEXT_SEARCH_RESULTS:
+            raise ValueError("invalid max_results")
+        if max_depth < 0 or max_depth > MAX_TEXT_SEARCH_DEPTH:
+            raise ValueError("invalid max_depth")
+        if max_files < 1 or max_files > MAX_TEXT_SEARCH_FILES:
+            raise ValueError("invalid max_files")
+        if (
+            max_bytes_per_file < 1
+            or max_bytes_per_file > MAX_TEXT_SEARCH_BYTES_PER_FILE
+        ):
+            raise ValueError("invalid max_bytes_per_file")
+        if max_total_bytes < 1 or max_total_bytes > MAX_TEXT_SEARCH_TOTAL_BYTES:
+            raise ValueError("invalid max_total_bytes")
+
+        normalized_query = query.strip()
+        if (
+            not normalized_query
+            or len(normalized_query) > MAX_TEXT_SEARCH_QUERY_CHARS
+            or any(character in normalized_query for character in ("\0", "\r", "\n"))
+        ):
+            raise ValueError("invalid text search query")
+
+        root = self.resolve(raw_root)
+        evidence: dict[str, object] = {
+            "root": str(root),
+            "query": normalized_query,
+            "match_mode": "casefold_literal_line_substring",
+            "exists": root.exists(),
+            "is_directory": root.is_dir(),
+            "max_results": max_results,
+            "max_depth": max_depth,
+            "max_files": max_files,
+            "max_bytes_per_file": max_bytes_per_file,
+            "max_total_bytes": max_total_bytes,
+            "max_snippet_chars": MAX_TEXT_SEARCH_SNIPPET_CHARS,
+            "matches": [],
+            "files_scanned": 0,
+            "bytes_scanned": 0,
+            "access_errors": 0,
+            "skipped_binary_files": 0,
+            "skipped_sensitive_files": 0,
+            "skipped_link_entries": 0,
+            "partial_files": 0,
+            "depth_limited": False,
+            "result_limit_reached": False,
+            "file_limit_reached": False,
+            "byte_limit_reached": False,
+            "content_is_untrusted_data": True,
+            "complete": False,
+        }
+        if not root.exists() or not root.is_dir():
+            return evidence
+
+        matches: list[dict[str, object]] = []
+        files_scanned = 0
+        bytes_scanned = 0
+        access_errors = 0
+        skipped_binary_files = 0
+        skipped_sensitive_files = 0
+        skipped_link_entries = 0
+        partial_files = 0
+        depth_limited = False
+        result_limit_reached = False
+        file_limit_reached = False
+        byte_limit_reached = False
+        root_depth = len(root.parts)
+        query_casefold = normalized_query.casefold()
+
+        def onerror(_error: OSError) -> None:
+            nonlocal access_errors
+            access_errors += 1
+
+        stop = False
+        for current, directories, filenames in os.walk(
+            root,
+            topdown=True,
+            onerror=onerror,
+            followlinks=False,
+        ):
+            current_path = Path(current)
+            depth = len(current_path.parts) - root_depth
+
+            directories.sort(key=str.casefold)
+            filenames.sort(key=str.casefold)
+
+            if depth >= max_depth:
+                if directories:
+                    depth_limited = True
+                directories[:] = []
+            else:
+                retained_directories: list[str] = []
+                for name in directories:
+                    child = current_path / name
+                    try:
+                        link_like = self._is_link_like(child)
+                    except OSError:
+                        access_errors += 1
+                        continue
+                    if link_like:
+                        skipped_link_entries += 1
+                        continue
+                    retained_directories.append(name)
+                directories[:] = retained_directories
+
+            for name in filenames:
+                if len(matches) >= max_results:
+                    result_limit_reached = True
+                    stop = True
+                    break
+                if files_scanned >= max_files:
+                    file_limit_reached = True
+                    stop = True
+                    break
+                if bytes_scanned >= max_total_bytes:
+                    byte_limit_reached = True
+                    stop = True
+                    break
+
+                path = current_path / name
+                try:
+                    if self._is_link_like(path):
+                        skipped_link_entries += 1
+                        continue
+                except OSError:
+                    access_errors += 1
+                    continue
+
+                if should_skip is not None and should_skip(path):
+                    skipped_sensitive_files += 1
+                    continue
+
+                remaining_total = max_total_bytes - bytes_scanned
+                if remaining_total <= 0:
+                    byte_limit_reached = True
+                    stop = True
+                    break
+                read_limit = min(max_bytes_per_file, remaining_total)
+
+                try:
+                    size_bytes = path.stat().st_size
+                    with path.open("rb") as handle:
+                        raw = handle.read(read_limit + 1)
+                except OSError:
+                    access_errors += 1
+                    continue
+
+                files_scanned += 1
+                chunk = raw[:read_limit]
+                bytes_scanned += len(chunk)
+                file_partial = len(raw) > read_limit or size_bytes > len(chunk)
+                if file_partial:
+                    partial_files += 1
+
+                encoding = self._detect_text_encoding(chunk)
+                if encoding is None:
+                    skipped_binary_files += 1
+                    continue
+                try:
+                    content = (
+                        chunk.decode(encoding)
+                        .replace("\r\n", "\n")
+                        .replace("\r", "\n")
+                    )
+                except UnicodeDecodeError:
+                    skipped_binary_files += 1
+                    continue
+
+                for line_number, line in enumerate(content.split("\n"), start=1):
+                    if query_casefold not in line.casefold():
+                        continue
+                    snippet = line.strip().replace("\t", " ")
+                    snippet_truncated = len(snippet) > MAX_TEXT_SEARCH_SNIPPET_CHARS
+                    if snippet_truncated:
+                        snippet = (
+                            snippet[: MAX_TEXT_SEARCH_SNIPPET_CHARS - 1] + "…"
+                        )
+                    matches.append(
+                        {
+                            "path": str(path),
+                            "relative_path": path.relative_to(root).as_posix(),
+                            "line_number": line_number,
+                            "snippet": snippet,
+                            "snippet_truncated": snippet_truncated,
+                            "file_prefix_only": file_partial,
+                        }
+                    )
+                    if len(matches) >= max_results:
+                        result_limit_reached = True
+                        stop = True
+                        break
+
+                if stop:
+                    break
+                if bytes_scanned >= max_total_bytes:
+                    byte_limit_reached = True
+                    stop = True
+                    break
+
+            if stop:
+                break
+
+        complete = not any(
+            (
+                access_errors,
+                skipped_sensitive_files,
+                skipped_link_entries,
+                partial_files,
+                depth_limited,
+                result_limit_reached,
+                file_limit_reached,
+                byte_limit_reached,
+            )
+        )
+        evidence.update(
+            {
+                "matches": matches,
+                "files_scanned": files_scanned,
+                "bytes_scanned": bytes_scanned,
+                "access_errors": access_errors,
+                "skipped_binary_files": skipped_binary_files,
+                "skipped_sensitive_files": skipped_sensitive_files,
+                "skipped_link_entries": skipped_link_entries,
+                "partial_files": partial_files,
+                "depth_limited": depth_limited,
+                "result_limit_reached": result_limit_reached,
+                "file_limit_reached": file_limit_reached,
+                "byte_limit_reached": byte_limit_reached,
+                "complete": complete,
+            }
+        )
         return evidence
 
     def open_path(self, raw_path: str) -> dict[str, object]:

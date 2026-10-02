@@ -452,6 +452,10 @@ class ToolLoopExecutor:
             query = str(request.arguments.get("query", "item"))
             root = str(request.arguments.get("root", "pasta"))
             return f"Procurando {query} em {root}..."
+        if request.action == "search_text":
+            query = str(request.arguments.get("query", "texto"))
+            root = str(request.arguments.get("root", "pasta"))
+            return f"Procurando texto {query} em {root}..."
         if request.action == "open_path":
             target = str(request.arguments.get("path", "caminho"))
             return f"Abrindo {target}..."

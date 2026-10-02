@@ -67,6 +67,7 @@ from theos.core.window_targets import (
 
 ArgumentValidator = Callable[[Mapping[str, object]], dict[str, object]]
 MAX_WRITE_CONTENT_BYTES = 16 * 1024
+MAX_TEXT_SEARCH_QUERY_CHARS = 120
 
 _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
     " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
@@ -194,6 +195,41 @@ def build_default_tool_catalog() -> ToolCatalog:
             },
         ),
         _validate_find_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="search_text",
+            description=(
+                "Pesquisa um texto literal dentro de arquivos sob uma pasta raiz local "
+                "explícita. Exige confirmação antes de ler qualquer conteúdo. A busca "
+                "é case-insensitive, limitada em profundidade, arquivos, bytes e "
+                "resultados; não usa regex ou fuzzy matching, não segue links/junctions "
+                "e pula caminhos conhecidos de credenciais/chaves. Retorna somente "
+                "caminho, número da linha e trecho limitado marcado como dado não "
+                "confiável. Se algum limite impedir varrer tudo, a evidência informa "
+                "que a busca foi parcial."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "root": {
+                        "type": "string",
+                        "description": "Pasta raiz local onde a busca textual deve começar.",
+                    },
+                    "query": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_TEXT_SEARCH_QUERY_CHARS,
+                        "description": (
+                            "Texto literal de uma única linha a procurar nos arquivos."
+                        ),
+                    },
+                },
+                "required": ["root", "query"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_search_text,
     )
     catalog.register(
         ToolDefinition(
@@ -2158,6 +2194,33 @@ def _validate_find_path(arguments: Mapping[str, object]) -> dict[str, object]:
     return {
         "root": root.strip(),
         "query": query.strip(),
+    }
+
+
+def _validate_search_text(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"root", "query"}:
+        raise ToolValidationError("search_text requires only 'root' and 'query'")
+
+    root = arguments.get("root")
+    query = arguments.get("query")
+    if not isinstance(root, str) or not root.strip():
+        raise ToolValidationError("root must be a non-blank string")
+    if not isinstance(query, str) or not query.strip():
+        raise ToolValidationError("query must be a non-blank string")
+
+    normalized_query = query.strip()
+    if len(normalized_query) > MAX_TEXT_SEARCH_QUERY_CHARS:
+        raise ToolValidationError(
+            f"query exceeds the {MAX_TEXT_SEARCH_QUERY_CHARS}-character local limit"
+        )
+    if any(character in normalized_query for character in ("\0", "\r", "\n")):
+        raise ToolValidationError("query must be a single-line literal string")
+
+    return {
+        "root": root.strip(),
+        "query": normalized_query,
     }
 
 

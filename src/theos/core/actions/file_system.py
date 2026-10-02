@@ -8,7 +8,15 @@ from theos.core.actions.contracts import (
     ActionRisk,
     ConfirmationPreview,
 )
-from theos.integrations.windows.file_system import WindowsFileSystemAdapter
+from theos.integrations.windows.file_system import (
+    MAX_TEXT_SEARCH_BYTES_PER_FILE,
+    MAX_TEXT_SEARCH_DEPTH,
+    MAX_TEXT_SEARCH_FILES,
+    MAX_TEXT_SEARCH_RESULTS,
+    MAX_TEXT_SEARCH_SNIPPET_CHARS,
+    MAX_TEXT_SEARCH_TOTAL_BYTES,
+    WindowsFileSystemAdapter,
+)
 
 _CONFIRM_OPEN_SUFFIXES = frozenset(
     {
@@ -79,6 +87,17 @@ _EXPECTED_SOURCE = "_theos_expected_source"
 _EXPECTED_DESTINATION = "_theos_expected_destination"
 _EXPECTED_SOURCE_SIGNATURE = "_theos_expected_source_signature"
 _EXPECTED_COPY_MANIFEST_SHA256 = "_theos_expected_copy_manifest_sha256"
+
+
+def _is_privileged_read_path(raw_path: str) -> bool:
+    path = Path(raw_path)
+    name = path.name.casefold()
+    suffix = path.suffix.casefold()
+    return (
+        name in _PRIVILEGED_READ_NAMES
+        or name.startswith(".env.")
+        or suffix in _PRIVILEGED_READ_SUFFIXES
+    )
 
 
 def _is_sensitive_path(raw_path: str) -> bool:
@@ -206,6 +225,100 @@ class FindPathAction:
         )
 
 
+class SearchTextAction:
+    name = "search_text"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_root = str(request.arguments.get("root", "")).strip()
+        query = str(request.arguments.get("query", "")).strip()
+        if not raw_root or not query:
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: raiz ou texto de busca vazio.",
+            )
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "PESQUISAR TEXTO EM ARQUIVOS\n"
+                f"Raiz: {raw_root}\n"
+                f"Texto literal: {query}\n"
+                "A busca só começará após esta confirmação. Ela é literal e "
+                "case-insensitive, não usa regex/fuzzy, não segue links/junctions "
+                "e pula caminhos conhecidos como credenciais/chaves.\n"
+                f"Limites: profundidade {MAX_TEXT_SEARCH_DEPTH}; "
+                f"{MAX_TEXT_SEARCH_FILES} arquivos; "
+                f"{MAX_TEXT_SEARCH_BYTES_PER_FILE} byte(s) por arquivo; "
+                f"{MAX_TEXT_SEARCH_TOTAL_BYTES} byte(s) no total; "
+                f"{MAX_TEXT_SEARCH_RESULTS} resultados; "
+                f"trechos de até {MAX_TEXT_SEARCH_SNIPPET_CHARS} caracteres."
+            ),
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_root = str(request.arguments.get("root", "")).strip()
+        query = str(request.arguments.get("query", "")).strip()
+        if not raw_root or not query:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A pasta raiz e o texto de busca são obrigatórios.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.search_text(
+                raw_root,
+                query,
+                should_skip=lambda path: _is_privileged_read_path(str(path)),
+            )
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui pesquisar texto nessa pasta.",
+                evidence={"exception": type(exc).__name__},
+                error_code="TEXT_SEARCH_FAILED",
+            )
+
+        if not bool(evidence.get("exists")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"Não encontrei a pasta raiz {raw_root}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FOUND",
+            )
+        if not bool(evidence.get("is_directory")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"O caminho raiz não é uma pasta: {raw_root}.",
+                evidence=evidence,
+                error_code="PATH_NOT_DIRECTORY",
+            )
+
+        matches = evidence.get("matches", [])
+        count = len(matches) if isinstance(matches, list) else 0
+        complete = bool(evidence.get("complete"))
+        qualifier = "Busca concluída" if complete else "Busca parcial concluída"
+        if count:
+            message = f"{qualifier}: {count} ocorrência(s) para {query}."
+        else:
+            message = f"{qualifier}: nenhuma ocorrência para {query}."
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=message,
+            evidence=evidence,
+        )
+
+
 class OpenPathAction:
     name = "open_path"
     risk = ActionRisk.NORMAL
@@ -270,14 +383,7 @@ class ReadTextFileAction:
     @staticmethod
     def risk_for(request: ActionRequest) -> ActionRisk:
         raw_path = str(request.arguments.get("path", "")).strip()
-        path = Path(raw_path)
-        name = path.name.casefold()
-        suffix = path.suffix.casefold()
-        if (
-            name in _PRIVILEGED_READ_NAMES
-            or name.startswith(".env.")
-            or suffix in _PRIVILEGED_READ_SUFFIXES
-        ):
+        if _is_privileged_read_path(raw_path):
             return ActionRisk.PRIVILEGED
         return ActionRisk.CONFIRM
 
