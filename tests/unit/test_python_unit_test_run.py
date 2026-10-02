@@ -875,3 +875,191 @@ def test_catalog_documents_project_python_state_guard_without_schema_change() ->
     assert "manifesto SHA-256" in definition.description
     assert "src/theos" in definition.description
     assert "tests/unit" in definition.description
+
+def test_run_scrubs_ambient_pytest_option_and_plugin_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_env_isolation.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("PYTEST_ADDOPTS", r"C:\Injected\test_extra.py")
+    monkeypatch.setenv("PYTEST_PLUGINS", "injected.plugin")
+    monkeypatch.setenv("PYTEST_DEBUG", "1")
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        captured["command"] = list(command)
+        captured["env"] = kwargs["env"]
+        _write_junit(list(command), tests=1, failures=0)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    env = captured["env"]
+    assert evidence["passed"] is True
+    assert "PYTEST_ADDOPTS" not in env
+    assert "PYTEST_PLUGINS" not in env
+    assert "PYTEST_DEBUG" not in env
+    assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
+    assert evidence["ambient_pytest_environment_scrubbed"] is True
+
+
+def test_run_uses_private_empty_pytest_config_and_fixed_rootdir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_config_isolation.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    (root / "pytest.ini").write_text(
+        "[pytest]\naddopts = C:\\Injected\\test_extra.py\n",
+        encoding="utf-8",
+    )
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        captured["command"] = list(command)
+        config_index = command.index("-c") + 1
+        config_path = Path(command[config_index])
+        captured["config_path"] = config_path
+        captured["config_text"] = config_path.read_text(encoding="utf-8")
+        _write_junit(list(command), tests=1, failures=0)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    command = captured["command"]
+    config_path = captured["config_path"]
+    assert evidence["passed"] is True
+    assert captured["config_text"] == "[pytest]\n"
+    assert config_path != (root / "pytest.ini")
+    assert command[command.index("--rootdir") + 1] == str(root.resolve())
+    assert evidence["implicit_pytest_config_enabled"] is False
+
+
+def test_run_command_keeps_one_explicit_target_under_ambient_injection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_single_target.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    injected = unit / "test_injected.py"
+    injected.write_text("def test_bad():\n    assert False\n", encoding="utf-8")
+    fake_pytest = tmp_path / "pytest.exe"
+    fake_pytest.write_bytes(b"")
+    adapter = WindowsPythonUnitTestAdapter(root)
+    preview = adapter.preview_test_target(str(target))
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("PYTEST_ADDOPTS", str(injected))
+    monkeypatch.setattr(
+        WindowsPythonUnitTestAdapter,
+        "_pytest_executable",
+        staticmethod(lambda: fake_pytest),
+    )
+
+    def fake_run(command, **kwargs):
+        captured["command"] = list(command)
+        captured["env"] = kwargs["env"]
+        _write_junit(list(command), tests=1, failures=0)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(
+        "theos.integrations.windows.python_tests.subprocess.run",
+        fake_run,
+    )
+
+    evidence = adapter.run_test_file(
+        str(target),
+        expected_path=str(preview["path"]),
+        expected_sha256=str(preview["sha256"]),
+        expected_project_python_manifest_sha256=str(
+            preview["project_python_manifest_sha256"]
+        ),
+    )
+
+    command = captured["command"]
+    assert evidence["passed"] is True
+    assert command[-1] == str(target.resolve())
+    assert str(injected.resolve()) not in command
+    assert "PYTEST_ADDOPTS" not in captured["env"]
+
+
+def test_action_preview_discloses_pytest_invocation_isolation(
+    tmp_path: Path,
+) -> None:
+    root, unit = _project(tmp_path)
+    target = unit / "test_preview_isolation.py"
+    target.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    action = RunPythonUnitTestFileAction(WindowsPythonUnitTestAdapter(root))
+
+    preview = action.confirmation_preview(
+        ActionRequest(
+            action="run_python_unit_test_file",
+            arguments={"path": str(target)},
+        )
+    )
+
+    assert preview.allowed is True
+    assert "configuração pytest implícita desabilitada" in preview.text
+    assert "PYTEST_ADDOPTS/PYTEST_PLUGINS herdados removidos" in preview.text
+
+
+def test_catalog_documents_pytest_invocation_isolation_without_schema_change() -> None:
+    catalog = build_default_tool_catalog()
+    definitions = {item.name: item for item in catalog.definitions()}
+    definition = definitions["run_python_unit_test_file"]
+
+    assert len(definitions) == 42
+    assert set(definition.parameters["properties"]) == {"path"}
+    assert set(definition.parameters["required"]) == {"path"}
+    assert definition.parameters["additionalProperties"] is False
+    assert "config pytest temporário vazio" in definition.description
+    assert "PYTEST_ADDOPTS" in definition.description
+    assert "PYTEST_PLUGINS" in definition.description

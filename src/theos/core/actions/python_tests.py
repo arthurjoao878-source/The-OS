@@ -122,6 +122,8 @@ class RunPythonUnitTestFileAction:
                 "A seleção é estreita: somente este tests/unit/test_*.py explícito. "
                 "THE OS usa somente pytest.exe do mesmo venv, argv fixo, sem shell, "
                 "sem plugin autoload, sem conftest, sem cacheprovider e sem bytecode. "
+                "A configuração pytest implícita desabilitada é substituída por config "
+                "temporário vazio e rootdir fixo; PYTEST_ADDOPTS/PYTEST_PLUGINS herdados removidos. "
                 "stdout/stderr brutos não são enviados ao modelo. Em falha/erro, "
                 "o JUnit temporário pode fornecer até 3 diagnósticos estruturados e "
                 "limitados; o corpo de traceback do XML não é devolvido."

@@ -345,7 +345,9 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "temporário fornece contagens e, em falha/erro, até 3 diagnósticos "
                 "estruturados com nomes/mensagem limitados; o corpo de traceback XML "
                 "não é devolvido. O manifesto Python é revalidado antes e depois do pytest; "
-                "mudança bloqueia a execução ou invalida o resultado."
+                "mudança bloqueia a execução ou invalida o resultado. A invocação usa um "
+                "config pytest temporário vazio via -c, rootdir fixo, remove PYTEST_ADDOPTS/"
+                "PYTEST_PLUGINS herdados e desabilita plugin autoload por flag e ambiente."
             ),
             parameters={
                 "type": "object",

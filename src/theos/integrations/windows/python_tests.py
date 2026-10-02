@@ -310,6 +310,10 @@ class WindowsPythonUnitTestAdapter:
                 "pytest_arguments_fixed": True,
                 "shell_used": False,
                 "plugin_autoload_enabled": False,
+                "implicit_pytest_config_enabled": False,
+                "ambient_pytest_environment_scrubbed": True,
+                "controlled_pytest_config_enabled": True,
+                "controlled_pytest_rootdir_enabled": True,
                 "conftest_loading_enabled": False,
                 "pytest_cache_enabled": False,
                 "bytecode_write_enabled": False,
@@ -346,14 +350,24 @@ class WindowsPythonUnitTestAdapter:
             return evidence
 
         environment = os.environ.copy()
+        for key in tuple(environment):
+            if key.startswith("PYTEST_"):
+                environment.pop(key, None)
         environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         environment["NO_COLOR"] = "1"
 
         with tempfile.TemporaryDirectory(prefix="theos-pytest-") as temp_dir:
             report = Path(temp_dir) / "junit.xml"
+            config = Path(temp_dir) / "pytest.ini"
+            config.write_text("[pytest]\n", encoding="utf-8", newline="\n")
             command = [
                 str(pytest_executable),
+                "--disable-plugin-autoload",
+                "-c",
+                str(config),
+                "--rootdir",
+                str(self._project_root),
                 "-q",
                 "--disable-warnings",
                 "--maxfail=1",
