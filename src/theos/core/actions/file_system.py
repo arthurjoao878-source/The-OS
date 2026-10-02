@@ -445,6 +445,110 @@ class ReadTextFileAction:
         )
 
 
+class ReadTextLinesAction:
+    name = "read_text_lines"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsFileSystemAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        if _is_privileged_read_path(raw_path):
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.CONFIRM
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = str(request.arguments.get("path", "")).strip()
+        start_line = request.arguments.get("start_line")
+        max_lines = request.arguments.get("max_lines")
+        if (
+            not raw_path
+            or not isinstance(start_line, int)
+            or isinstance(start_line, bool)
+            or not isinstance(max_lines, int)
+            or isinstance(max_lines, bool)
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Caminho, linha inicial e quantidade de linhas são obrigatórios.",
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            evidence = self._windows.read_text_lines(
+                raw_path,
+                start_line,
+                max_lines,
+            )
+        except (OSError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui ler esse intervalo de linhas.",
+                evidence={"exception": type(exc).__name__},
+                error_code="TEXT_LINE_READ_FAILED",
+            )
+
+        if not bool(evidence.get("exists")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"Não encontrei o arquivo {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FOUND",
+            )
+        if not bool(evidence.get("is_file")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"O caminho não é um arquivo: {raw_path}.",
+                evidence=evidence,
+                error_code="PATH_NOT_FILE",
+            )
+        if not bool(evidence.get("text")):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O arquivo não parece ser texto compatível com a leitura controlada.",
+                evidence=evidence,
+                error_code="FILE_NOT_TEXT",
+            )
+        if not bool(evidence.get("start_line_reached")):
+            if bool(evidence.get("scan_truncated")):
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=(
+                        "A linha inicial não foi alcançada dentro do limite local "
+                        "de varredura; não posso afirmar que ela não existe."
+                    ),
+                    evidence=evidence,
+                    error_code="TEXT_LINE_RANGE_BEYOND_SCAN_LIMIT",
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=f"A linha inicial {start_line} não existe nesse arquivo.",
+                evidence=evidence,
+                error_code="TEXT_LINE_START_NOT_FOUND",
+            )
+
+        resolved = Path(str(evidence["path"]))
+        suffix = " (trecho parcial)" if not bool(evidence.get("range_complete")) else ""
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Linhas a partir de {start_line} lidas de "
+                f"{resolved.name or resolved}{suffix}."
+            ),
+            evidence=evidence,
+        )
+
+
 class WriteTextFileAction:
     name = "write_text_file"
     risk = ActionRisk.CONFIRM

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import ctypes
 import difflib
 import hashlib
@@ -22,6 +23,10 @@ MAX_TEXT_SEARCH_BYTES_PER_FILE = 64 * 1024
 MAX_TEXT_SEARCH_TOTAL_BYTES = 512 * 1024
 MAX_TEXT_SEARCH_SNIPPET_CHARS = 240
 MAX_READ_BYTES = 16 * 1024
+MAX_TEXT_LINE_START = 1_000_000
+MAX_TEXT_LINE_RANGE_LINES = 40
+MAX_TEXT_LINE_RANGE_SCAN_BYTES = 256 * 1024
+MAX_TEXT_LINE_RANGE_OUTPUT_BYTES = 16 * 1024
 MAX_WRITE_BYTES = 16 * 1024
 MAX_WRITE_PREVIEW_CHARS = 3500
 MAX_COPY_ENTRIES = 256
@@ -492,6 +497,138 @@ class WindowsFileSystemAdapter:
         evidence["content"] = content
         evidence["content_is_untrusted_data"] = True
         evidence["line_count_in_chunk"] = content.count("\n") + (1 if content else 0)
+        return evidence
+
+    def read_text_lines(
+        self,
+        raw_path: str,
+        start_line: int,
+        max_lines: int,
+        *,
+        max_scan_bytes: int = MAX_TEXT_LINE_RANGE_SCAN_BYTES,
+        max_output_bytes: int = MAX_TEXT_LINE_RANGE_OUTPUT_BYTES,
+    ) -> dict[str, object]:
+        if (
+            start_line < 1
+            or start_line > MAX_TEXT_LINE_START
+            or max_lines < 1
+            or max_lines > MAX_TEXT_LINE_RANGE_LINES
+        ):
+            raise ValueError("invalid text line range")
+        if max_scan_bytes < 1 or max_scan_bytes > MAX_TEXT_LINE_RANGE_SCAN_BYTES:
+            raise ValueError("invalid max_scan_bytes")
+        if max_output_bytes < 1 or max_output_bytes > MAX_TEXT_LINE_RANGE_OUTPUT_BYTES:
+            raise ValueError("invalid max_output_bytes")
+
+        path = self.resolve(raw_path)
+        evidence: dict[str, object] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "start_line": start_line,
+            "max_lines": max_lines,
+            "max_scan_bytes": max_scan_bytes,
+            "max_output_bytes": max_output_bytes,
+            "content_is_untrusted_data": True,
+        }
+        if not path.exists():
+            return evidence
+
+        evidence["is_file"] = path.is_file()
+        if not path.is_file():
+            return evidence
+
+        size_bytes = path.stat().st_size
+        evidence["size_bytes"] = size_bytes
+
+        with path.open("rb") as handle:
+            raw = handle.read(max_scan_bytes + 1)
+
+        scanned = raw[:max_scan_bytes]
+        scan_truncated = len(raw) > max_scan_bytes or size_bytes > len(scanned)
+        evidence["bytes_scanned"] = len(scanned)
+        evidence["scan_truncated"] = scan_truncated
+
+        encoding = self._detect_text_encoding(scanned)
+        if encoding is None:
+            evidence["text"] = False
+            evidence["error"] = "BINARY_OR_UNSUPPORTED_ENCODING"
+            return evidence
+
+        try:
+            decoder = codecs.getincrementaldecoder(encoding)(errors="strict")
+            content = decoder.decode(scanned, final=not scan_truncated)
+        except UnicodeDecodeError:
+            evidence["text"] = False
+            evidence["error"] = "BINARY_OR_UNSUPPORTED_ENCODING"
+            return evidence
+
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+        if not normalized:
+            complete_lines: list[str] = []
+        else:
+            complete_lines = normalized.split("\n")
+            if normalized.endswith("\n") or scan_truncated and complete_lines:
+                complete_lines.pop()
+
+        last_complete_line_scanned = len(complete_lines)
+        evidence["text"] = True
+        evidence["encoding"] = encoding
+        evidence["last_complete_line_scanned"] = last_complete_line_scanned
+        evidence["start_line_reached"] = start_line <= last_complete_line_scanned
+
+        if start_line > last_complete_line_scanned:
+            evidence["lines"] = []
+            evidence["bytes_returned"] = 0
+            evidence["output_truncated"] = False
+            evidence["range_complete"] = not scan_truncated
+            if not scan_truncated:
+                evidence["total_lines"] = last_complete_line_scanned
+            return evidence
+
+        requested = complete_lines[
+            start_line - 1 : start_line - 1 + max_lines
+        ]
+        returned: list[dict[str, object]] = []
+        bytes_returned = 0
+        output_truncated = False
+
+        for offset, line in enumerate(requested):
+            remaining = max_output_bytes - bytes_returned
+            if remaining <= 0:
+                output_truncated = True
+                break
+
+            encoded = line.encode("utf-8")
+            text_truncated = len(encoded) > remaining
+            if text_truncated:
+                piece = encoded[:remaining].decode("utf-8", errors="ignore")
+            else:
+                piece = line
+
+            returned.append(
+                {
+                    "line_number": start_line + offset,
+                    "text": piece,
+                    "text_truncated": text_truncated,
+                }
+            )
+            bytes_returned += len(piece.encode("utf-8"))
+
+            if text_truncated:
+                output_truncated = True
+                break
+
+        source_range_complete = (
+            len(requested) == max_lines or not scan_truncated
+        )
+        evidence["lines"] = returned
+        evidence["bytes_returned"] = bytes_returned
+        evidence["output_truncated"] = output_truncated
+        evidence["range_complete"] = source_range_complete and not output_truncated
+        if returned:
+            evidence["end_line_returned"] = returned[-1]["line_number"]
+        if not scan_truncated:
+            evidence["total_lines"] = last_complete_line_scanned
         return evidence
 
     def preview_text_write(

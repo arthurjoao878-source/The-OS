@@ -462,6 +462,10 @@ class ToolLoopExecutor:
         if request.action == "read_text_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Lendo {target}..."
+        if request.action == "read_text_lines":
+            target = str(request.arguments.get("path", "arquivo"))
+            start_line = request.arguments.get("start_line", "desconhecida")
+            return f"Lendo linhas a partir de {start_line} em {target}..."
         if request.action == "write_text_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Gravando {target}..."
