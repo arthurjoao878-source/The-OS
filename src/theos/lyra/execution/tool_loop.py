@@ -512,6 +512,9 @@ class ToolLoopExecutor:
         if request.action == "git_stage_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Preparando stage Git de {target}..."
+        if request.action == "git_unstage_file":
+            target = str(request.arguments.get("path", "arquivo"))
+            return f"Removendo stage Git de {target}..."
         if request.action == "git_status_snapshot":
             return "Inspecionando status Git local..."
         if request.action == "system_status":

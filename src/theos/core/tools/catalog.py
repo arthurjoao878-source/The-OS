@@ -669,6 +669,41 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="git_unstage_file",
+            description=(
+                "Remove, após confirmação, o stage Git de um único arquivo existente, "
+                "regular, não-link, já rastreado e atualmente staged como modificação "
+                "sem mudança unstaged no alvo. O índice precisa conter somente esse "
+                "arquivo antes da aprovação e continuar assim até a execução. O modelo "
+                "fornece somente um caminho relativo explícito; arquivos novos, deletados, "
+                "renomeados, binários, diretórios, revisões, refs, remotes, comandos e "
+                "flags são bloqueados. A aprovação prende path, SHA-256 atual, HEAD e "
+                "identidade do git.exe. A execução usa somente "
+                "git reset --quiet HEAD -- <path>, sem shell, e exige índice vazio depois, "
+                "com o working tree inalterado. Se a pós-condição falhar, somente "
+                "git add -- <path> no mesmo alvo pode restaurar o stage anterior. "
+                "Não possui autoridade de commit, checkout, fetch, pull, push ou remote."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_GIT_STATUS_PATH_CHARS,
+                        "description": (
+                            "Caminho relativo explícito do único arquivo rastreado staged."
+                        ),
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_git_unstage_file,
+    )
+    catalog.register(
+        ToolDefinition(
             name="git_status_snapshot",
             description=(
                 "Inspeciona de forma confirmada e somente leitura o status Git do "
@@ -2700,6 +2735,30 @@ def _validate_git_stage_file(
 ) -> dict[str, object]:
     if set(arguments) != {"path"}:
         raise ToolValidationError("git_stage_file requires only 'path'")
+
+    raw = arguments.get("path")
+    if not isinstance(raw, str):
+        raise ToolValidationError("path must be a string")
+    path = raw.strip().replace("\\", "/")
+    if (
+        not path
+        or len(path) > MAX_GIT_STATUS_PATH_CHARS
+        or any(character in path for character in ("\0", "\r", "\n"))
+        or path.startswith("/")
+        or ":" in path
+    ):
+        raise ToolValidationError("path must be a bounded repository-relative path")
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ToolValidationError("path must not contain traversal or empty segments")
+    return {"path": "/".join(parts)}
+
+
+def _validate_git_unstage_file(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"path"}:
+        raise ToolValidationError("git_unstage_file requires only 'path'")
 
     raw = arguments.get("path")
     if not isinstance(raw, str):
