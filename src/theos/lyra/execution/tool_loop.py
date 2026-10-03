@@ -515,6 +515,9 @@ class ToolLoopExecutor:
         if request.action == "git_stage_new_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Preparando stage Git de novo arquivo {target}..."
+        if request.action == "git_unstage_new_file":
+            target = str(request.arguments.get("path", "arquivo"))
+            return f"Removendo stage Git de novo arquivo {target}..."
         if request.action == "git_unstage_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Removendo stage Git de {target}..."
