@@ -669,6 +669,41 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="git_stage_new_file",
+            description=(
+                "Prepara, após confirmação, o stage Git de um único arquivo novo/untracked "
+                "existente, regular e não-link no checkout fixo do THE OS. O índice precisa "
+                "estar vazio antes da aprovação e continuar vazio até a execução. O alvo "
+                "deve ter no máximo 256 KiB e não pode parecer binário. O modelo fornece "
+                "somente um caminho relativo explícito; arquivos já rastreados, deletados, "
+                "renomeados, diretórios, revisões, refs, remotes, comandos e flags são "
+                "bloqueados. A aprovação prende path, SHA-256 atual, HEAD e identidade do "
+                "git.exe. A execução usa somente git add -- <path>, sem shell, e exige "
+                "exatamente esse único path staged como adição, com bytes do working tree "
+                "inalterados. Se a pós-condição falhar, somente git reset --quiet HEAD -- "
+                "<path> no mesmo alvo pode restaurar o estado untracked. Não possui "
+                "autoridade de commit, checkout, fetch, pull, push ou remote."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_GIT_STATUS_PATH_CHARS,
+                        "description": (
+                            "Caminho relativo explícito de um único arquivo novo/untracked."
+                        ),
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_git_stage_new_file,
+    )
+    catalog.register(
+        ToolDefinition(
             name="git_unstage_file",
             description=(
                 "Remove, após confirmação, o stage Git de um único arquivo existente, "
@@ -2735,6 +2770,30 @@ def _validate_git_stage_file(
 ) -> dict[str, object]:
     if set(arguments) != {"path"}:
         raise ToolValidationError("git_stage_file requires only 'path'")
+
+    raw = arguments.get("path")
+    if not isinstance(raw, str):
+        raise ToolValidationError("path must be a string")
+    path = raw.strip().replace("\\", "/")
+    if (
+        not path
+        or len(path) > MAX_GIT_STATUS_PATH_CHARS
+        or any(character in path for character in ("\0", "\r", "\n"))
+        or path.startswith("/")
+        or ":" in path
+    ):
+        raise ToolValidationError("path must be a bounded repository-relative path")
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ToolValidationError("path must not contain traversal or empty segments")
+    return {"path": "/".join(parts)}
+
+
+def _validate_git_stage_new_file(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"path"}:
+        raise ToolValidationError("git_stage_new_file requires only 'path'")
 
     raw = arguments.get("path")
     if not isinstance(raw, str):

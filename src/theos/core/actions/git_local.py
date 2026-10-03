@@ -13,6 +13,7 @@ from theos.integrations.windows.git_local import (
     MAX_GIT_DIFF_OUTPUT_BYTES,
     MAX_GIT_EXECUTABLE_BYTES,
     MAX_GIT_STAGE_FILE_BYTES,
+    MAX_GIT_STAGE_NEW_FILE_BYTES,
     MAX_GIT_STATUS_ENTRIES,
     MAX_GIT_UNSTAGE_FILE_BYTES,
     WindowsLocalGitAdapter,
@@ -504,6 +505,234 @@ class GitStageFileAction:
             ),
             evidence=evidence,
         )
+
+
+_EXPECTED_GIT_STAGE_NEW_PATH = "_expected_git_stage_new_path"
+_EXPECTED_GIT_STAGE_NEW_TARGET_SHA256 = "_expected_git_stage_new_target_sha256"
+_EXPECTED_GIT_STAGE_NEW_HEAD_SHA256 = "_expected_git_stage_new_head_sha256"
+
+
+class GitStageNewFileAction:
+    name = "git_stage_new_file"
+
+    def __init__(self, git: WindowsLocalGitAdapter) -> None:
+        self._git = git
+
+    @staticmethod
+    def risk_for(request: ActionRequest) -> ActionRisk:
+        raw_path = request.arguments.get("path")
+        if isinstance(raw_path, str) and _is_privileged_read_path(raw_path):
+            return ActionRisk.PRIVILEGED
+        return ActionRisk.CONFIRM
+
+    @staticmethod
+    def _blocked_preview(evidence: dict[str, object]) -> ConfirmationPreview:
+        messages = {
+            "GIT_DIFF_PATH_INVALID": (
+                "O caminho Git precisa ser relativo, explícito e sem traversal."
+            ),
+            "GIT_DIFF_FILE_NOT_FOUND": (
+                "O arquivo novo solicitado não existe no checkout atual."
+            ),
+            "GIT_DIFF_FILE_REQUIRED": (
+                "O stage de arquivo novo aceita somente arquivo regular existente."
+            ),
+            "GIT_DIFF_LINK_NOT_ALLOWED": (
+                "Links e junctions não são aceitos nesta fronteira."
+            ),
+            "GIT_DIFF_PATH_OUTSIDE_REPOSITORY": (
+                "O caminho resolvido saiu do checkout fixo."
+            ),
+            "GIT_STAGE_NEW_TARGET_UNAVAILABLE": (
+                "Não foi possível ler o arquivo novo com segurança."
+            ),
+            "GIT_STAGE_NEW_FILE_TOO_LARGE": (
+                "O arquivo novo excede o limite local de 256 KiB."
+            ),
+            "GIT_STAGE_NEW_BINARY_NOT_ALLOWED": (
+                "Arquivo binário não é aceito nesta primeira fronteira para arquivos novos."
+            ),
+            "GIT_STAGE_NEW_REQUIRES_EMPTY_INDEX": (
+                "O M87 exige índice Git vazio antes do stage."
+            ),
+            "GIT_STAGE_NEW_TARGET_STATUS_FAILED": (
+                "Não foi possível confirmar que o arquivo está untracked."
+            ),
+            "GIT_STAGE_NEW_TARGET_NOT_UNTRACKED": (
+                "O M87 aceita somente um arquivo novo ainda não rastreado."
+            ),
+            "GIT_STAGE_NEW_TARGET_CHANGED_DURING_PREVIEW": (
+                "O arquivo novo mudou durante a prévia."
+            ),
+            "GIT_STAGE_TIMEOUT": "A validação local de stage excedeu o timeout.",
+            "GIT_STAGE_NEW_PREFLIGHT_FAILED": (
+                "Não foi possível validar o stage do arquivo novo."
+            ),
+        }
+        return ConfirmationPreview(
+            allowed=False,
+            text=messages.get(
+                str(evidence.get("error")),
+                "Não foi possível preparar o stage Git do arquivo novo.",
+            ),
+        )
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        raw_path = request.arguments.get("path")
+        if not isinstance(raw_path, str):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar a prévia: caminho inválido.",
+            )
+        try:
+            evidence = self._git.preview_stage_new_target(raw_path)
+        except (OSError, RuntimeError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar o stage Git do arquivo novo.",
+            )
+        if evidence.get("error") is not None:
+            return self._blocked_preview(evidence)
+
+        path = str(evidence["path"])
+        target_sha256 = str(evidence["target_sha256"])
+        head_sha256 = str(evidence["head_sha"])
+        git_path = str(evidence["git_executable_path"])
+        git_sha256 = str(evidence["git_executable_sha256"])
+        file_size = int(evidence["file_size_bytes"])
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "PREPARAR STAGE GIT DE UM ARQUIVO NOVO\n"
+                f"Repositório fixo: {evidence['repository_root']}\n"
+                f"Arquivo novo aprovado: {path}\n"
+                f"SHA-256 atual do arquivo: {target_sha256}\n"
+                f"Tamanho atual: {file_size} byte(s); limite de "
+                f"{MAX_GIT_STAGE_NEW_FILE_BYTES} byte(s).\n"
+                f"HEAD aprovado: {head_sha256}\n"
+                f"git.exe aprovado: {git_path}\n"
+                f"SHA-256 do git.exe: {git_sha256}\n"
+                "Índice Git atual: vazio; o alvo é um arquivo novo/untracked.\n"
+                "Após esta confirmação, THE OS executará somente git add -- <path> "
+                "para este arquivo novo aprovado, sem shell. A operação modificará "
+                "somente o índice Git; o conteúdo do working tree deve permanecer "
+                "inalterado. Se a pós-validação falhar, THE OS pode executar somente "
+                "git reset --quiet HEAD -- <path> no mesmo alvo para restaurar o "
+                "estado untracked. Nenhum commit, checkout, fetch, pull, push, remote, "
+                "revisão ou flag fornecida pelo modelo é autorizada."
+            ),
+            execution_guard={
+                _EXPECTED_GIT_STAGE_NEW_PATH: path,
+                _EXPECTED_GIT_STAGE_NEW_TARGET_SHA256: target_sha256,
+                _EXPECTED_GIT_STAGE_NEW_HEAD_SHA256: head_sha256,
+                _EXPECTED_GIT_EXECUTABLE_PATH: git_path,
+                _EXPECTED_GIT_EXECUTABLE_SHA256: git_sha256,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        raw_path = request.arguments.get("path")
+        expected_path = request.arguments.get(_EXPECTED_GIT_STAGE_NEW_PATH)
+        expected_target_sha256 = request.arguments.get(
+            _EXPECTED_GIT_STAGE_NEW_TARGET_SHA256
+        )
+        expected_head_sha256 = request.arguments.get(
+            _EXPECTED_GIT_STAGE_NEW_HEAD_SHA256
+        )
+        expected_git_path = request.arguments.get(_EXPECTED_GIT_EXECUTABLE_PATH)
+        expected_git_sha256 = request.arguments.get(
+            _EXPECTED_GIT_EXECUTABLE_SHA256
+        )
+
+        if (
+            not isinstance(raw_path, str)
+            or not isinstance(expected_path, str)
+            or not expected_path
+            or not isinstance(expected_target_sha256, str)
+            or len(expected_target_sha256) != 64
+            or not isinstance(expected_head_sha256, str)
+            or len(expected_head_sha256) not in {40, 64}
+            or not isinstance(expected_git_path, str)
+            or not expected_git_path
+            or not isinstance(expected_git_sha256, str)
+            or len(expected_git_sha256) != 64
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O stage de arquivo novo exige a prévia local aprovada.",
+                error_code="GIT_STAGE_NEW_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._git.stage_new_file(
+                raw_path,
+                expected_path=expected_path,
+                expected_target_sha256=expected_target_sha256,
+                expected_head_sha256=expected_head_sha256,
+                expected_git_executable_path=expected_git_path,
+                expected_git_executable_sha256=expected_git_sha256,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui concluir o stage Git do arquivo novo.",
+                evidence={"exception": type(exc).__name__},
+                error_code="GIT_STAGE_NEW_FAILED",
+            )
+
+        error = evidence.get("error")
+        if isinstance(error, str):
+            messages = {
+                "GIT_STAGE_NEW_PATH_CHANGED_AFTER_PREVIEW": (
+                    "O caminho resolvido mudou após a aprovação; stage bloqueado."
+                ),
+                "GIT_STAGE_NEW_TARGET_CHANGED_AFTER_PREVIEW": (
+                    "O arquivo mudou após a aprovação; stage bloqueado."
+                ),
+                "GIT_STAGE_NEW_HEAD_CHANGED_AFTER_PREVIEW": (
+                    "O HEAD mudou após a aprovação; stage bloqueado."
+                ),
+                "GIT_EXECUTABLE_CHANGED_AFTER_PREVIEW": (
+                    "O git.exe mudou após a aprovação; stage bloqueado."
+                ),
+                "GIT_STAGE_NEW_REQUIRES_EMPTY_INDEX": (
+                    "O índice Git deixou de estar vazio; stage bloqueado."
+                ),
+                "GIT_STAGE_NEW_TARGET_NOT_UNTRACKED": (
+                    "O alvo deixou de ser um arquivo novo/untracked."
+                ),
+                "GIT_STAGE_NEW_TIMEOUT": (
+                    "A operação de stage do arquivo novo excedeu o timeout."
+                ),
+                "GIT_STAGE_NEW_FAILED": (
+                    "A operação de stage Git do arquivo novo falhou."
+                ),
+                "GIT_STAGE_NEW_POSTCONDITION_FAILED": (
+                    "O stage do arquivo novo não atingiu a pós-condição exata e foi revertido quando possível."
+                ),
+            }
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=messages.get(error, "O stage do arquivo novo foi bloqueado."),
+                evidence=evidence,
+                error_code=error,
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Stage Git verificado para arquivo novo {expected_path}: "
+                "o índice contém somente esse arquivo como adição e o working tree "
+                "permaneceu inalterado."
+            ),
+            evidence=evidence,
+        )
+
 
 
 _EXPECTED_GIT_UNSTAGE_PATH = "_expected_git_unstage_path"

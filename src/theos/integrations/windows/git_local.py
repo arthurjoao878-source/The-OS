@@ -25,6 +25,8 @@ GIT_STAGE_TIMEOUT_SECONDS = 5.0
 MAX_GIT_UNSTAGE_FILE_BYTES = 256 * 1024
 GIT_UNSTAGE_TIMEOUT_SECONDS = 5.0
 
+MAX_GIT_STAGE_NEW_FILE_BYTES = 256 * 1024
+
 
 class WindowsLocalGitAdapter:
     """Bounded local Git operations for THE OS's own checkout."""
@@ -639,6 +641,374 @@ class WindowsLocalGitAdapter:
             str(entry["index_status"]),
             str(entry["worktree_status"]),
         ), None
+
+    def _preview_new_file_identity(
+        self,
+        raw_path: str,
+    ) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "requested_path": raw_path.strip(),
+            "max_stage_new_file_bytes": MAX_GIT_STAGE_NEW_FILE_BYTES,
+            "stage_content_returned": False,
+            "new_untracked_file_required": True,
+        }
+
+        path, relative_path, error = self._resolve_diff_target(raw_path)
+        if error is not None:
+            evidence["error"] = error
+            if relative_path is not None:
+                evidence["path"] = relative_path
+            return evidence
+        assert path is not None
+        assert relative_path is not None
+        evidence["path"] = relative_path
+
+        try:
+            size_bytes = path.stat().st_size
+            evidence["file_size_bytes"] = size_bytes
+            if size_bytes > MAX_GIT_STAGE_NEW_FILE_BYTES:
+                evidence["error"] = "GIT_STAGE_NEW_FILE_TOO_LARGE"
+                return evidence
+            payload = path.read_bytes()
+        except OSError:
+            evidence["error"] = "GIT_STAGE_NEW_TARGET_UNAVAILABLE"
+            return evidence
+
+        if b"\0" in payload[:8192]:
+            evidence["error"] = "GIT_STAGE_NEW_BINARY_NOT_ALLOWED"
+            return evidence
+
+        target_sha256 = hashlib.sha256(payload).hexdigest()
+        evidence["target_sha256"] = target_sha256
+
+        verifier = self.preview_git_executable()
+        verifier_error = verifier.get("error")
+        if isinstance(verifier_error, str):
+            evidence.update(verifier)
+            return evidence
+        evidence.update(verifier)
+        git_executable = Path(str(verifier["git_executable_path"]))
+
+        try:
+            root_result = self._run_git(
+                git_executable,
+                ["rev-parse", "--show-toplevel"],
+            )
+            if root_result.returncode != 0:
+                evidence["error"] = "GIT_REPOSITORY_NOT_AVAILABLE"
+                return evidence
+            root_text = self._decode_small_output(
+                root_result.stdout,
+                error_code="GIT_STATUS_OUTPUT_TOO_LARGE",
+            )
+            actual_root = Path(root_text).resolve(strict=False)
+            if os.path.normcase(str(actual_root)) != os.path.normcase(
+                str(self._repository_root)
+            ):
+                evidence["error"] = "GIT_REPOSITORY_ROOT_MISMATCH"
+                return evidence
+
+            head_result = self._run_git(
+                git_executable,
+                ["rev-parse", "--verify", "HEAD"],
+            )
+            if head_result.returncode != 0:
+                evidence["error"] = "GIT_HEAD_NOT_AVAILABLE"
+                return evidence
+            head_sha = self._decode_small_output(
+                head_result.stdout,
+                error_code="GIT_STATUS_OUTPUT_TOO_LARGE",
+            )
+            if re.fullmatch(r"[0-9a-fA-F]{40,64}", head_sha) is None:
+                evidence["error"] = "GIT_HEAD_OUTPUT_INVALID"
+                return evidence
+            evidence["head_sha"] = head_sha.lower()
+        except subprocess.TimeoutExpired:
+            evidence["error"] = "GIT_STAGE_TIMEOUT"
+            return evidence
+        except (OSError, RuntimeError):
+            evidence["error"] = "GIT_STAGE_NEW_PREFLIGHT_FAILED"
+            return evidence
+
+        try:
+            after_payload = path.read_bytes()
+        except OSError:
+            evidence["error"] = "GIT_STAGE_NEW_TARGET_CHANGED_DURING_PREVIEW"
+            return evidence
+        if hashlib.sha256(after_payload).hexdigest() != target_sha256:
+            evidence["error"] = "GIT_STAGE_NEW_TARGET_CHANGED_DURING_PREVIEW"
+            return evidence
+
+        after_verifier = self.preview_git_executable()
+        if (
+            after_verifier.get("error") is not None
+            or after_verifier.get("git_executable_path")
+            != verifier.get("git_executable_path")
+            or after_verifier.get("git_executable_sha256")
+            != verifier.get("git_executable_sha256")
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_DURING_PREVIEW"
+            return evidence
+
+        return evidence
+
+    def _new_target_status(
+        self,
+        git_executable: Path,
+        relative_path: str,
+    ) -> tuple[tuple[str, str] | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                [
+                    "status",
+                    "--porcelain=v1",
+                    "-z",
+                    "--untracked-files=all",
+                    "--",
+                    relative_path,
+                ],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_STAGE_TIMEOUT"
+        except OSError:
+            return None, "GIT_STAGE_NEW_TARGET_STATUS_FAILED"
+
+        if result.returncode != 0:
+            return None, "GIT_STAGE_NEW_TARGET_STATUS_FAILED"
+        parsed = self._parse_status(result.stdout)
+        parsed_error = parsed.get("error")
+        if isinstance(parsed_error, str):
+            return None, parsed_error
+
+        entries = parsed.get("entries")
+        if not isinstance(entries, list) or len(entries) != 1:
+            return None, "GIT_STAGE_NEW_TARGET_STATUS_FAILED"
+        entry = entries[0]
+        if (
+            not isinstance(entry, dict)
+            or entry.get("path") != relative_path
+            or not isinstance(entry.get("index_status"), str)
+            or not isinstance(entry.get("worktree_status"), str)
+        ):
+            return None, "GIT_STAGE_NEW_TARGET_STATUS_FAILED"
+
+        return (
+            str(entry["index_status"]),
+            str(entry["worktree_status"]),
+        ), None
+
+    def preview_stage_new_target(self, raw_path: str) -> dict[str, object]:
+        evidence = self._preview_new_file_identity(raw_path)
+        evidence["empty_index_required"] = True
+        evidence["git_mutation_authority"] = "SINGLE_NEW_FILE_STAGE_ONLY"
+        evidence["git_remote_authority"] = False
+        evidence["commit_authority"] = False
+
+        if evidence.get("error") is not None:
+            return evidence
+
+        git_path = evidence.get("git_executable_path")
+        relative_path = evidence.get("path")
+        if not isinstance(git_path, str) or not isinstance(relative_path, str):
+            evidence["error"] = "GIT_STAGE_NEW_PREFLIGHT_FAILED"
+            return evidence
+        git_executable = Path(git_path)
+
+        staged_paths, staged_error = self._staged_paths(git_executable)
+        if staged_error is not None:
+            evidence["error"] = staged_error
+            return evidence
+        assert staged_paths is not None
+        evidence["staged_paths_observed"] = len(staged_paths)
+        if staged_paths:
+            evidence["error"] = "GIT_STAGE_NEW_REQUIRES_EMPTY_INDEX"
+            return evidence
+
+        target_status, status_error = self._new_target_status(
+            git_executable,
+            relative_path,
+        )
+        if status_error is not None:
+            evidence["error"] = status_error
+            return evidence
+        assert target_status is not None
+        index_status, worktree_status = target_status
+        evidence["target_index_status"] = index_status
+        evidence["target_worktree_status"] = worktree_status
+        if index_status != "?" or worktree_status != "?":
+            evidence["error"] = "GIT_STAGE_NEW_TARGET_NOT_UNTRACKED"
+            return evidence
+
+        evidence["index_empty"] = True
+        return evidence
+
+    def _rollback_stage_new_target(
+        self,
+        git_executable: Path,
+        relative_path: str,
+    ) -> bool:
+        try:
+            result = self._run_git_mutating(
+                git_executable,
+                ["reset", "--quiet", "HEAD", "--", relative_path],
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.returncode != 0:
+            return False
+
+        staged_paths, staged_error = self._staged_paths(git_executable)
+        if staged_error is not None or staged_paths != []:
+            return False
+
+        target_status, status_error = self._new_target_status(
+            git_executable,
+            relative_path,
+        )
+        return (
+            status_error is None
+            and target_status is not None
+            and target_status[0] == "?"
+            and target_status[1] == "?"
+        )
+
+    def stage_new_file(
+        self,
+        raw_path: str,
+        *,
+        expected_path: str,
+        expected_target_sha256: str,
+        expected_head_sha256: str,
+        expected_git_executable_path: str,
+        expected_git_executable_sha256: str,
+    ) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "path": expected_path,
+            "git_command_authority": "FIXED_SINGLE_NEW_FILE_STAGE_ONLY",
+            "git_arguments_model_controlled": False,
+            "repository_path_model_controlled": False,
+            "revision_model_controlled": False,
+            "shell_used": False,
+            "git_environment_inherited_git_keys_scrubbed": True,
+            "git_optional_locks_disabled": False,
+            "raw_stdout_returned": False,
+            "raw_stderr_returned": False,
+            "git_mutation_authority": "INDEX_ONLY_SINGLE_NEW_FILE",
+            "git_remote_authority": False,
+            "commit_authority": False,
+            "rollback_authority": "SAME_PATH_RESET_ONLY_ON_FAILURE",
+        }
+
+        preview = self.preview_stage_new_target(raw_path)
+        preview_error = preview.get("error")
+        if isinstance(preview_error, str):
+            evidence.update(preview)
+            return evidence
+
+        if preview.get("path") != expected_path:
+            evidence["error"] = "GIT_STAGE_NEW_PATH_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if preview.get("target_sha256") != expected_target_sha256:
+            evidence["error"] = "GIT_STAGE_NEW_TARGET_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if preview.get("head_sha") != expected_head_sha256:
+            evidence["error"] = "GIT_STAGE_NEW_HEAD_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if (
+            preview.get("git_executable_path") != expected_git_executable_path
+            or preview.get("git_executable_sha256")
+            != expected_git_executable_sha256
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if preview.get("index_empty") is not True:
+            evidence["error"] = "GIT_STAGE_NEW_REQUIRES_EMPTY_INDEX"
+            return evidence
+
+        git_executable = Path(expected_git_executable_path)
+
+        try:
+            result = self._run_git_mutating(
+                git_executable,
+                ["add", "--", expected_path],
+            )
+        except subprocess.TimeoutExpired:
+            evidence["rollback_verified"] = self._rollback_stage_new_target(
+                git_executable,
+                expected_path,
+            )
+            evidence["error"] = "GIT_STAGE_NEW_TIMEOUT"
+            return evidence
+        except OSError:
+            evidence["rollback_verified"] = self._rollback_stage_new_target(
+                git_executable,
+                expected_path,
+            )
+            evidence["error"] = "GIT_STAGE_NEW_FAILED"
+            return evidence
+
+        if result.returncode != 0:
+            evidence["rollback_verified"] = self._rollback_stage_new_target(
+                git_executable,
+                expected_path,
+            )
+            evidence["error"] = "GIT_STAGE_NEW_FAILED"
+            return evidence
+
+        after = self._preview_new_file_identity(raw_path)
+        after_verifier = self.preview_git_executable()
+        staged_paths, staged_error = self._staged_paths(git_executable)
+        target_status, status_error = self._new_target_status(
+            git_executable,
+            expected_path,
+        )
+
+        postcondition_ok = (
+            after.get("error") is None
+            and after.get("path") == expected_path
+            and after.get("target_sha256") == expected_target_sha256
+            and after.get("head_sha") == expected_head_sha256
+            and after.get("git_executable_path") == expected_git_executable_path
+            and after.get("git_executable_sha256")
+            == expected_git_executable_sha256
+            and after_verifier.get("error") is None
+            and after_verifier.get("git_executable_path")
+            == expected_git_executable_path
+            and after_verifier.get("git_executable_sha256")
+            == expected_git_executable_sha256
+            and staged_error is None
+            and staged_paths == [expected_path]
+            and status_error is None
+            and target_status == ("A", " ")
+        )
+
+        if not postcondition_ok:
+            evidence["post_stage_staged_paths"] = staged_paths
+            evidence["post_stage_target_status"] = target_status
+            evidence["post_stage_state_error"] = after.get("error")
+            evidence["rollback_verified"] = self._rollback_stage_new_target(
+                git_executable,
+                expected_path,
+            )
+            evidence["error"] = "GIT_STAGE_NEW_POSTCONDITION_FAILED"
+            return evidence
+
+        evidence.update(
+            {
+                "staged_path": expected_path,
+                "staged_paths_observed": 1,
+                "target_index_status": "A",
+                "target_worktree_status": " ",
+                "index_only_mutation_verified": True,
+                "target_unchanged": True,
+                "head_unchanged": True,
+                "git_executable_unchanged": True,
+            }
+        )
+        return evidence
 
     def preview_stage_target(self, raw_path: str) -> dict[str, object]:
         evidence = self.preview_diff_target(raw_path)
