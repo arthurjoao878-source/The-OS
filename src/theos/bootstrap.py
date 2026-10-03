@@ -45,6 +45,7 @@ from theos.core.actions.file_system import (
 )
 from theos.core.actions.git_local import (
     GitDiffFileAction,
+    GitStageFileAction,
     GitStatusSnapshotAction,
 )
 from theos.core.actions.open_application import OpenApplicationAction
@@ -90,6 +91,7 @@ def build_action_registry() -> ActionRegistry:
     run_python_unit_test_files = RunPythonUnitTestFilesAction(python_tests)
     git_status_snapshot = GitStatusSnapshotAction(local_git)
     git_diff_file = GitDiffFileAction(local_git)
+    git_stage_file = GitStageFileAction(local_git)
     find_path = FindPathAction(windows_files)
     open_path = OpenPathAction(windows_files)
     read_text_file = ReadTextFileAction(windows_files)
@@ -179,6 +181,12 @@ def build_action_registry() -> ActionRegistry:
         git_diff_file.execute,
         risk=git_diff_file.risk_for,
         confirmation_preview=git_diff_file.confirmation_preview,
+    )
+    registry.register(
+        git_stage_file.name,
+        git_stage_file.execute,
+        risk=git_stage_file.risk_for,
+        confirmation_preview=git_stage_file.confirmation_preview,
     )
     registry.register(
         find_path.name,
