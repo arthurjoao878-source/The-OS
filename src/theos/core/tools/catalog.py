@@ -77,6 +77,7 @@ MIN_PYTHON_STATIC_MANY_PATHS = 2
 MAX_PYTHON_STATIC_MANY_PATHS = 8
 MIN_PYTHON_UNIT_TEST_MANY_PATHS = 2
 MAX_PYTHON_UNIT_TEST_MANY_PATHS = 4
+MAX_GIT_STATUS_PATH_CHARS = 512
 
 _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
     " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
@@ -595,6 +596,39 @@ def build_default_tool_catalog() -> ToolCatalog:
             },
         ),
         _validate_single_path,
+    )
+    catalog.register(
+        ToolDefinition(
+            name="git_diff_file",
+            description=(
+                "Inspeciona, após confirmação, o diff textual contra HEAD de um único "
+                "arquivo existente, regular, não-link, já rastreado e alterado no "
+                "checkout fixo do THE OS. O argumento é somente um caminho relativo "
+                "ao repositório; caminhos absolutos, traversal, diretórios, arquivos "
+                "não rastreados/deletados/binários, revisões, refs, remotes, comandos "
+                "e flags são bloqueados. Antes da aprovação THE OS valida apenas "
+                "metadados e hashes; o conteúdo do diff só é coletado depois. O retorno "
+                "é limitado a 32 KiB e 400 linhas, usa --no-ext-diff/--no-textconv, "
+                "sem shell, e é tratado como dado não confiável. Não possui autoridade "
+                "para stage, commit, checkout, reset, fetch, pull ou push."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_GIT_STATUS_PATH_CHARS,
+                        "description": (
+                            "Caminho relativo explícito de um arquivo rastreado alterado."
+                        ),
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_git_diff_file,
     )
     catalog.register(
         ToolDefinition(
@@ -2597,6 +2631,30 @@ def _validate_python_unit_test_many(
         normalized.append(value)
 
     return {"paths": normalized}
+
+
+def _validate_git_diff_file(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    if set(arguments) != {"path"}:
+        raise ToolValidationError("git_diff_file requires only 'path'")
+
+    raw = arguments.get("path")
+    if not isinstance(raw, str):
+        raise ToolValidationError("path must be a string")
+    path = raw.strip().replace("\\", "/")
+    if (
+        not path
+        or len(path) > MAX_GIT_STATUS_PATH_CHARS
+        or any(character in path for character in ("\0", "\r", "\n"))
+        or path.startswith("/")
+        or ":" in path
+    ):
+        raise ToolValidationError("path must be a bounded repository-relative path")
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ToolValidationError("path must not contain traversal or empty segments")
+    return {"path": "/".join(parts)}
 
 
 def _validate_read_text_lines(
