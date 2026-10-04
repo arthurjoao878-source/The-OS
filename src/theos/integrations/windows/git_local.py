@@ -30,6 +30,7 @@ MAX_GIT_STAGE_NEW_FILE_BYTES = 256 * 1024
 
 GIT_COMMIT_TIMEOUT_SECONDS = 10.0
 FIXED_GIT_COMMIT_MESSAGE = "chore: commit approved staged file"
+FIXED_GIT_COMMIT_NEW_FILE_MESSAGE = "chore: commit approved staged new file"
 
 
 class WindowsLocalGitAdapter:
@@ -1385,6 +1386,289 @@ class WindowsLocalGitAdapter:
             return evidence
         evidence["target_sha256"] = hashlib.sha256(payload).hexdigest()
         evidence["file_size_bytes"] = len(payload)
+        return evidence
+
+    def _target_is_tracked(
+        self,
+        git_executable: Path,
+        relative_path: str,
+    ) -> tuple[bool | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                ["ls-files", "--error-unmatch", "--", relative_path],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_COMMIT_TIMEOUT"
+        except OSError:
+            return None, "GIT_COMMIT_STATE_READ_FAILED"
+        if result.returncode == 0:
+            return True, None
+        if result.returncode == 1:
+            return False, None
+        return None, "GIT_COMMIT_STATE_READ_FAILED"
+
+    def preview_commit_staged_new_file(self) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "commit_message": FIXED_GIT_COMMIT_NEW_FILE_MESSAGE,
+            "model_commit_message_authority": False,
+            "single_staged_new_addition_required": True,
+            "git_mutation_authority": "LOCAL_SINGLE_NEW_FILE_COMMIT_ONLY",
+            "git_remote_authority": False,
+            "hooks_disabled": True,
+            "gpg_signing_disabled": True,
+        }
+
+        verifier = self.preview_git_executable()
+        verifier_error = verifier.get("error")
+        if isinstance(verifier_error, str):
+            evidence.update(verifier)
+            return evidence
+        evidence.update(verifier)
+        git_executable = Path(str(verifier["git_executable_path"]))
+
+        staged_paths, staged_error = self._staged_paths(git_executable)
+        if staged_error is not None:
+            evidence["error"] = staged_error
+            return evidence
+        assert staged_paths is not None
+        evidence["staged_paths_observed"] = len(staged_paths)
+        if len(staged_paths) != 1:
+            evidence["error"] = "GIT_COMMIT_NEW_REQUIRES_SINGLE_STAGED_PATH"
+            return evidence
+
+        relative_path = staged_paths[0]
+        evidence["path"] = relative_path
+
+        target_status, status_error = self._new_target_status(
+            git_executable,
+            relative_path,
+        )
+        if status_error is not None:
+            evidence["error"] = status_error
+            return evidence
+        assert target_status is not None
+        index_status, worktree_status = target_status
+        evidence["target_index_status"] = index_status
+        evidence["target_worktree_status"] = worktree_status
+        if index_status != "A" or worktree_status != " ":
+            evidence["error"] = "GIT_COMMIT_NEW_TARGET_NOT_STAGED_ADDITION"
+            return evidence
+
+        target = self._preview_new_file_identity(relative_path)
+        if target.get("error") is not None:
+            evidence["target_error"] = target.get("error")
+            evidence["error"] = "GIT_COMMIT_NEW_TARGET_PREFLIGHT_FAILED"
+            return evidence
+
+        evidence.update(
+            {
+                "target_sha256": target["target_sha256"],
+                "file_size_bytes": target["file_size_bytes"],
+                "head_sha": target["head_sha"],
+            }
+        )
+        if (
+            target.get("git_executable_path") != verifier.get("git_executable_path")
+            or target.get("git_executable_sha256")
+            != verifier.get("git_executable_sha256")
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_DURING_PREVIEW"
+            return evidence
+
+        staged_after, staged_after_error = self._staged_paths(git_executable)
+        status_after, status_after_error = self._new_target_status(
+            git_executable,
+            relative_path,
+        )
+        if (
+            staged_after_error is not None
+            or staged_after != [relative_path]
+            or status_after_error is not None
+            or status_after != ("A", " ")
+        ):
+            evidence["error"] = "GIT_COMMIT_NEW_STATE_CHANGED_DURING_PREVIEW"
+            return evidence
+
+        return evidence
+
+    def commit_staged_new_file(
+        self,
+        *,
+        expected_path: str,
+        expected_target_sha256: str,
+        expected_head_sha256: str,
+        expected_git_executable_path: str,
+        expected_git_executable_sha256: str,
+        expected_commit_message: str,
+    ) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "path": expected_path,
+            "commit_message": FIXED_GIT_COMMIT_NEW_FILE_MESSAGE,
+            "git_command_authority": "FIXED_SINGLE_NEW_FILE_COMMIT_ONLY",
+            "git_arguments_model_controlled": False,
+            "repository_path_model_controlled": False,
+            "revision_model_controlled": False,
+            "commit_message_model_controlled": False,
+            "shell_used": False,
+            "git_environment_inherited_git_keys_scrubbed": True,
+            "git_optional_locks_disabled": False,
+            "hooks_disabled": True,
+            "gpg_signing_disabled": True,
+            "git_remote_authority": False,
+            "rollback_authority": False,
+        }
+
+        if expected_commit_message != FIXED_GIT_COMMIT_NEW_FILE_MESSAGE:
+            evidence["error"] = "GIT_COMMIT_NEW_MESSAGE_GUARD_MISMATCH"
+            return evidence
+
+        preview = self.preview_commit_staged_new_file()
+        preview_error = preview.get("error")
+        if isinstance(preview_error, str):
+            evidence.update(preview)
+            return evidence
+
+        if preview.get("path") != expected_path:
+            evidence["error"] = "GIT_COMMIT_NEW_PATH_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if preview.get("target_sha256") != expected_target_sha256:
+            evidence["error"] = "GIT_COMMIT_NEW_TARGET_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if preview.get("head_sha") != expected_head_sha256:
+            evidence["error"] = "GIT_COMMIT_NEW_HEAD_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if (
+            preview.get("git_executable_path") != expected_git_executable_path
+            or preview.get("git_executable_sha256")
+            != expected_git_executable_sha256
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        git_executable = Path(expected_git_executable_path)
+
+        try:
+            result = self._run_git_commit(
+                git_executable,
+                [
+                    "commit",
+                    "--no-gpg-sign",
+                    "-m",
+                    FIXED_GIT_COMMIT_NEW_FILE_MESSAGE,
+                ],
+            )
+        except subprocess.TimeoutExpired:
+            head_after_failure, _ = self._read_revision_sha(
+                git_executable,
+                "HEAD",
+            )
+            if head_after_failure != expected_head_sha256:
+                evidence["head_after_failure"] = head_after_failure
+                evidence["error"] = "GIT_COMMIT_NEW_STATE_AMBIGUOUS_AFTER_FAILURE"
+            else:
+                evidence["error"] = "GIT_COMMIT_NEW_TIMEOUT"
+            return evidence
+        except OSError:
+            head_after_failure, _ = self._read_revision_sha(
+                git_executable,
+                "HEAD",
+            )
+            if head_after_failure != expected_head_sha256:
+                evidence["head_after_failure"] = head_after_failure
+                evidence["error"] = "GIT_COMMIT_NEW_STATE_AMBIGUOUS_AFTER_FAILURE"
+            else:
+                evidence["error"] = "GIT_COMMIT_NEW_FAILED"
+            return evidence
+
+        if result.returncode != 0:
+            head_after_failure, _ = self._read_revision_sha(
+                git_executable,
+                "HEAD",
+            )
+            if head_after_failure != expected_head_sha256:
+                evidence["head_after_failure"] = head_after_failure
+                evidence["error"] = "GIT_COMMIT_NEW_STATE_AMBIGUOUS_AFTER_FAILURE"
+            else:
+                evidence["error"] = "GIT_COMMIT_NEW_FAILED"
+            return evidence
+
+        new_head, head_error = self._read_revision_sha(git_executable, "HEAD")
+        parent_head, parent_error = self._read_revision_sha(
+            git_executable,
+            "HEAD^",
+        )
+        commit_paths, paths_error = self._commit_paths(git_executable)
+        subject, subject_error = self._commit_subject(git_executable)
+        staged_paths, staged_error = self._staged_paths(git_executable)
+        target_clean, target_clean_error = self._target_clean_after_commit(
+            git_executable,
+            expected_path,
+        )
+        target_tracked, target_tracked_error = self._target_is_tracked(
+            git_executable,
+            expected_path,
+        )
+        target_after = self._current_target_identity(expected_path)
+        after_verifier = self.preview_git_executable()
+
+        postcondition_ok = (
+            head_error is None
+            and new_head is not None
+            and new_head != expected_head_sha256
+            and parent_error is None
+            and parent_head == expected_head_sha256
+            and paths_error is None
+            and commit_paths == [expected_path]
+            and subject_error is None
+            and subject == FIXED_GIT_COMMIT_NEW_FILE_MESSAGE
+            and staged_error is None
+            and staged_paths == []
+            and target_clean_error is None
+            and target_clean is True
+            and target_tracked_error is None
+            and target_tracked is True
+            and target_after.get("error") is None
+            and target_after.get("path") == expected_path
+            and target_after.get("target_sha256") == expected_target_sha256
+            and after_verifier.get("error") is None
+            and after_verifier.get("git_executable_path")
+            == expected_git_executable_path
+            and after_verifier.get("git_executable_sha256")
+            == expected_git_executable_sha256
+        )
+
+        if not postcondition_ok:
+            evidence.update(
+                {
+                    "new_head": new_head,
+                    "parent_head": parent_head,
+                    "commit_paths": commit_paths,
+                    "observed_subject": subject,
+                    "staged_paths_after": staged_paths,
+                    "target_clean_after": target_clean,
+                    "target_tracked_after": target_tracked,
+                    "target_sha256_after": target_after.get("target_sha256"),
+                }
+            )
+            evidence["error"] = "GIT_COMMIT_NEW_POSTCONDITION_FAILED"
+            return evidence
+
+        evidence.update(
+            {
+                "committed_path": expected_path,
+                "commit_sha": new_head,
+                "parent_sha": parent_head,
+                "committed_paths_observed": 1,
+                "index_empty": True,
+                "target_unchanged": True,
+                "target_clean": True,
+                "target_tracked": True,
+                "git_executable_unchanged": True,
+            }
+        )
         return evidence
 
     def preview_commit_staged_file(self) -> dict[str, object]:
