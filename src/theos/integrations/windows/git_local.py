@@ -38,6 +38,10 @@ FIXED_GIT_REMOTE_BRANCH = "main"
 FIXED_GIT_REMOTE_REF = "refs/heads/main"
 FIXED_GIT_REMOTE_FETCH = "+refs/heads/*:refs/remotes/origin/*"
 
+GIT_REMOTE_HEAD_TIMEOUT_SECONDS = 10.0
+MAX_GIT_REMOTE_HEAD_OUTPUT_BYTES = 4096
+
+
 
 
 class WindowsLocalGitAdapter:
@@ -518,6 +522,187 @@ class WindowsLocalGitAdapter:
                 "url_rewrite_present": False,
                 "git_executable_unchanged": True,
                 "remote_identity_exact_match": True,
+            }
+        )
+        return evidence
+
+    @staticmethod
+    def _controlled_remote_read_environment() -> dict[str, str]:
+        environment = os.environ.copy()
+        blocked_names = {
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+            "CURL_CA_BUNDLE",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "GCM_INTERACTIVE",
+        }
+        for key in tuple(environment):
+            upper = key.upper()
+            if upper.startswith("GIT_") or upper in blocked_names:
+                environment.pop(key, None)
+        environment["GIT_CONFIG_NOSYSTEM"] = "1"
+        environment["GIT_CONFIG_GLOBAL"] = os.devnull
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_PAGER"] = "cat"
+        environment["NO_COLOR"] = "1"
+        return environment
+
+    def _run_git_remote_head(
+        self,
+        git_executable: Path,
+    ) -> subprocess.CompletedProcess[bytes]:
+        with tempfile.TemporaryDirectory(prefix="theos-git-remote-read-") as cwd:
+            return subprocess.run(
+                [
+                    str(git_executable),
+                    "-c",
+                    "credential.helper=",
+                    "-c",
+                    "core.askPass=",
+                    "-c",
+                    "credential.interactive=never",
+                    "-c",
+                    "http.followRedirects=false",
+                    "ls-remote",
+                    "--exit-code",
+                    "--heads",
+                    FIXED_GIT_REMOTE_URL,
+                    FIXED_GIT_REMOTE_REF,
+                ],
+                cwd=cwd,
+                shell=False,
+                check=False,
+                capture_output=True,
+                timeout=GIT_REMOTE_HEAD_TIMEOUT_SECONDS,
+                env=self._controlled_remote_read_environment(),
+            )
+
+    @staticmethod
+    def _parse_remote_head_output(
+        payload: bytes,
+    ) -> tuple[str | None, str | None]:
+        if len(payload) > MAX_GIT_REMOTE_HEAD_OUTPUT_BYTES:
+            return None, "GIT_REMOTE_HEAD_OUTPUT_TOO_LARGE"
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return None, "GIT_REMOTE_HEAD_OUTPUT_ENCODING_FAILED"
+
+        lines = [line for line in text.splitlines() if line]
+        if len(lines) != 1:
+            return None, "GIT_REMOTE_HEAD_OUTPUT_INVALID"
+
+        parts = lines[0].split("\t")
+        if len(parts) != 2:
+            return None, "GIT_REMOTE_HEAD_OUTPUT_INVALID"
+
+        sha, ref = parts
+        if (
+            re.fullmatch(r"[0-9a-fA-F]{40,64}", sha) is None
+            or ref != FIXED_GIT_REMOTE_REF
+        ):
+            return None, "GIT_REMOTE_HEAD_OUTPUT_INVALID"
+        return sha.lower(), None
+
+    def remote_head_snapshot(
+        self,
+        *,
+        expected_local_head_sha256: str,
+        expected_git_executable_path: str,
+        expected_git_executable_sha256: str,
+    ) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "remote_name": FIXED_GIT_REMOTE_NAME,
+            "remote_url": FIXED_GIT_REMOTE_URL,
+            "remote_ref": FIXED_GIT_REMOTE_REF,
+            "network_contact": True,
+            "network_authority": "FIXED_GITHUB_HEAD_READ_ONLY",
+            "ls_remote_only": True,
+            "fetch_authority": False,
+            "pull_authority": False,
+            "push_authority": False,
+            "git_mutation_authority": False,
+            "shell_used": False,
+            "credential_helper_disabled": True,
+            "askpass_disabled": True,
+            "system_git_config_ignored": True,
+            "global_git_config_ignored": True,
+            "checkout_local_config_used_by_network_call": False,
+            "proxy_environment_scrubbed": True,
+            "http_redirects_disabled": True,
+            "raw_stderr_returned": False,
+        }
+
+        local_identity = self.remote_identity_snapshot(
+            expected_git_executable_path=expected_git_executable_path,
+            expected_git_executable_sha256=expected_git_executable_sha256,
+        )
+        if local_identity.get("error") is not None:
+            evidence["local_identity_error"] = local_identity.get("error")
+            evidence["error"] = "GIT_REMOTE_HEAD_LOCAL_IDENTITY_INVALID"
+            return evidence
+
+        local_head = local_identity.get("head_sha")
+        evidence["local_head_sha"] = local_head
+        if local_head != expected_local_head_sha256:
+            evidence["error"] = "GIT_REMOTE_HEAD_LOCAL_HEAD_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        git_executable = Path(expected_git_executable_path)
+
+        try:
+            result = self._run_git_remote_head(git_executable)
+        except subprocess.TimeoutExpired:
+            evidence["error"] = "GIT_REMOTE_HEAD_TIMEOUT"
+            return evidence
+        except OSError:
+            evidence["error"] = "GIT_REMOTE_HEAD_FAILED"
+            return evidence
+
+        evidence["remote_process_returncode"] = result.returncode
+        if result.returncode != 0:
+            evidence["error"] = "GIT_REMOTE_HEAD_FAILED"
+            return evidence
+
+        remote_head, parse_error = self._parse_remote_head_output(result.stdout)
+        if parse_error is not None:
+            evidence["error"] = parse_error
+            return evidence
+        assert remote_head is not None
+
+        after_identity = self.remote_identity_snapshot(
+            expected_git_executable_path=expected_git_executable_path,
+            expected_git_executable_sha256=expected_git_executable_sha256,
+        )
+        if after_identity.get("error") is not None:
+            evidence["error"] = "GIT_REMOTE_HEAD_LOCAL_IDENTITY_CHANGED_DURING_READ"
+            return evidence
+        if after_identity.get("head_sha") != expected_local_head_sha256:
+            evidence["error"] = "GIT_REMOTE_HEAD_LOCAL_HEAD_CHANGED_DURING_READ"
+            return evidence
+
+        after_verifier = self.preview_git_executable()
+        if (
+            after_verifier.get("error") is not None
+            or after_verifier.get("git_executable_path")
+            != expected_git_executable_path
+            or after_verifier.get("git_executable_sha256")
+            != expected_git_executable_sha256
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_DURING_REMOTE_HEAD_READ"
+            return evidence
+
+        evidence.update(
+            {
+                "remote_head_sha": remote_head,
+                "remote_matches_local_head": remote_head
+                == expected_local_head_sha256,
+                "local_identity_revalidated_after_network": True,
+                "git_executable_unchanged": True,
             }
         )
         return evidence

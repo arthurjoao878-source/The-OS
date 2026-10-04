@@ -825,6 +825,30 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="git_remote_head_snapshot",
+            description=(
+                "Lê, após confirmação, somente o SHA atual de refs/heads/main no remoto "
+                "GitHub HTTPS fixo autorizado. Não aceita argumentos: o modelo não "
+                "escolhe remote, URL, ref, branch, flags, repositório ou executável. A "
+                "prévia revalida localmente a identidade M91 e prende HEAD/git.exe. A "
+                "execução revalida isso novamente e então usa somente um `git ls-remote "
+                "--exit-code --heads` contra URL/ref fixas, fora do checkout, com configs "
+                "global/system ignoradas, credential helper/askpass desabilitados, proxy "
+                "de ambiente removido e redirects HTTP desabilitados. A resposta é "
+                "bounded e deve conter exatamente uma linha para refs/heads/main. Não "
+                "há fetch, pull, push, alteração de refs locais, índice, working tree ou "
+                "histórico."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="git_remote_identity_snapshot",
             description=(
                 "Valida, após confirmação, somente a configuração Git local que define "

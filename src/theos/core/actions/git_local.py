@@ -31,6 +31,181 @@ _EXPECTED_GIT_EXECUTABLE_SHA256 = "_expected_git_executable_sha256"
 
 
 
+_EXPECTED_GIT_REMOTE_HEAD_LOCAL_HEAD = "_expected_git_remote_head_local_head"
+
+
+class GitRemoteHeadSnapshotAction:
+    name = "git_remote_head_snapshot"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, git: WindowsLocalGitAdapter) -> None:
+        self._git = git
+
+    @staticmethod
+    def _blocked_preview(evidence: dict[str, object]) -> ConfirmationPreview:
+        return ConfirmationPreview(
+            allowed=False,
+            text=(
+                "Não foi possível preparar a leitura remota de HEAD porque a identidade "
+                "Git local autorizada não pôde ser validada exatamente."
+            ),
+        )
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        _ = request
+        try:
+            verifier = self._git.preview_git_executable()
+        except (OSError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível validar o git.exe local.",
+            )
+        if verifier.get("error") is not None:
+            return self._blocked_preview(verifier)
+
+        git_path = str(verifier["git_executable_path"])
+        git_sha256 = str(verifier["git_executable_sha256"])
+
+        try:
+            local_identity = self._git.remote_identity_snapshot(
+                expected_git_executable_path=git_path,
+                expected_git_executable_sha256=git_sha256,
+            )
+        except (OSError, RuntimeError, ValueError):
+            return self._blocked_preview({})
+        if local_identity.get("error") is not None:
+            return self._blocked_preview(local_identity)
+
+        local_head = str(local_identity["head_sha"])
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "LER HEAD REMOTO GIT AUTORIZADO\n"
+                f"Repositório local fixo: {local_identity['repository_root']}\n"
+                f"Remote local validado: {FIXED_GIT_REMOTE_NAME}\n"
+                f"URL remota fixa: {FIXED_GIT_REMOTE_URL}\n"
+                f"Ref remota fixa: {FIXED_GIT_REMOTE_REF}\n"
+                f"HEAD local aprovado: {local_head}\n"
+                f"git.exe aprovado: {git_path}\n"
+                f"SHA-256 do git.exe: {git_sha256}\n"
+                "Após esta confirmação, THE OS fará um único contato de rede read-only "
+                "usando somente `git ls-remote --exit-code --heads` contra a URL HTTPS e "
+                "ref fixas acima. A chamada ocorrerá fora do checkout, com configurações "
+                "Git global/system ignoradas, credential helper e askpass desabilitados, "
+                "variáveis de proxy removidas e redirects HTTP desabilitados. Antes e "
+                "depois da rede, a identidade local M91 e o HEAD local serão revalidados.\n"
+                "Nenhum fetch, pull, push, alteração de refs locais, working tree, índice "
+                "ou histórico Git é autorizado."
+            ),
+            execution_guard={
+                _EXPECTED_GIT_REMOTE_HEAD_LOCAL_HEAD: local_head,
+                _EXPECTED_GIT_EXECUTABLE_PATH: git_path,
+                _EXPECTED_GIT_EXECUTABLE_SHA256: git_sha256,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        expected_local_head = request.arguments.get(
+            _EXPECTED_GIT_REMOTE_HEAD_LOCAL_HEAD
+        )
+        expected_git_path = request.arguments.get(_EXPECTED_GIT_EXECUTABLE_PATH)
+        expected_git_sha256 = request.arguments.get(
+            _EXPECTED_GIT_EXECUTABLE_SHA256
+        )
+
+        if (
+            not isinstance(expected_local_head, str)
+            or len(expected_local_head) not in {40, 64}
+            or not isinstance(expected_git_path, str)
+            or not expected_git_path
+            or not isinstance(expected_git_sha256, str)
+            or len(expected_git_sha256) != 64
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A leitura remota de HEAD exige a prévia local aprovada.",
+                error_code="GIT_REMOTE_HEAD_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._git.remote_head_snapshot(
+                expected_local_head_sha256=expected_local_head,
+                expected_git_executable_path=expected_git_path,
+                expected_git_executable_sha256=expected_git_sha256,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui ler o HEAD remoto autorizado.",
+                evidence={"exception": type(exc).__name__},
+                error_code="GIT_REMOTE_HEAD_FAILED",
+            )
+
+        error = evidence.get("error")
+        if isinstance(error, str):
+            messages = {
+                "GIT_REMOTE_HEAD_LOCAL_IDENTITY_INVALID": (
+                    "A identidade Git local deixou de corresponder ao remote autorizado."
+                ),
+                "GIT_REMOTE_HEAD_LOCAL_HEAD_CHANGED_AFTER_PREVIEW": (
+                    "O HEAD local mudou após a aprovação; leitura remota bloqueada."
+                ),
+                "GIT_REMOTE_HEAD_TIMEOUT": (
+                    "A leitura do HEAD remoto excedeu o timeout bounded."
+                ),
+                "GIT_REMOTE_HEAD_FAILED": (
+                    "A leitura read-only do HEAD remoto falhou."
+                ),
+                "GIT_REMOTE_HEAD_OUTPUT_TOO_LARGE": (
+                    "A resposta remota excedeu o limite bounded."
+                ),
+                "GIT_REMOTE_HEAD_OUTPUT_ENCODING_FAILED": (
+                    "A resposta remota não possui encoding esperado."
+                ),
+                "GIT_REMOTE_HEAD_OUTPUT_INVALID": (
+                    "A resposta remota não corresponde exatamente à única ref main autorizada."
+                ),
+                "GIT_REMOTE_HEAD_LOCAL_IDENTITY_CHANGED_DURING_READ": (
+                    "A identidade Git local mudou durante a leitura remota."
+                ),
+                "GIT_REMOTE_HEAD_LOCAL_HEAD_CHANGED_DURING_READ": (
+                    "O HEAD local mudou durante a leitura remota."
+                ),
+                "GIT_EXECUTABLE_CHANGED_DURING_REMOTE_HEAD_READ": (
+                    "O git.exe mudou durante a leitura remota."
+                ),
+            }
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=messages.get(
+                    error,
+                    "A leitura remota de HEAD foi bloqueada.",
+                ),
+                evidence=evidence,
+                error_code=error,
+            )
+
+        relation = (
+            "corresponde ao HEAD local"
+            if evidence["remote_matches_local_head"]
+            else "difere do HEAD local"
+        )
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"HEAD remoto verificado para {FIXED_GIT_REMOTE_REF}: "
+                f"{evidence['remote_head_sha']}; {relation}. "
+                "Nenhuma ref local ou arquivo foi alterado."
+            ),
+            evidence=evidence,
+        )
+
+
 class GitRemoteIdentitySnapshotAction:
     name = "git_remote_identity_snapshot"
     risk = ActionRisk.CONFIRM

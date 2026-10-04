@@ -89,7 +89,7 @@ def test_git_diff_catalog_is_single_repo_relative_path() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["git_diff_file"]
 
-    assert len(definitions) == 52
+    assert len(definitions) == 53
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert definition.parameters["additionalProperties"] is False
