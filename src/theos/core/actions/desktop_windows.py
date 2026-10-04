@@ -3393,6 +3393,8 @@ class MaximizeWindowAction:
                 f"(PID {evidence['pid']})."
             ),
             evidence=evidence,
+            effect_dispatched=not bool(evidence["already_maximized"]),
+            postcondition_verified=bool(evidence["maximized_verified"]),
         )
 
 

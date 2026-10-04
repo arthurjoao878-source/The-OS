@@ -57,6 +57,7 @@ class OpenApplicationAction:
                 success=False,
                 message="O nome do aplicativo está vazio.",
                 error_code="ACTION_VALIDATION_FAILED",
+                effect_dispatched=False,
             )
 
         app = self._applications.resolve(raw_name)
@@ -66,6 +67,7 @@ class OpenApplicationAction:
                 success=False,
                 message=f"Não encontrei {raw_name}.",
                 error_code="APPLICATION_NOT_FOUND",
+                effect_dispatched=False,
             )
 
         try:
@@ -90,6 +92,8 @@ class OpenApplicationAction:
                 message=f"Tentei abrir {app.name}, mas não consegui verificar a execução.",
                 evidence=evidence,
                 error_code="ACTION_VERIFICATION_FAILED",
+                effect_dispatched=True,
+                postcondition_verified=False,
             )
 
         return ActionResult(
@@ -97,4 +101,6 @@ class OpenApplicationAction:
             success=True,
             message=f"{app.name} aberto.",
             evidence=evidence,
+            effect_dispatched=True,
+            postcondition_verified=True,
         )

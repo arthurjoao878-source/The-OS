@@ -28,6 +28,8 @@ class ActionResult(BaseModel):
     message: str
     evidence: dict[str, Any] = Field(default_factory=dict)
     error_code: str | None = None
+    effect_dispatched: bool | None = None
+    postcondition_verified: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

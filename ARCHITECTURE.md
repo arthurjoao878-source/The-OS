@@ -203,3 +203,36 @@ clear.
    them.
 
 The project must remain usable throughout the migration.
+
+## M96 - The Hands Execution Result v1
+
+M96 begins a compatible migration from one overloaded `success` flag toward explicit
+execution evidence.
+
+`ActionResult` now carries two optional fields:
+
+- `effect_dispatched`: whether this execution boundary can positively establish that
+  the concrete local effect was dispatched;
+- `postcondition_verified`: whether this boundary positively verified its declared
+  local postcondition.
+
+Both default to `None`. Existing actions therefore remain compatible and do not invent
+evidence they do not yet produce. The legacy `success` field remains unchanged for
+callers during migration and must not be interpreted as proof that the user's
+higher-level goal was achieved.
+
+M96 migrates two representative execution paths only:
+
+- `open_application`: a returned launch PID establishes dispatch; process verification
+  separately establishes or rejects the local postcondition;
+- `maximize_window`: when the exact target is already maximized, the postcondition may
+  be verified without dispatching a new maximize effect. Otherwise successful
+  maximization records both dispatch and verified postcondition.
+
+This milestone does not introduce Phoenix authority, change risk/confirmation policy,
+rewrite Windows adapters, add Observation Handles, or claim semantic application
+effects that are not observed.
+
+The migration rule for later actions is evidence-first: populate these fields only when
+the current execution boundary can establish them from real local control flow or
+verification evidence.
