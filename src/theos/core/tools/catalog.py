@@ -79,6 +79,27 @@ MIN_PYTHON_UNIT_TEST_MANY_PATHS = 2
 MAX_PYTHON_UNIT_TEST_MANY_PATHS = 4
 MAX_GIT_STATUS_PATH_CHARS = 512
 
+DEVELOPMENT_TOOL_NAMES = frozenset(
+    {
+        "check_python_syntax",
+        "check_python_static",
+        "check_python_static_many",
+        "run_python_unit_test_file",
+        "run_python_unit_test_files",
+        "git_commit_staged_new_file",
+        "git_commit_staged_file",
+        "git_diff_file",
+        "git_stage_file",
+        "git_stage_new_file",
+        "git_unstage_new_file",
+        "git_unstage_file",
+        "git_fetch_remote_main",
+        "git_remote_head_snapshot",
+        "git_remote_identity_snapshot",
+        "git_status_snapshot",
+    }
+)
+
 _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE = (
     " Para aplicativos Windows hospedados, se várias linhas da descoberta tiverem "
     "exatamente o mesmo título e exatamente uma usar um processo específico do "
@@ -2077,6 +2098,31 @@ def build_default_tool_catalog() -> ToolCatalog:
         _validate_write_text_file,
     )
     return catalog
+
+
+def _build_tool_profile(*, development: bool) -> ToolCatalog:
+    source = build_default_tool_catalog()
+    profile = ToolCatalog()
+
+    for name, registration in source._registrations.items():
+        is_development = name in DEVELOPMENT_TOOL_NAMES
+        if is_development is development:
+            profile.register(
+                registration.definition,
+                registration.validate,
+            )
+
+    return profile
+
+
+def build_assistant_tool_catalog() -> ToolCatalog:
+    """Runtime profile exposed to LYRA in the normal Windows assistant."""
+    return _build_tool_profile(development=False)
+
+
+def build_development_tool_catalog() -> ToolCatalog:
+    """Development-only profile; not exposed by the normal LYRA runtime."""
+    return _build_tool_profile(development=True)
 
 
 

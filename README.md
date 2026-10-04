@@ -2,9 +2,19 @@
 
 Assistant-first Windows environment centered on **LYRA**.
 
+## Architecture direction
+
+From M94R onward, **LYRA and TheOS are separate responsibilities**. LYRA is the
+portable personal assistant; TheOS is its current Windows capability host. Phoenix OS
+is a future multi-agent orchestrator, not a dependency or alternate name for LYRA.
+
+The normal LYRA runtime intentionally excludes development-only Git, Ruff, pytest, and
+Python syntax tooling. Those implementations remain in the repository for development
+and possible future optional capability packs. See `ARCHITECTURE.md`.
+
 ## Current vertical slices
 
-The repository currently proves ninety-three boundaries:
+The repository preserves ninety-three previously proven boundaries; M94R changes runtime exposure without deleting that work:
 
 1. **Verified Windows action** — deterministic intent -> `ActionRegistry` -> Windows adapter -> process verification.
 2. **Persistent LYRA memory** — explicit remember/recall intents backed by local SQLite.

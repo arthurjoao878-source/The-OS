@@ -65,7 +65,7 @@ from theos.core.actions.python_tests import (
 from theos.core.actions.registry import ActionRegistry
 from theos.core.actions.system_status import SystemStatusAction
 from theos.core.applications.registry import ApplicationRegistry
-from theos.core.tools import ToolCatalog, build_default_tool_catalog
+from theos.core.tools import ToolCatalog, build_assistant_tool_catalog
 from theos.integrations.ai import AIProvider
 from theos.integrations.ai import build_ai_provider as create_ai_provider
 from theos.integrations.windows.applications import WindowsApplicationAdapter
@@ -460,7 +460,8 @@ def build_action_registry() -> ActionRegistry:
 
 
 def build_tool_catalog() -> ToolCatalog:
-    return build_default_tool_catalog()
+    # Normal LYRA runtime: assistant capabilities only.
+    return build_assistant_tool_catalog()
 
 
 def build_memory_service() -> MemoryService:
