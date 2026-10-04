@@ -599,6 +599,31 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="git_commit_staged_file",
+            description=(
+                "Cria, após confirmação destrutiva, um único commit Git local contendo "
+                "exatamente a única modificação rastreada atualmente staged. Não aceita "
+                "argumentos: o modelo não escolhe path, mensagem, flags, revisão, ref, "
+                "remote, repositório ou executável. O índice deve conter exatamente um "
+                "arquivo com status `M ` e sem mudança unstaged no alvo. A prévia prende "
+                "path, SHA-256 do arquivo, HEAD e identidade do git.exe. A mensagem é "
+                "fixa e determinada localmente; hooks Git são desabilitados com hooksPath "
+                "temporário vazio e assinatura GPG é desabilitada. A execução não usa "
+                "shell e verifica novo HEAD, parent, mensagem, único path do commit, "
+                "índice vazio, alvo limpo/inalterado e git.exe inalterado. Nenhum push, "
+                "fetch, pull, remote, checkout, reset ou amend é autorizado. Não existe "
+                "rollback automático depois que HEAD avança."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="git_diff_file",
             description=(
                 "Inspeciona, após confirmação, o diff textual contra HEAD de um único "

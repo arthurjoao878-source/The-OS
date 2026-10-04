@@ -8,6 +8,7 @@ from theos.core.actions.contracts import (
 )
 from theos.core.actions.file_system import _is_privileged_read_path
 from theos.integrations.windows.git_local import (
+    FIXED_GIT_COMMIT_MESSAGE,
     MAX_GIT_DIFF_FILE_BYTES,
     MAX_GIT_DIFF_LINES,
     MAX_GIT_DIFF_OUTPUT_BYTES,
@@ -729,6 +730,199 @@ class GitStageNewFileAction:
                 f"Stage Git verificado para arquivo novo {expected_path}: "
                 "o índice contém somente esse arquivo como adição e o working tree "
                 "permaneceu inalterado."
+            ),
+            evidence=evidence,
+        )
+
+
+
+_EXPECTED_GIT_COMMIT_PATH = "_expected_git_commit_path"
+_EXPECTED_GIT_COMMIT_TARGET_SHA256 = "_expected_git_commit_target_sha256"
+_EXPECTED_GIT_COMMIT_HEAD_SHA256 = "_expected_git_commit_head_sha256"
+_EXPECTED_GIT_COMMIT_MESSAGE = "_expected_git_commit_message"
+
+
+class GitCommitStagedFileAction:
+    name = "git_commit_staged_file"
+    risk = ActionRisk.DESTRUCTIVE
+
+    def __init__(self, git: WindowsLocalGitAdapter) -> None:
+        self._git = git
+
+    @staticmethod
+    def _blocked_preview(evidence: dict[str, object]) -> ConfirmationPreview:
+        messages = {
+            "GIT_COMMIT_REQUIRES_SINGLE_STAGED_PATH": (
+                "O M89 exige exatamente um único arquivo staged no índice."
+            ),
+            "GIT_COMMIT_TARGET_NOT_STAGED_TRACKED_MODIFICATION": (
+                "O M89 aceita somente uma modificação rastreada staged, sem mudança unstaged."
+            ),
+            "GIT_COMMIT_TARGET_PREFLIGHT_FAILED": (
+                "Não foi possível validar o arquivo staged antes do commit."
+            ),
+            "GIT_COMMIT_STATE_CHANGED_DURING_PREVIEW": (
+                "O estado do índice mudou durante a prévia do commit."
+            ),
+            "GIT_STAGE_TIMEOUT": "A validação local excedeu o timeout.",
+            "GIT_STAGE_PREFLIGHT_FAILED": (
+                "Não foi possível validar o índice Git para o commit."
+            ),
+        }
+        return ConfirmationPreview(
+            allowed=False,
+            text=messages.get(
+                str(evidence.get("error")),
+                "Não foi possível preparar o commit Git local.",
+            ),
+        )
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        _ = request
+        try:
+            evidence = self._git.preview_commit_staged_file()
+        except (OSError, RuntimeError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar o commit Git local.",
+            )
+        if evidence.get("error") is not None:
+            return self._blocked_preview(evidence)
+
+        path = str(evidence["path"])
+        target_sha256 = str(evidence["target_sha256"])
+        head_sha256 = str(evidence["head_sha"])
+        git_path = str(evidence["git_executable_path"])
+        git_sha256 = str(evidence["git_executable_sha256"])
+        commit_message = str(evidence["commit_message"])
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "CRIAR COMMIT GIT LOCAL DE UM ARQUIVO STAGED\n"
+                f"Repositório fixo: {evidence['repository_root']}\n"
+                f"Único arquivo staged aprovado: {path}\n"
+                f"SHA-256 atual do arquivo: {target_sha256}\n"
+                f"HEAD pai aprovado: {head_sha256}\n"
+                f"git.exe aprovado: {git_path}\n"
+                f"SHA-256 do git.exe: {git_sha256}\n"
+                f"Mensagem fixa do commit: {commit_message}\n"
+                "O alvo é uma modificação já rastreada com status staged exato `M ` "
+                "e sem mudança unstaged no próprio arquivo.\n"
+                "Após esta confirmação, THE OS criará somente um commit Git local "
+                "contendo esse único arquivo staged. A mensagem não é controlada pelo "
+                "modelo. Hooks Git são desabilitados por um hooksPath temporário vazio "
+                "e assinatura GPG é desabilitada. Nenhum push, fetch, pull, remote, "
+                "checkout, reset, amend, revisão, ref, executável ou flag fornecida pelo "
+                "modelo é autorizada. Depois que HEAD avança não há rollback automático "
+                "de histórico; qualquer pós-condição inválida bloqueia novas ações."
+            ),
+            execution_guard={
+                _EXPECTED_GIT_COMMIT_PATH: path,
+                _EXPECTED_GIT_COMMIT_TARGET_SHA256: target_sha256,
+                _EXPECTED_GIT_COMMIT_HEAD_SHA256: head_sha256,
+                _EXPECTED_GIT_COMMIT_MESSAGE: commit_message,
+                _EXPECTED_GIT_EXECUTABLE_PATH: git_path,
+                _EXPECTED_GIT_EXECUTABLE_SHA256: git_sha256,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        expected_path = request.arguments.get(_EXPECTED_GIT_COMMIT_PATH)
+        expected_target_sha256 = request.arguments.get(
+            _EXPECTED_GIT_COMMIT_TARGET_SHA256
+        )
+        expected_head_sha256 = request.arguments.get(
+            _EXPECTED_GIT_COMMIT_HEAD_SHA256
+        )
+        expected_commit_message = request.arguments.get(
+            _EXPECTED_GIT_COMMIT_MESSAGE
+        )
+        expected_git_path = request.arguments.get(_EXPECTED_GIT_EXECUTABLE_PATH)
+        expected_git_sha256 = request.arguments.get(
+            _EXPECTED_GIT_EXECUTABLE_SHA256
+        )
+
+        if (
+            not isinstance(expected_path, str)
+            or not expected_path
+            or not isinstance(expected_target_sha256, str)
+            or len(expected_target_sha256) != 64
+            or not isinstance(expected_head_sha256, str)
+            or len(expected_head_sha256) not in {40, 64}
+            or not isinstance(expected_commit_message, str)
+            or expected_commit_message != FIXED_GIT_COMMIT_MESSAGE
+            or not isinstance(expected_git_path, str)
+            or not expected_git_path
+            or not isinstance(expected_git_sha256, str)
+            or len(expected_git_sha256) != 64
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O commit Git exige a prévia local aprovada.",
+                error_code="GIT_COMMIT_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._git.commit_staged_file(
+                expected_path=expected_path,
+                expected_target_sha256=expected_target_sha256,
+                expected_head_sha256=expected_head_sha256,
+                expected_git_executable_path=expected_git_path,
+                expected_git_executable_sha256=expected_git_sha256,
+                expected_commit_message=expected_commit_message,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui concluir o commit Git local.",
+                evidence={"exception": type(exc).__name__},
+                error_code="GIT_COMMIT_FAILED",
+            )
+
+        error = evidence.get("error")
+        if isinstance(error, str):
+            messages = {
+                "GIT_COMMIT_MESSAGE_GUARD_MISMATCH": (
+                    "A mensagem fixa aprovada não corresponde mais à política local."
+                ),
+                "GIT_COMMIT_PATH_CHANGED_AFTER_PREVIEW": (
+                    "O arquivo staged mudou após a aprovação; commit bloqueado."
+                ),
+                "GIT_COMMIT_TARGET_CHANGED_AFTER_PREVIEW": (
+                    "Os bytes do arquivo mudaram após a aprovação; commit bloqueado."
+                ),
+                "GIT_COMMIT_HEAD_CHANGED_AFTER_PREVIEW": (
+                    "O HEAD mudou após a aprovação; commit bloqueado."
+                ),
+                "GIT_EXECUTABLE_CHANGED_AFTER_PREVIEW": (
+                    "O git.exe mudou após a aprovação; commit bloqueado."
+                ),
+                "GIT_COMMIT_TIMEOUT": "O commit Git local excedeu o timeout.",
+                "GIT_COMMIT_FAILED": "O commit Git local falhou sem avançar HEAD.",
+                "GIT_COMMIT_STATE_AMBIGUOUS_AFTER_FAILURE": (
+                    "O processo de commit falhou, mas HEAD mudou; o estado precisa de inspeção antes de qualquer nova mutação."
+                ),
+                "GIT_COMMIT_POSTCONDITION_FAILED": (
+                    "O commit avançou, mas a pós-condição exata não pôde ser comprovada; não houve rollback automático de histórico."
+                ),
+            }
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=messages.get(error, "O commit Git local foi bloqueado."),
+                evidence=evidence,
+                error_code=error,
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Commit Git local verificado para {expected_path}: "
+                f"{evidence['commit_sha']}; um único arquivo, índice vazio e sem operação remota."
             ),
             evidence=evidence,
         )

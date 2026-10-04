@@ -506,6 +506,8 @@ class ToolLoopExecutor:
         if request.action == "trash_path":
             target = str(request.arguments.get("path", "caminho"))
             return f"Enviando {target} para a Lixeira..."
+        if request.action == "git_commit_staged_file":
+            return "Criando commit Git local do único arquivo staged..."
         if request.action == "git_diff_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Inspecionando diff Git de {target}..."
