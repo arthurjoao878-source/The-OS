@@ -134,7 +134,7 @@ class MainWindow(QMainWindow):
         self._pool = QThreadPool.globalInstance()
         self._active_control: ExecutionControl | None = None
 
-        self.setWindowTitle("THE OS — LYRA")
+        self.setWindowTitle("LYRA — executor local: THE HANDS")
         self.resize(760, 600)
 
         root = QWidget()

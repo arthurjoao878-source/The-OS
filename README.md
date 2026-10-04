@@ -1,16 +1,26 @@
-# THE OS
+# THE HANDS + LYRA
 
-Assistant-first Windows environment centered on **LYRA**.
+This repository currently develops two distinct responsibilities together:
 
-## Architecture direction
+- **LYRA** - personal intelligence: interpretation, context, reasoning, planning, and
+  communication.
+- **THE HANDS** - concrete local execution: Windows interaction, observation, and
+  execution evidence.
 
-From M94R onward, **LYRA and TheOS are separate responsibilities**. LYRA is the
-portable personal assistant; TheOS is its current Windows capability host. Phoenix OS
-is a future multi-agent orchestrator, not a dependency or alternate name for LYRA.
+**PHOENIX** is the separate authority and orchestration layer. The canonical rule is:
 
-The normal LYRA runtime intentionally excludes development-only Git, Ruff, pytest, and
-Python syntax tooling. Those implementations remain in the repository for development
-and possible future optional capability packs. See `ARCHITECTURE.md`.
+    Lyra thinks.
+    Phoenix governs.
+    The Hands acts.
+
+The former project name **The OS** remains in package names, paths, environment
+variables, and historical boundary descriptions only as temporary compatibility. M95R
+does not perform a cosmetic repository-wide rename.
+
+The normal LYRA runtime continues to exclude development-only Git, Ruff, pytest, and
+Python syntax tooling. Existing local `ActionRisk` / confirmation behavior remains
+temporarily as a `LEGACY_LOCAL_APPROVAL_BRIDGE` so working behavior does not regress;
+it is not the final authority architecture. See `ARCHITECTURE.md`.
 
 ## Current vertical slices
 
