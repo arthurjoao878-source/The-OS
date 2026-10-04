@@ -53,7 +53,7 @@ def test_git_commit_new_catalog_has_no_model_arguments() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["git_commit_staged_new_file"]
 
-    assert len(definitions) == 53
+    assert len(definitions) == 54
     assert definition.parameters["properties"] == {}
     assert definition.parameters["additionalProperties"] is False
     assert "único arquivo novo" in definition.description

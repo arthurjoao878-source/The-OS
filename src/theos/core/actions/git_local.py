@@ -13,6 +13,7 @@ from theos.integrations.windows.git_local import (
     FIXED_GIT_REMOTE_BRANCH,
     FIXED_GIT_REMOTE_NAME,
     FIXED_GIT_REMOTE_REF,
+    FIXED_GIT_REMOTE_TRACKING_REF,
     FIXED_GIT_REMOTE_URL,
     MAX_GIT_DIFF_FILE_BYTES,
     MAX_GIT_DIFF_LINES,
@@ -29,6 +30,219 @@ _EXPECTED_GIT_EXECUTABLE_PATH = "_expected_git_executable_path"
 _EXPECTED_GIT_EXECUTABLE_SHA256 = "_expected_git_executable_sha256"
 
 
+
+
+_EXPECTED_GIT_FETCH_LOCAL_HEAD = "_expected_git_fetch_local_head"
+_EXPECTED_GIT_FETCH_TRACKING_REF = "_expected_git_fetch_tracking_ref"
+_EXPECTED_GIT_FETCH_STATUS_DIGEST = "_expected_git_fetch_status_digest"
+_EXPECTED_GIT_FETCH_REFS_DIGEST = "_expected_git_fetch_refs_digest"
+
+
+class GitFetchRemoteMainAction:
+    name = "git_fetch_remote_main"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, git: WindowsLocalGitAdapter) -> None:
+        self._git = git
+
+    @staticmethod
+    def _blocked_preview(evidence: dict[str, object]) -> ConfirmationPreview:
+        messages = {
+            "GIT_FETCH_REMOTE_MAIN_LOCAL_IDENTITY_INVALID": (
+                "A identidade local M91 não corresponde ao remote autorizado."
+            ),
+            "GIT_FETCH_REMOTE_MAIN_LOCAL_TRANSPORT_OVERRIDE_NOT_ALLOWED": (
+                "Há configuração Git local de transporte/fetch fora da política do M93."
+            ),
+            "GIT_FETCH_REMOTE_MAIN_SHALLOW_REPOSITORY_NOT_ALLOWED": (
+                "O primeiro fetch controlado não aceita repositório shallow."
+            ),
+        }
+        return ConfirmationPreview(
+            allowed=False,
+            text=messages.get(
+                str(evidence.get("error")),
+                "Não foi possível preparar o fetch Git controlado de main.",
+            ),
+        )
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        _ = request
+        try:
+            evidence = self._git.preview_fetch_remote_main()
+        except (OSError, RuntimeError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível preparar o fetch Git controlado de main.",
+            )
+        if evidence.get("error") is not None:
+            return self._blocked_preview(evidence)
+
+        tracking_before = (
+            str(evidence["tracking_ref_before"])
+            if evidence["tracking_ref_before"] is not None
+            else "__ABSENT__"
+        )
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "ATUALIZAR SNAPSHOT LOCAL DE origin/main POR FETCH CONTROLADO\n"
+                f"Repositório fixo: {evidence['repository_root']}\n"
+                f"URL remota fixa: {FIXED_GIT_REMOTE_URL}\n"
+                f"Ref remota fonte fixa: {FIXED_GIT_REMOTE_REF}\n"
+                f"Ref local de destino fixa: {FIXED_GIT_REMOTE_TRACKING_REF}\n"
+                f"HEAD local aprovado: {evidence['head_sha']}\n"
+                f"Ref local atual: {tracking_before}\n"
+                f"git.exe aprovado: {evidence['git_executable_path']}\n"
+                f"SHA-256 do git.exe: {evidence['git_executable_sha256']}\n"
+                "Após esta confirmação, THE OS primeiro relerá o HEAD remoto via M92, "
+                "fará um fetch HTTPS fixo de objetos de refs/heads/main sem escrever "
+                "FETCH_HEAD, tags, commit-graph, submódulos ou outras refs, relerá o "
+                "HEAD remoto e então poderá atualizar somente refs/remotes/origin/main "
+                "para o SHA observado. A atualização é bloqueada se a ref remota mudar "
+                "durante o fetch ou se a ref local existente exigiria movimento "
+                "non-fast-forward.\n"
+                "Working tree, índice, HEAD/branch local e todas as outras refs devem "
+                "permanecer idênticos. Credential helper/askpass são desabilitados, "
+                "configs global/system e proxies herdados são ignorados. Nenhum pull "
+                "ou push é autorizado."
+            ),
+            execution_guard={
+                _EXPECTED_GIT_FETCH_LOCAL_HEAD: str(evidence["head_sha"]),
+                _EXPECTED_GIT_FETCH_TRACKING_REF: tracking_before,
+                _EXPECTED_GIT_FETCH_STATUS_DIGEST: str(evidence["status_digest"]),
+                _EXPECTED_GIT_FETCH_REFS_DIGEST: str(evidence["refs_digest"]),
+                _EXPECTED_GIT_EXECUTABLE_PATH: str(evidence["git_executable_path"]),
+                _EXPECTED_GIT_EXECUTABLE_SHA256: str(
+                    evidence["git_executable_sha256"]
+                ),
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        expected_local_head = request.arguments.get(_EXPECTED_GIT_FETCH_LOCAL_HEAD)
+        expected_tracking_ref = request.arguments.get(
+            _EXPECTED_GIT_FETCH_TRACKING_REF
+        )
+        expected_status_digest = request.arguments.get(
+            _EXPECTED_GIT_FETCH_STATUS_DIGEST
+        )
+        expected_refs_digest = request.arguments.get(_EXPECTED_GIT_FETCH_REFS_DIGEST)
+        expected_git_path = request.arguments.get(_EXPECTED_GIT_EXECUTABLE_PATH)
+        expected_git_sha256 = request.arguments.get(
+            _EXPECTED_GIT_EXECUTABLE_SHA256
+        )
+
+        if (
+            not isinstance(expected_local_head, str)
+            or len(expected_local_head) not in {40, 64}
+            or not isinstance(expected_tracking_ref, str)
+            or not expected_tracking_ref
+            or not isinstance(expected_status_digest, str)
+            or len(expected_status_digest) != 64
+            or not isinstance(expected_refs_digest, str)
+            or len(expected_refs_digest) != 64
+            or not isinstance(expected_git_path, str)
+            or not expected_git_path
+            or not isinstance(expected_git_sha256, str)
+            or len(expected_git_sha256) != 64
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="O fetch Git controlado exige a prévia local aprovada.",
+                error_code="GIT_FETCH_REMOTE_MAIN_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._git.fetch_remote_main(
+                expected_local_head_sha256=expected_local_head,
+                expected_tracking_ref_sha256=expected_tracking_ref,
+                expected_status_digest=expected_status_digest,
+                expected_refs_digest=expected_refs_digest,
+                expected_git_executable_path=expected_git_path,
+                expected_git_executable_sha256=expected_git_sha256,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui concluir o fetch Git controlado.",
+                evidence={"exception": type(exc).__name__},
+                error_code="GIT_FETCH_REMOTE_MAIN_FAILED",
+            )
+
+        error = evidence.get("error")
+        if isinstance(error, str):
+            messages = {
+                "GIT_FETCH_REMOTE_MAIN_LOCAL_HEAD_CHANGED_AFTER_PREVIEW": (
+                    "O HEAD local mudou após a aprovação; fetch bloqueado."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_TRACKING_REF_CHANGED_AFTER_PREVIEW": (
+                    "A ref refs/remotes/origin/main mudou após a aprovação."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_WORKTREE_STATE_CHANGED_AFTER_PREVIEW": (
+                    "O estado do working tree/índice mudou após a aprovação."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_REFS_CHANGED_AFTER_PREVIEW": (
+                    "Alguma ref local mudou após a aprovação."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_REMOTE_HEAD_READ_FAILED": (
+                    "Não foi possível obter o HEAD remoto autorizado antes do fetch."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_TIMEOUT": (
+                    "O fetch controlado excedeu o timeout bounded."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_FAILED": (
+                    "O fetch controlado de objetos falhou."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_UNEXPECTED_REF_MUTATION_DURING_FETCH": (
+                    "O subprocesso fetch alterou uma ref local antes da atualização autorizada."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_WORKTREE_STATE_CHANGED_DURING_FETCH": (
+                    "O fetch alterou working tree ou índice; operação bloqueada."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_REMOTE_CHANGED_DURING_FETCH": (
+                    "refs/heads/main mudou no remoto durante o fetch; a ref local não foi atualizada."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_NON_FAST_FORWARD_BLOCKED": (
+                    "A atualização de refs/remotes/origin/main exigiria movimento non-fast-forward."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_REF_UPDATE_FAILED": (
+                    "A atualização atômica da única ref local autorizada falhou."
+                ),
+                "GIT_FETCH_REMOTE_MAIN_POSTCONDITION_FAILED": (
+                    "A pós-condição do fetch controlado não pôde ser comprovada."
+                ),
+            }
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=messages.get(
+                    error,
+                    "O fetch Git controlado foi bloqueado.",
+                ),
+                evidence=evidence,
+                error_code=error,
+            )
+
+        movement = (
+            "atualizada"
+            if evidence["tracking_ref_changed"]
+            else "já estava no SHA remoto"
+        )
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Fetch controlado concluído: {FIXED_GIT_REMOTE_TRACKING_REF} "
+                f"{movement} em {evidence['tracking_ref_after']}. "
+                "HEAD/branch local, índice e working tree permaneceram inalterados; "
+                "nenhum push foi realizado."
+            ),
+            evidence=evidence,
+        )
 
 
 _EXPECTED_GIT_REMOTE_HEAD_LOCAL_HEAD = "_expected_git_remote_head_local_head"

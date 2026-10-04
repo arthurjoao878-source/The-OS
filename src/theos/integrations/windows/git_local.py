@@ -41,6 +41,10 @@ FIXED_GIT_REMOTE_FETCH = "+refs/heads/*:refs/remotes/origin/*"
 GIT_REMOTE_HEAD_TIMEOUT_SECONDS = 10.0
 MAX_GIT_REMOTE_HEAD_OUTPUT_BYTES = 4096
 
+GIT_REMOTE_FETCH_TIMEOUT_SECONDS = 20.0
+FIXED_GIT_REMOTE_TRACKING_REF = "refs/remotes/origin/main"
+
+
 
 
 
@@ -702,6 +706,590 @@ class WindowsLocalGitAdapter:
                 "remote_matches_local_head": remote_head
                 == expected_local_head_sha256,
                 "local_identity_revalidated_after_network": True,
+                "git_executable_unchanged": True,
+            }
+        )
+        return evidence
+
+    @staticmethod
+    def _controlled_remote_fetch_environment() -> dict[str, str]:
+        environment = os.environ.copy()
+        blocked_names = {
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "NO_PROXY",
+            "CURL_CA_BUNDLE",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "GCM_INTERACTIVE",
+        }
+        for key in tuple(environment):
+            upper = key.upper()
+            if upper.startswith("GIT_") or upper in blocked_names:
+                environment.pop(key, None)
+        environment["GIT_CONFIG_NOSYSTEM"] = "1"
+        environment["GIT_CONFIG_GLOBAL"] = os.devnull
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_PAGER"] = "cat"
+        environment["NO_COLOR"] = "1"
+        return environment
+
+    def _local_fetch_transport_override_present(
+        self,
+        git_executable: Path,
+    ) -> tuple[bool | None, str | None]:
+        pattern = (
+            r"^(http|credential|protocol|url|include|includeIf|fetch|submodule|"
+            r"maintenance|gc)\.|^remote\.origin\.(proxy|proxyAuthMethod|"
+            r"promisor|partialclonefilter)$"
+        )
+        try:
+            result = self._run_git(
+                git_executable,
+                ["config", "--local", "--name-only", "--get-regexp", pattern],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_FETCH_REMOTE_MAIN_PREFLIGHT_TIMEOUT"
+        except OSError:
+            return None, "GIT_FETCH_REMOTE_MAIN_CONFIG_READ_FAILED"
+        if result.returncode == 1:
+            return False, None
+        if result.returncode != 0:
+            return None, "GIT_FETCH_REMOTE_MAIN_CONFIG_READ_FAILED"
+        if len(result.stdout) > MAX_GIT_STATUS_OUTPUT_BYTES:
+            return None, "GIT_FETCH_REMOTE_MAIN_CONFIG_OUTPUT_TOO_LARGE"
+        return bool(result.stdout.strip()), None
+
+    def _status_digest(
+        self,
+        git_executable: Path,
+    ) -> tuple[str | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_FETCH_REMOTE_MAIN_PREFLIGHT_TIMEOUT"
+        except OSError:
+            return None, "GIT_FETCH_REMOTE_MAIN_STATUS_READ_FAILED"
+        if result.returncode != 0:
+            return None, "GIT_FETCH_REMOTE_MAIN_STATUS_READ_FAILED"
+        if len(result.stdout) > MAX_GIT_STATUS_OUTPUT_BYTES:
+            return None, "GIT_FETCH_REMOTE_MAIN_STATUS_OUTPUT_TOO_LARGE"
+        return hashlib.sha256(result.stdout).hexdigest(), None
+
+    def _local_ref_map(
+        self,
+        git_executable: Path,
+    ) -> tuple[dict[str, str] | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                ["for-each-ref", "--format=%(refname)%00%(objectname)"],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_FETCH_REMOTE_MAIN_PREFLIGHT_TIMEOUT"
+        except OSError:
+            return None, "GIT_FETCH_REMOTE_MAIN_REFS_READ_FAILED"
+        if result.returncode != 0:
+            return None, "GIT_FETCH_REMOTE_MAIN_REFS_READ_FAILED"
+        if len(result.stdout) > MAX_GIT_STATUS_OUTPUT_BYTES:
+            return None, "GIT_FETCH_REMOTE_MAIN_REFS_OUTPUT_TOO_LARGE"
+        try:
+            text = result.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            return None, "GIT_FETCH_REMOTE_MAIN_REFS_ENCODING_FAILED"
+
+        refs: dict[str, str] = {}
+        for line in text.splitlines():
+            if not line:
+                continue
+            parts = line.split("\0")
+            if len(parts) != 2:
+                return None, "GIT_FETCH_REMOTE_MAIN_REFS_OUTPUT_INVALID"
+            ref_name, object_name = parts
+            if (
+                not ref_name.startswith("refs/")
+                or len(ref_name) > 1024
+                or re.fullmatch(r"[0-9a-fA-F]{40,64}", object_name) is None
+                or ref_name in refs
+            ):
+                return None, "GIT_FETCH_REMOTE_MAIN_REFS_OUTPUT_INVALID"
+            refs[ref_name] = object_name.lower()
+        return refs, None
+
+    @staticmethod
+    def _ref_map_digest(refs: dict[str, str]) -> str:
+        payload = "\n".join(
+            f"{name}\0{refs[name]}"
+            for name in sorted(refs)
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def _read_ref_sha(
+        self,
+        git_executable: Path,
+        ref_name: str,
+    ) -> tuple[str | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                [
+                    "for-each-ref",
+                    "--format=%(refname)%00%(objectname)",
+                    ref_name,
+                ],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_FETCH_REMOTE_MAIN_PREFLIGHT_TIMEOUT"
+        except OSError:
+            return None, "GIT_FETCH_REMOTE_MAIN_REF_READ_FAILED"
+        if result.returncode != 0:
+            return None, "GIT_FETCH_REMOTE_MAIN_REF_READ_FAILED"
+        if len(result.stdout) > MAX_GIT_STATUS_OUTPUT_BYTES:
+            return None, "GIT_FETCH_REMOTE_MAIN_REF_OUTPUT_INVALID"
+        try:
+            text = result.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            return None, "GIT_FETCH_REMOTE_MAIN_REF_OUTPUT_INVALID"
+
+        lines = [line for line in text.splitlines() if line]
+        if not lines:
+            return None, None
+        if len(lines) != 1:
+            return None, "GIT_FETCH_REMOTE_MAIN_REF_OUTPUT_INVALID"
+
+        parts = lines[0].split("\0")
+        if len(parts) != 2:
+            return None, "GIT_FETCH_REMOTE_MAIN_REF_OUTPUT_INVALID"
+        observed_ref, value = parts
+        value = value.lower()
+        if (
+            observed_ref != ref_name
+            or re.fullmatch(r"[0-9a-f]{40,64}", value) is None
+        ):
+            return None, "GIT_FETCH_REMOTE_MAIN_REF_OUTPUT_INVALID"
+        return value, None
+
+    def _run_git_fetch_remote_main(
+        self,
+        git_executable: Path,
+    ) -> subprocess.CompletedProcess[bytes]:
+        with tempfile.TemporaryDirectory(
+            prefix="theos-git-fetch-hooks-"
+        ) as hooks_dir:
+            return subprocess.run(
+                [
+                    str(git_executable),
+                    "-C",
+                    str(self._repository_root),
+                    "-c",
+                    f"core.hooksPath={hooks_dir}",
+                    "-c",
+                    "credential.helper=",
+                    "-c",
+                    "core.askPass=",
+                    "-c",
+                    "credential.interactive=never",
+                    "-c",
+                    "http.followRedirects=false",
+                    "-c",
+                    "http.proxy=",
+                    "-c",
+                    "http.extraHeader=",
+                    "-c",
+                    "http.cookieFile=",
+                    "-c",
+                    "http.saveCookies=false",
+                    "fetch",
+                    "--no-tags",
+                    "--no-recurse-submodules",
+                    "--no-write-fetch-head",
+                    "--no-auto-maintenance",
+                    "--no-write-commit-graph",
+                    FIXED_GIT_REMOTE_URL,
+                    FIXED_GIT_REMOTE_REF,
+                ],
+                cwd=self._repository_root,
+                shell=False,
+                check=False,
+                capture_output=True,
+                timeout=GIT_REMOTE_FETCH_TIMEOUT_SECONDS,
+                env=self._controlled_remote_fetch_environment(),
+            )
+
+    def _remote_commit_available(
+        self,
+        git_executable: Path,
+        sha: str,
+    ) -> tuple[bool | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                ["cat-file", "-e", f"{sha}^{{commit}}"],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_FETCH_REMOTE_MAIN_PREFLIGHT_TIMEOUT"
+        except OSError:
+            return None, "GIT_FETCH_REMOTE_MAIN_OBJECT_READ_FAILED"
+        if result.returncode == 0:
+            return True, None
+        if result.returncode == 1:
+            return False, None
+        return None, "GIT_FETCH_REMOTE_MAIN_OBJECT_READ_FAILED"
+
+    def _is_ancestor(
+        self,
+        git_executable: Path,
+        ancestor_sha: str,
+        descendant_sha: str,
+    ) -> tuple[bool | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                ["merge-base", "--is-ancestor", ancestor_sha, descendant_sha],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_FETCH_REMOTE_MAIN_PREFLIGHT_TIMEOUT"
+        except OSError:
+            return None, "GIT_FETCH_REMOTE_MAIN_ANCESTRY_FAILED"
+        if result.returncode == 0:
+            return True, None
+        if result.returncode == 1:
+            return False, None
+        return None, "GIT_FETCH_REMOTE_MAIN_ANCESTRY_FAILED"
+
+    def _update_remote_tracking_ref(
+        self,
+        git_executable: Path,
+        *,
+        new_sha: str,
+        old_sha: str | None,
+    ) -> tuple[bool, str | None]:
+        expected_old = old_sha if old_sha is not None else ("0" * len(new_sha))
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="theos-git-update-ref-hooks-"
+            ) as hooks_dir:
+                result = self._run_git_mutating(
+                    git_executable,
+                    [
+                        "-c",
+                        f"core.hooksPath={hooks_dir}",
+                        "-c",
+                        "core.logAllRefUpdates=false",
+                        "update-ref",
+                        "--no-deref",
+                        FIXED_GIT_REMOTE_TRACKING_REF,
+                        new_sha,
+                        expected_old,
+                    ],
+                )
+        except subprocess.TimeoutExpired:
+            return False, "GIT_FETCH_REMOTE_MAIN_REF_UPDATE_TIMEOUT"
+        except OSError:
+            return False, "GIT_FETCH_REMOTE_MAIN_REF_UPDATE_FAILED"
+        if result.returncode != 0:
+            return False, "GIT_FETCH_REMOTE_MAIN_REF_UPDATE_FAILED"
+        return True, None
+
+    def preview_fetch_remote_main(self) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "remote_name": FIXED_GIT_REMOTE_NAME,
+            "remote_url": FIXED_GIT_REMOTE_URL,
+            "remote_ref": FIXED_GIT_REMOTE_REF,
+            "tracking_ref": FIXED_GIT_REMOTE_TRACKING_REF,
+            "network_contact": False,
+            "fetch_authority": "FIXED_REMOTE_MAIN_OBJECTS_ONLY_AFTER_CONFIRMATION",
+            "push_authority": False,
+            "pull_authority": False,
+            "working_tree_mutation_authority": False,
+            "index_mutation_authority": False,
+            "local_branch_mutation_authority": False,
+        }
+
+        verifier = self.preview_git_executable()
+        if verifier.get("error") is not None:
+            evidence.update(verifier)
+            return evidence
+        git_path = str(verifier["git_executable_path"])
+        git_sha256 = str(verifier["git_executable_sha256"])
+
+        identity = self.remote_identity_snapshot(
+            expected_git_executable_path=git_path,
+            expected_git_executable_sha256=git_sha256,
+        )
+        if identity.get("error") is not None:
+            evidence["identity_error"] = identity.get("error")
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_LOCAL_IDENTITY_INVALID"
+            return evidence
+
+        git_executable = Path(git_path)
+        override_present, override_error = self._local_fetch_transport_override_present(
+            git_executable
+        )
+        if override_error is not None:
+            evidence["error"] = override_error
+            return evidence
+        if override_present:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_LOCAL_TRANSPORT_OVERRIDE_NOT_ALLOWED"
+            return evidence
+
+        try:
+            shallow_result = self._run_git(
+                git_executable,
+                ["rev-parse", "--is-shallow-repository"],
+            )
+        except subprocess.TimeoutExpired:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_PREFLIGHT_TIMEOUT"
+            return evidence
+        except OSError:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_SHALLOW_READ_FAILED"
+            return evidence
+        if shallow_result.returncode != 0:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_SHALLOW_READ_FAILED"
+            return evidence
+        try:
+            shallow_value = shallow_result.stdout.decode("ascii").strip().lower()
+        except UnicodeDecodeError:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_SHALLOW_READ_FAILED"
+            return evidence
+        if shallow_value != "false":
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_SHALLOW_REPOSITORY_NOT_ALLOWED"
+            return evidence
+
+        status_digest, status_error = self._status_digest(git_executable)
+        refs, refs_error = self._local_ref_map(git_executable)
+        tracking_sha, tracking_error = self._read_ref_sha(
+            git_executable,
+            FIXED_GIT_REMOTE_TRACKING_REF,
+        )
+        if status_error is not None:
+            evidence["error"] = status_error
+            return evidence
+        if refs_error is not None:
+            evidence["error"] = refs_error
+            return evidence
+        if tracking_error is not None:
+            evidence["error"] = tracking_error
+            return evidence
+        assert status_digest is not None
+        assert refs is not None
+
+        evidence.update(
+            {
+                "head_sha": identity["head_sha"],
+                "branch": identity["branch"],
+                "tracking_ref_before": tracking_sha,
+                "tracking_ref_present": tracking_sha is not None,
+                "status_digest": status_digest,
+                "refs_digest": self._ref_map_digest(refs),
+                "git_executable_path": git_path,
+                "git_executable_sha256": git_sha256,
+                "transport_overrides_present": False,
+                "shallow_repository": False,
+            }
+        )
+        return evidence
+
+    def fetch_remote_main(
+        self,
+        *,
+        expected_local_head_sha256: str,
+        expected_tracking_ref_sha256: str,
+        expected_status_digest: str,
+        expected_refs_digest: str,
+        expected_git_executable_path: str,
+        expected_git_executable_sha256: str,
+    ) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "remote_name": FIXED_GIT_REMOTE_NAME,
+            "remote_url": FIXED_GIT_REMOTE_URL,
+            "remote_ref": FIXED_GIT_REMOTE_REF,
+            "tracking_ref": FIXED_GIT_REMOTE_TRACKING_REF,
+            "network_contact": True,
+            "network_authority": "FIXED_REMOTE_MAIN_FETCH_ONLY",
+            "fetch_authority": True,
+            "pull_authority": False,
+            "push_authority": False,
+            "working_tree_mutation_authority": False,
+            "index_mutation_authority": False,
+            "local_branch_mutation_authority": False,
+            "remote_tracking_ref_mutation_authority": True,
+            "shell_used": False,
+            "credential_helper_disabled": True,
+            "askpass_disabled": True,
+            "proxy_environment_scrubbed": True,
+            "system_git_config_ignored": True,
+            "global_git_config_ignored": True,
+            "raw_fetch_streams_returned": False,
+        }
+
+        preview = self.preview_fetch_remote_main()
+        if preview.get("error") is not None:
+            evidence.update(preview)
+            return evidence
+
+        observed_tracking = (
+            str(preview["tracking_ref_before"])
+            if preview["tracking_ref_before"] is not None
+            else "__ABSENT__"
+        )
+        if preview.get("head_sha") != expected_local_head_sha256:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_LOCAL_HEAD_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if observed_tracking != expected_tracking_ref_sha256:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_TRACKING_REF_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if preview.get("status_digest") != expected_status_digest:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_WORKTREE_STATE_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if preview.get("refs_digest") != expected_refs_digest:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_REFS_CHANGED_AFTER_PREVIEW"
+            return evidence
+        if (
+            preview.get("git_executable_path") != expected_git_executable_path
+            or preview.get("git_executable_sha256")
+            != expected_git_executable_sha256
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        git_executable = Path(expected_git_executable_path)
+        refs_before, refs_error = self._local_ref_map(git_executable)
+        if refs_error is not None or refs_before is None:
+            evidence["error"] = refs_error or "GIT_FETCH_REMOTE_MAIN_REFS_READ_FAILED"
+            return evidence
+
+        remote_before = self.remote_head_snapshot(
+            expected_local_head_sha256=expected_local_head_sha256,
+            expected_git_executable_path=expected_git_executable_path,
+            expected_git_executable_sha256=expected_git_executable_sha256,
+        )
+        if remote_before.get("error") is not None:
+            evidence["remote_head_error"] = remote_before.get("error")
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_REMOTE_HEAD_READ_FAILED"
+            return evidence
+        remote_sha = str(remote_before["remote_head_sha"])
+
+        try:
+            fetch_result = self._run_git_fetch_remote_main(git_executable)
+        except subprocess.TimeoutExpired:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_TIMEOUT"
+            return evidence
+        except OSError:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_FAILED"
+            return evidence
+        if fetch_result.returncode != 0:
+            evidence["fetch_returncode"] = fetch_result.returncode
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_FAILED"
+            return evidence
+
+        refs_after_fetch, refs_after_fetch_error = self._local_ref_map(git_executable)
+        status_after_fetch, status_after_fetch_error = self._status_digest(git_executable)
+        if (
+            refs_after_fetch_error is not None
+            or refs_after_fetch is None
+            or refs_after_fetch != refs_before
+        ):
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_UNEXPECTED_REF_MUTATION_DURING_FETCH"
+            return evidence
+        if (
+            status_after_fetch_error is not None
+            or status_after_fetch != expected_status_digest
+        ):
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_WORKTREE_STATE_CHANGED_DURING_FETCH"
+            return evidence
+
+        object_available, object_error = self._remote_commit_available(
+            git_executable,
+            remote_sha,
+        )
+        if object_error is not None or object_available is not True:
+            evidence["error"] = object_error or "GIT_FETCH_REMOTE_MAIN_OBJECT_NOT_AVAILABLE"
+            return evidence
+
+        remote_after = self.remote_head_snapshot(
+            expected_local_head_sha256=expected_local_head_sha256,
+            expected_git_executable_path=expected_git_executable_path,
+            expected_git_executable_sha256=expected_git_executable_sha256,
+        )
+        if remote_after.get("error") is not None:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_REMOTE_RECHECK_FAILED"
+            return evidence
+        if remote_after.get("remote_head_sha") != remote_sha:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_REMOTE_CHANGED_DURING_FETCH"
+            return evidence
+
+        old_tracking = None if observed_tracking == "__ABSENT__" else observed_tracking
+        if old_tracking is not None and old_tracking != remote_sha:
+            is_ancestor, ancestor_error = self._is_ancestor(
+                git_executable,
+                old_tracking,
+                remote_sha,
+            )
+            if ancestor_error is not None:
+                evidence["error"] = ancestor_error
+                return evidence
+            if is_ancestor is not True:
+                evidence["error"] = "GIT_FETCH_REMOTE_MAIN_NON_FAST_FORWARD_BLOCKED"
+                return evidence
+
+        tracking_ref_changed = old_tracking != remote_sha
+        if tracking_ref_changed:
+            updated, update_error = self._update_remote_tracking_ref(
+                git_executable,
+                new_sha=remote_sha,
+                old_sha=old_tracking,
+            )
+            if not updated:
+                evidence["error"] = update_error or "GIT_FETCH_REMOTE_MAIN_REF_UPDATE_FAILED"
+                return evidence
+
+        refs_after, refs_after_error = self._local_ref_map(git_executable)
+        status_after, status_after_error = self._status_digest(git_executable)
+        final_identity = self.remote_identity_snapshot(
+            expected_git_executable_path=expected_git_executable_path,
+            expected_git_executable_sha256=expected_git_executable_sha256,
+        )
+        after_verifier = self.preview_git_executable()
+
+        expected_refs = dict(refs_before)
+        expected_refs[FIXED_GIT_REMOTE_TRACKING_REF] = remote_sha
+        postcondition_ok = (
+            refs_after_error is None
+            and refs_after == expected_refs
+            and status_after_error is None
+            and status_after == expected_status_digest
+            and final_identity.get("error") is None
+            and final_identity.get("head_sha") == expected_local_head_sha256
+            and final_identity.get("branch") == FIXED_GIT_REMOTE_BRANCH
+            and after_verifier.get("error") is None
+            and after_verifier.get("git_executable_path")
+            == expected_git_executable_path
+            and after_verifier.get("git_executable_sha256")
+            == expected_git_executable_sha256
+        )
+        if not postcondition_ok:
+            evidence["error"] = "GIT_FETCH_REMOTE_MAIN_POSTCONDITION_FAILED"
+            return evidence
+
+        evidence.update(
+            {
+                "remote_head_sha": remote_sha,
+                "tracking_ref_before": old_tracking,
+                "tracking_ref_after": remote_sha,
+                "tracking_ref_changed": tracking_ref_changed,
+                "remote_head_stable_across_fetch": True,
+                "fetched_commit_available": True,
+                "refs_unchanged_during_object_fetch": True,
+                "working_tree_and_index_unchanged": True,
+                "local_head_unchanged": True,
+                "local_branch_unchanged": True,
                 "git_executable_unchanged": True,
             }
         )

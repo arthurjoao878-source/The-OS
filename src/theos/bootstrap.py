@@ -47,6 +47,7 @@ from theos.core.actions.git_local import (
     GitCommitStagedFileAction,
     GitCommitStagedNewFileAction,
     GitDiffFileAction,
+    GitFetchRemoteMainAction,
     GitRemoteHeadSnapshotAction,
     GitRemoteIdentitySnapshotAction,
     GitStageFileAction,
@@ -99,6 +100,7 @@ def build_action_registry() -> ActionRegistry:
     git_status_snapshot = GitStatusSnapshotAction(local_git)
     git_remote_identity_snapshot = GitRemoteIdentitySnapshotAction(local_git)
     git_remote_head_snapshot = GitRemoteHeadSnapshotAction(local_git)
+    git_fetch_remote_main = GitFetchRemoteMainAction(local_git)
     git_commit_staged_file = GitCommitStagedFileAction(local_git)
     git_commit_staged_new_file = GitCommitStagedNewFileAction(local_git)
     git_diff_file = GitDiffFileAction(local_git)
@@ -183,6 +185,12 @@ def build_action_registry() -> ActionRegistry:
         run_python_unit_test_files.execute,
         risk=run_python_unit_test_files.risk,
         confirmation_preview=run_python_unit_test_files.confirmation_preview,
+    )
+    registry.register(
+        git_fetch_remote_main.name,
+        git_fetch_remote_main.execute,
+        risk=git_fetch_remote_main.risk,
+        confirmation_preview=git_fetch_remote_main.confirmation_preview,
     )
     registry.register(
         git_remote_head_snapshot.name,

@@ -525,6 +525,8 @@ class ToolLoopExecutor:
         if request.action == "git_unstage_file":
             target = str(request.arguments.get("path", "arquivo"))
             return f"Removendo stage Git de {target}..."
+        if request.action == "git_fetch_remote_main":
+            return "Atualizando snapshot local de origin/main..."
         if request.action == "git_remote_head_snapshot":
             return "Lendo HEAD remoto Git autorizado..."
         if request.action == "git_remote_identity_snapshot":

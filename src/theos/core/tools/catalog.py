@@ -825,6 +825,31 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="git_fetch_remote_main",
+            description=(
+                "Após confirmação, importa somente os objetos de refs/heads/main do "
+                "GitHub HTTPS fixo e pode atualizar exclusivamente "
+                "refs/remotes/origin/main para o SHA remoto observado. Não aceita "
+                "argumentos: modelo não escolhe URL, remote, ref, destino, flags, "
+                "repositório ou executável. A prévia é local-only e prende HEAD, estado "
+                "do working tree/índice, conjunto de refs e git.exe. A execução usa M92 "
+                "antes e depois do fetch, fetch sem tags/FETCH_HEAD/submódulos/"
+                "commit-graph/auto-maintenance e atualização atômica de uma única ref. "
+                "Movimento non-fast-forward da ref de tracking é bloqueado. Configs "
+                "global/system, credential helper/askpass e proxies herdados não recebem "
+                "autoridade. Working tree, índice, branch/HEAD e todas as outras refs "
+                "devem permanecer inalterados. Não possui autoridade de pull ou push."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="git_remote_head_snapshot",
             description=(
                 "Lê, após confirmação, somente o SHA atual de refs/heads/main no remoto "
