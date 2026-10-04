@@ -10,6 +10,10 @@ from theos.core.actions.file_system import _is_privileged_read_path
 from theos.integrations.windows.git_local import (
     FIXED_GIT_COMMIT_MESSAGE,
     FIXED_GIT_COMMIT_NEW_FILE_MESSAGE,
+    FIXED_GIT_REMOTE_BRANCH,
+    FIXED_GIT_REMOTE_NAME,
+    FIXED_GIT_REMOTE_REF,
+    FIXED_GIT_REMOTE_URL,
     MAX_GIT_DIFF_FILE_BYTES,
     MAX_GIT_DIFF_LINES,
     MAX_GIT_DIFF_OUTPUT_BYTES,
@@ -25,6 +29,184 @@ _EXPECTED_GIT_EXECUTABLE_PATH = "_expected_git_executable_path"
 _EXPECTED_GIT_EXECUTABLE_SHA256 = "_expected_git_executable_sha256"
 
 
+
+
+class GitRemoteIdentitySnapshotAction:
+    name = "git_remote_identity_snapshot"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, git: WindowsLocalGitAdapter) -> None:
+        self._git = git
+
+    @staticmethod
+    def _blocked_preview(evidence: dict[str, object]) -> ConfirmationPreview:
+        messages = {
+            "GIT_EXECUTABLE_NOT_AVAILABLE": "O git.exe local não está disponível.",
+            "GIT_EXECUTABLE_LINK_NOT_ALLOWED": (
+                "O git.exe local não pode ser link/junction."
+            ),
+            "GIT_EXECUTABLE_TOO_LARGE": (
+                "O git.exe local excede o limite de identidade."
+            ),
+            "GIT_EXECUTABLE_UNREADABLE": (
+                "Não foi possível hashear o git.exe local."
+            ),
+        }
+        return ConfirmationPreview(
+            allowed=False,
+            text=messages.get(
+                str(evidence.get("error")),
+                "Não foi possível preparar a inspeção da identidade Git remota.",
+            ),
+        )
+
+    def confirmation_preview(self, request: ActionRequest) -> ConfirmationPreview:
+        _ = request
+        try:
+            verifier = self._git.preview_git_executable()
+        except (OSError, ValueError):
+            return ConfirmationPreview(
+                allowed=False,
+                text="Não foi possível validar o git.exe local.",
+            )
+        if verifier.get("error") is not None:
+            return self._blocked_preview(verifier)
+
+        git_path = str(verifier["git_executable_path"])
+        git_sha256 = str(verifier["git_executable_sha256"])
+        repository_root = str(verifier["repository_root"])
+
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "INSPECIONAR IDENTIDADE GIT REMOTA LOCAL\n"
+                f"Repositório fixo: {repository_root}\n"
+                f"Remote autorizado esperado: {FIXED_GIT_REMOTE_NAME}\n"
+                f"URL autorizada esperada: {FIXED_GIT_REMOTE_URL}\n"
+                f"Branch autorizada esperada: {FIXED_GIT_REMOTE_BRANCH}\n"
+                f"Ref remota autorizada esperada: {FIXED_GIT_REMOTE_REF}\n"
+                f"git.exe aprovado: {git_path}\n"
+                f"SHA-256 do git.exe: {git_sha256}\n"
+                "Após esta confirmação, THE OS fará somente leituras Git locais e "
+                "fixas do checkout e de .git/config para provar que origin/main "
+                "correspondem exatamente à identidade autorizada. Configurações locais "
+                "de pushurl, push refspec, pushDefault, branch pushRemote, receivepack, "
+                "uploadpack, core.sshCommand e url.*.insteadOf são bloqueadas.\n"
+                "Nenhum contato de rede será feito: não há ls-remote, fetch, pull ou "
+                "push. Valores configurados divergentes não são enviados ao provedor; "
+                "apenas a classe de mismatch é retornada."
+            ),
+            execution_guard={
+                _EXPECTED_GIT_EXECUTABLE_PATH: git_path,
+                _EXPECTED_GIT_EXECUTABLE_SHA256: git_sha256,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        expected_path = request.arguments.get(_EXPECTED_GIT_EXECUTABLE_PATH)
+        expected_sha256 = request.arguments.get(_EXPECTED_GIT_EXECUTABLE_SHA256)
+
+        if (
+            not isinstance(expected_path, str)
+            or not expected_path
+            or not isinstance(expected_sha256, str)
+            or len(expected_sha256) != 64
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="A inspeção da identidade remota exige a prévia local aprovada.",
+                error_code="GIT_REMOTE_IDENTITY_PREVIEW_REQUIRED",
+            )
+
+        try:
+            evidence = self._git.remote_identity_snapshot(
+                expected_git_executable_path=expected_path,
+                expected_git_executable_sha256=expected_sha256,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui validar a identidade Git remota local.",
+                evidence={"exception": type(exc).__name__},
+                error_code="GIT_REMOTE_IDENTITY_FAILED",
+            )
+
+        error = evidence.get("error")
+        if isinstance(error, str):
+            messages = {
+                "GIT_REMOTE_IDENTITY_ROOT_MISMATCH": (
+                    "A raiz Git não corresponde ao checkout fixo autorizado."
+                ),
+                "GIT_REMOTE_IDENTITY_BRANCH_MISMATCH": (
+                    "A branch local atual não é a branch main autorizada."
+                ),
+                "GIT_REMOTE_IDENTITY_URL_MISMATCH": (
+                    "A URL local de origin não corresponde ao remoto autorizado."
+                ),
+                "GIT_REMOTE_IDENTITY_FETCH_REFSPEC_MISMATCH": (
+                    "O refspec local de fetch de origin não corresponde à política autorizada."
+                ),
+                "GIT_REMOTE_IDENTITY_TRACKING_REMOTE_MISMATCH": (
+                    "main não rastreia exatamente o remote origin autorizado."
+                ),
+                "GIT_REMOTE_IDENTITY_TRACKING_REF_MISMATCH": (
+                    "main não rastreia exatamente refs/heads/main."
+                ),
+                "GIT_REMOTE_IDENTITY_PUSHURL_NOT_ALLOWED": (
+                    "origin possui pushurl local, o que não é permitido nesta fronteira."
+                ),
+                "GIT_REMOTE_IDENTITY_PUSH_REFSPEC_NOT_ALLOWED": (
+                    "origin possui push refspec local, o que não é permitido nesta fronteira."
+                ),
+                "GIT_REMOTE_IDENTITY_PUSH_DEFAULT_NOT_ALLOWED": (
+                    "remote.pushDefault local não é permitido nesta fronteira."
+                ),
+                "GIT_REMOTE_IDENTITY_BRANCH_PUSH_REMOTE_NOT_ALLOWED": (
+                    "branch.main.pushRemote local não é permitido nesta fronteira."
+                ),
+                "GIT_REMOTE_IDENTITY_RECEIVEPACK_NOT_ALLOWED": (
+                    "remote.origin.receivepack local não é permitido nesta fronteira."
+                ),
+                "GIT_REMOTE_IDENTITY_UPLOADPACK_NOT_ALLOWED": (
+                    "remote.origin.uploadpack local não é permitido nesta fronteira."
+                ),
+                "GIT_REMOTE_IDENTITY_SSH_COMMAND_NOT_ALLOWED": (
+                    "core.sshCommand local não é permitido nesta fronteira."
+                ),
+                "GIT_REMOTE_IDENTITY_URL_REWRITE_NOT_ALLOWED": (
+                    "Configuração local url.*.insteadOf não é permitida nesta fronteira."
+                ),
+                "GIT_EXECUTABLE_CHANGED_AFTER_PREVIEW": (
+                    "O git.exe mudou após a aprovação; inspeção bloqueada."
+                ),
+                "GIT_EXECUTABLE_CHANGED_DURING_REMOTE_IDENTITY_READ": (
+                    "O git.exe mudou durante a inspeção; resultado descartado."
+                ),
+            }
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=messages.get(
+                    error,
+                    "A identidade Git remota local não pôde ser validada exatamente.",
+                ),
+                evidence=evidence,
+                error_code=error,
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                "Identidade Git remota local verificada: "
+                f"{evidence['remote_name']} -> {evidence['remote_url']}, "
+                f"branch {evidence['branch']} rastreando {evidence['tracking_ref']}; "
+                "nenhum contato de rede foi realizado."
+            ),
+            evidence=evidence,
+        )
 
 
 _EXPECTED_GIT_DIFF_PATH = "_expected_git_diff_path"

@@ -32,6 +32,13 @@ GIT_COMMIT_TIMEOUT_SECONDS = 10.0
 FIXED_GIT_COMMIT_MESSAGE = "chore: commit approved staged file"
 FIXED_GIT_COMMIT_NEW_FILE_MESSAGE = "chore: commit approved staged new file"
 
+FIXED_GIT_REMOTE_NAME = "origin"
+FIXED_GIT_REMOTE_URL = "https://github.com/arthurjoao878-source/The-OS.git"
+FIXED_GIT_REMOTE_BRANCH = "main"
+FIXED_GIT_REMOTE_REF = "refs/heads/main"
+FIXED_GIT_REMOTE_FETCH = "+refs/heads/*:refs/remotes/origin/*"
+
+
 
 class WindowsLocalGitAdapter:
     """Bounded local Git operations for THE OS's own checkout."""
@@ -242,6 +249,278 @@ class WindowsLocalGitAdapter:
             "path_text_truncated": path_truncated,
         }
 
+
+    def _read_local_config_values(
+        self,
+        git_executable: Path,
+        key: str,
+    ) -> tuple[list[str] | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                ["config", "--local", "--get-all", key],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_REMOTE_IDENTITY_TIMEOUT"
+        except OSError:
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_READ_FAILED"
+
+        if result.returncode == 1:
+            return [], None
+        if result.returncode != 0:
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_READ_FAILED"
+        if len(result.stdout) > MAX_GIT_STATUS_OUTPUT_BYTES:
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_OUTPUT_TOO_LARGE"
+        try:
+            text = result.stdout.decode("utf-8")
+        except UnicodeDecodeError:
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_ENCODING_FAILED"
+
+        values = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip()
+        ]
+        if any(
+            len(value) > 2048
+            or any(character in value for character in ("\0", "\r", "\n"))
+            for value in values
+        ):
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_OUTPUT_INVALID"
+        return values, None
+
+    def _local_url_rewrite_present(
+        self,
+        git_executable: Path,
+    ) -> tuple[bool | None, str | None]:
+        try:
+            result = self._run_git(
+                git_executable,
+                [
+                    "config",
+                    "--local",
+                    "--get-regexp",
+                    r"^url\..*\.insteadOf$",
+                ],
+            )
+        except subprocess.TimeoutExpired:
+            return None, "GIT_REMOTE_IDENTITY_TIMEOUT"
+        except OSError:
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_READ_FAILED"
+
+        if result.returncode == 1:
+            return False, None
+        if result.returncode != 0:
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_READ_FAILED"
+        if len(result.stdout) > MAX_GIT_STATUS_OUTPUT_BYTES:
+            return None, "GIT_REMOTE_IDENTITY_CONFIG_OUTPUT_TOO_LARGE"
+        return bool(result.stdout.strip()), None
+
+    def remote_identity_snapshot(
+        self,
+        *,
+        expected_git_executable_path: str,
+        expected_git_executable_sha256: str,
+    ) -> dict[str, object]:
+        evidence: dict[str, object] = {
+            "repository_root": str(self._repository_root),
+            "remote_name": FIXED_GIT_REMOTE_NAME,
+            "expected_remote_url": FIXED_GIT_REMOTE_URL,
+            "expected_branch": FIXED_GIT_REMOTE_BRANCH,
+            "expected_remote_ref": FIXED_GIT_REMOTE_REF,
+            "expected_fetch_refspec": FIXED_GIT_REMOTE_FETCH,
+            "remote_config_observed_values_returned": False,
+            "network_contact": False,
+            "git_remote_authority": False,
+            "push_authority": False,
+            "fetch_authority": False,
+            "shell_used": False,
+            "git_optional_locks_disabled": True,
+            "git_environment_inherited_git_keys_scrubbed": True,
+        }
+
+        verifier = self.preview_git_executable()
+        if (
+            verifier.get("error") is not None
+            or verifier.get("git_executable_path")
+            != expected_git_executable_path
+            or verifier.get("git_executable_sha256")
+            != expected_git_executable_sha256
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_AFTER_PREVIEW"
+            return evidence
+
+        git_executable = Path(expected_git_executable_path)
+
+        try:
+            root_result = self._run_git(
+                git_executable,
+                ["rev-parse", "--show-toplevel"],
+            )
+            if root_result.returncode != 0:
+                evidence["error"] = "GIT_REMOTE_IDENTITY_REPOSITORY_NOT_AVAILABLE"
+                return evidence
+            root_text = self._decode_small_output(
+                root_result.stdout,
+                error_code="GIT_REMOTE_IDENTITY_OUTPUT_TOO_LARGE",
+            )
+            actual_root = Path(root_text).resolve(strict=False)
+            if os.path.normcase(str(actual_root)) != os.path.normcase(
+                str(self._repository_root)
+            ):
+                evidence["error"] = "GIT_REMOTE_IDENTITY_ROOT_MISMATCH"
+                return evidence
+
+            head_result = self._run_git(
+                git_executable,
+                ["rev-parse", "--verify", "HEAD"],
+            )
+            if head_result.returncode != 0:
+                evidence["error"] = "GIT_REMOTE_IDENTITY_HEAD_NOT_AVAILABLE"
+                return evidence
+            head_sha = self._decode_small_output(
+                head_result.stdout,
+                error_code="GIT_REMOTE_IDENTITY_OUTPUT_TOO_LARGE",
+            )
+            if re.fullmatch(r"[0-9a-fA-F]{40,64}", head_sha) is None:
+                evidence["error"] = "GIT_REMOTE_IDENTITY_HEAD_INVALID"
+                return evidence
+            head_sha = head_sha.lower()
+
+            branch_result = self._run_git(
+                git_executable,
+                ["branch", "--show-current"],
+            )
+            if branch_result.returncode != 0:
+                evidence["error"] = "GIT_REMOTE_IDENTITY_BRANCH_NOT_AVAILABLE"
+                return evidence
+            branch = self._decode_small_output(
+                branch_result.stdout,
+                error_code="GIT_REMOTE_IDENTITY_OUTPUT_TOO_LARGE",
+            )
+            if branch != FIXED_GIT_REMOTE_BRANCH:
+                evidence["error"] = "GIT_REMOTE_IDENTITY_BRANCH_MISMATCH"
+                return evidence
+        except subprocess.TimeoutExpired:
+            evidence["error"] = "GIT_REMOTE_IDENTITY_TIMEOUT"
+            return evidence
+        except (OSError, RuntimeError):
+            evidence["error"] = "GIT_REMOTE_IDENTITY_LOCAL_READ_FAILED"
+            return evidence
+
+        exact_config = (
+            (
+                f"remote.{FIXED_GIT_REMOTE_NAME}.url",
+                [FIXED_GIT_REMOTE_URL],
+                "GIT_REMOTE_IDENTITY_URL_MISMATCH",
+            ),
+            (
+                f"remote.{FIXED_GIT_REMOTE_NAME}.fetch",
+                [FIXED_GIT_REMOTE_FETCH],
+                "GIT_REMOTE_IDENTITY_FETCH_REFSPEC_MISMATCH",
+            ),
+            (
+                f"branch.{FIXED_GIT_REMOTE_BRANCH}.remote",
+                [FIXED_GIT_REMOTE_NAME],
+                "GIT_REMOTE_IDENTITY_TRACKING_REMOTE_MISMATCH",
+            ),
+            (
+                f"branch.{FIXED_GIT_REMOTE_BRANCH}.merge",
+                [FIXED_GIT_REMOTE_REF],
+                "GIT_REMOTE_IDENTITY_TRACKING_REF_MISMATCH",
+            ),
+        )
+        for key, expected_values, mismatch_error in exact_config:
+            values, config_error = self._read_local_config_values(
+                git_executable,
+                key,
+            )
+            if config_error is not None:
+                evidence["error"] = config_error
+                return evidence
+            if values != expected_values:
+                evidence["error"] = mismatch_error
+                return evidence
+
+        forbidden_config = (
+            (
+                f"remote.{FIXED_GIT_REMOTE_NAME}.pushurl",
+                "GIT_REMOTE_IDENTITY_PUSHURL_NOT_ALLOWED",
+            ),
+            (
+                f"remote.{FIXED_GIT_REMOTE_NAME}.push",
+                "GIT_REMOTE_IDENTITY_PUSH_REFSPEC_NOT_ALLOWED",
+            ),
+            (
+                "remote.pushDefault",
+                "GIT_REMOTE_IDENTITY_PUSH_DEFAULT_NOT_ALLOWED",
+            ),
+            (
+                f"branch.{FIXED_GIT_REMOTE_BRANCH}.pushRemote",
+                "GIT_REMOTE_IDENTITY_BRANCH_PUSH_REMOTE_NOT_ALLOWED",
+            ),
+            (
+                f"remote.{FIXED_GIT_REMOTE_NAME}.receivepack",
+                "GIT_REMOTE_IDENTITY_RECEIVEPACK_NOT_ALLOWED",
+            ),
+            (
+                f"remote.{FIXED_GIT_REMOTE_NAME}.uploadpack",
+                "GIT_REMOTE_IDENTITY_UPLOADPACK_NOT_ALLOWED",
+            ),
+            (
+                "core.sshCommand",
+                "GIT_REMOTE_IDENTITY_SSH_COMMAND_NOT_ALLOWED",
+            ),
+        )
+        for key, present_error in forbidden_config:
+            values, config_error = self._read_local_config_values(
+                git_executable,
+                key,
+            )
+            if config_error is not None:
+                evidence["error"] = config_error
+                return evidence
+            if values:
+                evidence["error"] = present_error
+                return evidence
+
+        rewrite_present, rewrite_error = self._local_url_rewrite_present(
+            git_executable,
+        )
+        if rewrite_error is not None:
+            evidence["error"] = rewrite_error
+            return evidence
+        if rewrite_present:
+            evidence["error"] = "GIT_REMOTE_IDENTITY_URL_REWRITE_NOT_ALLOWED"
+            return evidence
+
+        after_verifier = self.preview_git_executable()
+        if (
+            after_verifier.get("error") is not None
+            or after_verifier.get("git_executable_path")
+            != expected_git_executable_path
+            or after_verifier.get("git_executable_sha256")
+            != expected_git_executable_sha256
+        ):
+            evidence["error"] = "GIT_EXECUTABLE_CHANGED_DURING_REMOTE_IDENTITY_READ"
+            return evidence
+
+        evidence.update(
+            {
+                "head_sha": head_sha,
+                "branch": FIXED_GIT_REMOTE_BRANCH,
+                "remote_url": FIXED_GIT_REMOTE_URL,
+                "tracking_remote": FIXED_GIT_REMOTE_NAME,
+                "tracking_ref": FIXED_GIT_REMOTE_REF,
+                "fetch_refspec": FIXED_GIT_REMOTE_FETCH,
+                "pushurl_present": False,
+                "push_refspec_present": False,
+                "url_rewrite_present": False,
+                "git_executable_unchanged": True,
+                "remote_identity_exact_match": True,
+            }
+        )
+        return evidence
 
     @staticmethod
     def _normalize_repo_relative_path(raw_path: str) -> str | None:

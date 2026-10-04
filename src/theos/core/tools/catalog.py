@@ -825,6 +825,30 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="git_remote_identity_snapshot",
+            description=(
+                "Valida, após confirmação, somente a configuração Git local que define "
+                "a identidade remota autorizada do checkout do THE OS. Não aceita "
+                "argumentos: o modelo não escolhe remote, URL, branch, ref, comando, "
+                "flag, repositório ou executável. A execução lê somente root/HEAD/branch "
+                "e chaves locais fixas de .git/config, exigindo origin apontando exatamente "
+                "para o repositório GitHub autorizado, main rastreando refs/heads/main e o "
+                "refspec de fetch esperado. pushurl, push refspec, remote.pushDefault, "
+                "branch.main.pushRemote, receivepack, uploadpack, core.sshCommand e "
+                "url.*.insteadOf locais são bloqueados. Valores divergentes não são "
+                "retornados ao provedor. Não há contato de rede nem autoridade de "
+                "ls-remote, fetch, pull, push ou mutação Git."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        _validate_no_arguments,
+    )
+    catalog.register(
+        ToolDefinition(
             name="git_status_snapshot",
             description=(
                 "Inspeciona de forma confirmada e somente leitura o status Git do "
