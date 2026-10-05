@@ -22,6 +22,7 @@ from theos.lyra.context import ConversationTurn, SessionContext
 from theos.lyra.execution import (
     ExecutionControl,
     ExecutionStatus,
+    LyraRunState,
     PendingActionConfirmation,
     ToolLoopExecutor,
     ToolLoopResult,
@@ -29,12 +30,14 @@ from theos.lyra.execution import (
 from theos.lyra.memory.intent import MemoryIntentKind
 from theos.lyra.memory.service import MemoryService
 from theos.lyra.planning import LyraPlanner, PlanKind
+from theos.shell.assistant.workflow_progress import present_run_state
 
 
 class WorkerSignals(QObject):
     finished = Signal(object)
     failed = Signal(str)
     progress = Signal(str)
+    state = Signal(object)
 
 
 class ActionWorker(QRunnable):
@@ -74,6 +77,7 @@ class ToolLoopWorker(QRunnable):
                 tools=self.tools,
                 control=self.control,
                 progress=self.signals.progress.emit,
+                state=self.signals.state.emit,
             )
         except (TypeError, ValueError):
             self.signals.failed.emit("O loop de ferramentas retornou um estado inválido.")
@@ -104,6 +108,7 @@ class ToolLoopResumeWorker(QRunnable):
                 approved=self.approved,
                 control=self.control,
                 progress=self.signals.progress.emit,
+                state=self.signals.state.emit,
             )
         except (TypeError, ValueError):
             self.signals.failed.emit("Não consegui retomar a ação após a confirmação.")
@@ -141,6 +146,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(root)
 
         header = QLabel("LYRA  ● ON")
+        self.workflow_status = QLabel("Tarefa: ociosa")
         self.chat = QPlainTextEdit()
         self.chat.setReadOnly(True)
         self.input = QLineEdit()
@@ -162,6 +168,7 @@ class MainWindow(QMainWindow):
         controls.addStretch(1)
 
         layout.addWidget(header)
+        layout.addWidget(self.workflow_status)
         layout.addWidget(self.chat, 1)
         layout.addLayout(composer)
         layout.addLayout(controls)
@@ -280,6 +287,7 @@ class MainWindow(QMainWindow):
             control,
         )
         worker.signals.progress.connect(self._on_tool_progress)
+        worker.signals.state.connect(self._on_tool_state)
         worker.signals.finished.connect(self._on_tool_loop_result)
         worker.signals.failed.connect(self._on_ai_failure)
         self._pool.start(worker)
@@ -393,6 +401,11 @@ class MainWindow(QMainWindow):
     def _on_tool_progress(self, message: str) -> None:
         self._lyra(message, remember_in_session=True)
 
+    def _on_tool_state(self, state: object) -> None:
+        if not isinstance(state, LyraRunState):
+            return
+        self.workflow_status.setText(present_run_state(state).text)
+
     def _on_tool_loop_result(self, result: object) -> None:
         if not isinstance(result, ToolLoopResult):
             self._lyra("O loop de ferramentas retornou um resultado inválido.")
@@ -438,6 +451,7 @@ class MainWindow(QMainWindow):
             approved=approved,
         )
         worker.signals.progress.connect(self._on_tool_progress)
+        worker.signals.state.connect(self._on_tool_state)
         worker.signals.finished.connect(self._on_tool_loop_result)
         worker.signals.failed.connect(self._on_ai_failure)
         self._pool.start(worker)

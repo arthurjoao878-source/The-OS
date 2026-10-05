@@ -206,8 +206,10 @@ clear.
    while reusing specialized workflow summaries such as M100.
 9. M102: Structured Workflow Progress v1, deriving compact live progress snapshots
    from M99/M100/M101 evidence without adding execution semantics.
-10. Then continue user-facing LYRA capabilities, perception, personality, voice, and
-   composed workflows as concrete needs justify them.
+10. M103: Host Workflow Progress v1, presenting the M102 state stream in the desktop
+    host without adding authority or execution behavior.
+11. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+    composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
 
@@ -457,3 +459,26 @@ M102 adds no future-plan inference, no persistence, no supervisor, no new author
 no new confirmation rule, no cross-process resume, and no runtime tool. Progress is an
 interpretation of already-recorded run evidence, not proof that the user's higher-level
 goal was achieved.
+
+## M103 - Host Workflow Progress v1
+
+M103 makes the desktop host consume the M102 run-state stream and present a compact
+workflow status line to the user.
+
+The tool-loop worker and confirmation-resume worker forward the existing M99 state
+callback through a Qt signal. The main window converts each received `LyraRunState`
+into the M102 `WorkflowProgressState` and then into a host-only presentation view.
+
+The host status line distinguishes started, running, awaiting-confirmation,
+step-completed, completed, failed, and cancelled states. When an action is current or a
+step has completed, it also surfaces the concrete action name, bounded step count, and
+its M101 domain using user-facing labels.
+
+The presentation adapter is deliberately separate from execution. It cannot approve,
+reject, resume, cancel, reorder, or synthesize actions. Existing confirmation dialogs
+and `ExecutionControl` remain unchanged. The state signal is observational only.
+
+M103 adds no authority, no new execution primitive, no runtime tool, no durable progress
+store, no cross-process resume, and no future-plan inference. The displayed completion
+state means the bounded LYRA tool loop reached its terminal run state; it does not prove
+the user's higher-level goal was achieved.
