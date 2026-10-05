@@ -53,7 +53,7 @@ def test_git_unstage_new_catalog_is_single_repo_relative_path() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["git_unstage_new_file"]
 
-    assert len(definitions) == 55
+    assert len(definitions) == 56
     assert set(definition.parameters["properties"]) == {"path"}
     assert set(definition.parameters["required"]) == {"path"}
     assert definition.parameters["additionalProperties"] is False

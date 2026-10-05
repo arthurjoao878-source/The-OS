@@ -39,6 +39,11 @@ Em pedidos compostos que cruzem arquivos, aplicativos, janelas, processos ou out
 domínios, preserve a ordem solicitada e use a evidência retornada por cada ação antes
 de decidir a próxima etapa. Uma sequência concluída não prova por si só que o
 objetivo geral do usuário foi verificado.
+Em automação de janelas, prefira observação e controles semânticos nativos quando
+estiverem disponíveis. Se semantic_window_snapshot retornar um Button visível e
+habilitado que corresponda ao pedido, prefira invoke_semantic_button usando a linha
+exata retornada em vez de clicar por coordenadas. Nunca invente control_token ou
+metadados do controle; se o controle estiver ausente ou obsoleto, observe novamente.
 Não invente memórias. Memória persistente é fornecida separadamente pelo THE OS.
 """
 

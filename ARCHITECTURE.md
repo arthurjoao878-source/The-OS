@@ -208,7 +208,9 @@ clear.
    from M99/M100/M101 evidence without adding execution semantics.
 10. M103: Host Workflow Progress v1, presenting the M102 state stream in the desktop
     host without adding authority or execution behavior.
-11. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+11. M104: Native Semantic Button Invoke v1, consuming an exact M98 control token for
+    one bounded Win32 Button action before coordinate fallback.
+12. Then continue user-facing LYRA capabilities, perception, personality, voice, and
     composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -482,3 +484,34 @@ M103 adds no authority, no new execution primitive, no runtime tool, no durable 
 store, no cross-process resume, and no future-plan inference. The displayed completion
 state means the bounded LYRA tool loop reached its terminal run state; it does not prove
 the user's higher-level goal was achieved.
+
+## M104 - Native Semantic Button Invoke v1
+
+M104 gives the M98 semantic desktop path its first direct execution consumer:
+`invoke_semantic_button`.
+
+The action accepts only an exact, recently observed window plus an exact Button row from
+`semantic_window_snapshot`. The request carries the M97 window observation handle, the
+window target token, the process and title, and the semantic control token together with
+the Button metadata that was presented to the model.
+
+Before dispatch, The Hands revalidates the signed window observation, resolves the exact
+window again, enumerates its native Win32 child controls again, and requires one visible,
+enabled `Button` whose recomputed opaque token, bounded name, and control id still match
+the approved row. Stale, changed, hidden, disabled, non-button, missing, or ambiguous
+controls fail closed.
+
+The concrete invocation uses bounded `SendMessageTimeoutW(BM_CLICK)` rather than cursor
+coordinates. A successful dispatch records `effect_dispatched=True`; it deliberately
+does not claim that the application's internal semantic outcome or the user's
+higher-level goal was verified. Existing coordinate and anchor tools remain fallbacks
+for interfaces that do not expose a usable native Button.
+
+`invoke_semantic_button` remains behind the existing local confirmation bridge. Its
+preview binds the exact window observation and semantic control metadata into an
+execution guard before the effect is allowed. This is still compatibility approval
+infrastructure, not Phoenix authority.
+
+M104 adds one normal-runtime The Hands tool and no development-only tool. It adds no
+Phoenix policy, grant, supervisor, durable control registry, raw HWND exposure, OCR,
+cross-process resume, or general UI Automation framework.

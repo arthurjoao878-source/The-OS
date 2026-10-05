@@ -37,6 +37,10 @@ from theos.core.window_observations import (
     validate_window_observation_handle,
 )
 from theos.core.window_placements import get_window_placement_spec
+from theos.core.window_semantics import (
+    MAX_SEMANTIC_NAME_CHARS,
+    is_semantic_control_token,
+)
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_queries,
@@ -436,6 +440,326 @@ class SemanticWindowSnapshotAction:
                 "Valores de campos de texto não foram coletados."
             ),
             evidence=evidence,
+        )
+
+
+_EXPECTED_SEMANTIC_BUTTON_PID = "_theos_expected_semantic_button_pid"
+_EXPECTED_SEMANTIC_BUTTON_TITLE = "_theos_expected_semantic_button_title"
+_EXPECTED_SEMANTIC_BUTTON_TARGET_TOKEN = (
+    "_theos_expected_semantic_button_target_token"
+)
+_EXPECTED_SEMANTIC_BUTTON_OBSERVATION_HANDLE = (
+    "_theos_expected_semantic_button_observation_handle"
+)
+_EXPECTED_SEMANTIC_BUTTON_CONTROL_TOKEN = (
+    "_theos_expected_semantic_button_control_token"
+)
+_EXPECTED_SEMANTIC_BUTTON_NAME = "_theos_expected_semantic_button_name"
+_EXPECTED_SEMANTIC_BUTTON_CONTROL_ID = (
+    "_theos_expected_semantic_button_control_id"
+)
+
+
+class InvokeSemanticButtonAction:
+    name = "invoke_semantic_button"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def _validated_arguments(
+        request: ActionRequest,
+    ) -> tuple[
+        int,
+        str,
+        str,
+        dict[str, object],
+        str,
+        str,
+        int | None,
+    ] | None:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
+        control_token = request.arguments.get("control_token")
+        role = request.arguments.get("role")
+        name = request.arguments.get("name")
+        class_name = request.arguments.get("class_name")
+        control_id = request.arguments.get("control_id")
+        enabled = request.arguments.get("enabled")
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or observation_handle is None
+            or not is_semantic_control_token(control_token)
+            or role != "button"
+            or not isinstance(name, str)
+            or not name.strip()
+            or len(name.strip()) > MAX_SEMANTIC_NAME_CHARS
+            or class_name != "Button"
+            or (
+                control_id is not None
+                and (
+                    not isinstance(control_id, int)
+                    or isinstance(control_id, bool)
+                    or control_id < 0
+                )
+            )
+            or enabled is not True
+        ):
+            return None
+
+        try:
+            validated_handle = validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError:
+            return None
+
+        return (
+            pid,
+            title.strip(),
+            target_token,
+            validated_handle,
+            control_token,
+            name.strip(),
+            control_id,
+        )
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        validated = InvokeSemanticButtonAction._validated_arguments(request)
+        if validated is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Invocação semântica bloqueada antes da confirmação: "
+                    "alvo, observação ou botão inválidos."
+                ),
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            name,
+            control_id,
+        ) = validated
+        control_id_text = (
+            "indisponível"
+            if control_id is None
+            else str(control_id)
+        )
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "ACIONAR BOTÃO SEMÂNTICO NATIVO\n"
+                f"Janela exata: {title} (PID {pid}).\n"
+                f"Botão: {name}\n"
+                f"ID de controle: {control_id_text}\n"
+                f"Alvo da janela: {target_token[:12]}...\n"
+                f"Token do controle: {control_token[:12]}...\n"
+                "Após a confirmação, o THE HANDS revalidará a observação da janela "
+                "e enumerará novamente seus controles Win32. Somente o Button visível "
+                "e habilitado que ainda corresponda ao token e metadados aprovados "
+                "poderá ser acionado.\n"
+                "A invocação usa BM_CLICK nativo com timeout limitado e não usa "
+                "coordenadas, movimento do cursor ou texto digitado. O despacho do "
+                "evento pode ser confirmado; o efeito interno do aplicativo não será "
+                "tratado como objetivo verificado."
+            ),
+            execution_guard={
+                _EXPECTED_SEMANTIC_BUTTON_PID: pid,
+                _EXPECTED_SEMANTIC_BUTTON_TITLE: title,
+                _EXPECTED_SEMANTIC_BUTTON_TARGET_TOKEN: target_token,
+                _EXPECTED_SEMANTIC_BUTTON_OBSERVATION_HANDLE: observation_handle,
+                _EXPECTED_SEMANTIC_BUTTON_CONTROL_TOKEN: control_token,
+                _EXPECTED_SEMANTIC_BUTTON_NAME: name,
+                _EXPECTED_SEMANTIC_BUTTON_CONTROL_ID: control_id,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        validated = self._validated_arguments(request)
+        if validated is None:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A invocação do botão semântico não possui argumentos "
+                    "válidos e recentemente observados."
+                ),
+                error_code="SEMANTIC_BUTTON_ARGUMENTS_INVALID",
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            name,
+            control_id,
+        ) = validated
+
+        if (
+            request.arguments.get(_EXPECTED_SEMANTIC_BUTTON_PID) != pid
+            or request.arguments.get(_EXPECTED_SEMANTIC_BUTTON_TITLE) != title
+            or request.arguments.get(_EXPECTED_SEMANTIC_BUTTON_TARGET_TOKEN)
+            != target_token
+            or request.arguments.get(
+                _EXPECTED_SEMANTIC_BUTTON_OBSERVATION_HANDLE
+            )
+            != observation_handle
+            or request.arguments.get(_EXPECTED_SEMANTIC_BUTTON_CONTROL_TOKEN)
+            != control_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_BUTTON_NAME) != name
+            or request.arguments.get(_EXPECTED_SEMANTIC_BUTTON_CONTROL_ID)
+            != control_id
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "O botão semântico não possui uma prévia local aprovada "
+                    "para estes metadados exatos."
+                ),
+                error_code="SEMANTIC_BUTTON_PREVIEW_REQUIRED",
+            )
+
+        try:
+            validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A observação da janela não é mais válida; "
+                    "inspecione a janela novamente."
+                ),
+                evidence={"reason": exc.code},
+                error_code=exc.code,
+            )
+
+        try:
+            evidence = self._windows.invoke_semantic_button(
+                pid,
+                title,
+                target_token,
+                control_token,
+                name,
+                control_id,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_SEMANTIC_BUTTON_INVOKE_BLOCKED": (
+                    "A LYRA bloqueou a invocação semântica na própria janela.",
+                    "SELF_WINDOW_SEMANTIC_BUTTON_INVOKE_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo opaco.",
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei a moldura visual da janela exata.",
+                    "WINDOW_VISUAL_FRAME_NOT_FOUND",
+                ),
+                "WINDOW_VISUAL_FRAME_AMBIGUOUS": (
+                    "A moldura visual da janela ficou ambígua.",
+                    "WINDOW_VISUAL_FRAME_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_TOKEN_INVALID": (
+                    "O token opaco do controle é inválido.",
+                    "SEMANTIC_CONTROL_TOKEN_INVALID",
+                ),
+                "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE": (
+                    "O botão semântico não existe mais; inspecione a janela novamente.",
+                    "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE",
+                ),
+                "SEMANTIC_CONTROL_AMBIGUOUS": (
+                    "O controle semântico ficou ambíguo e não foi acionado.",
+                    "SEMANTIC_CONTROL_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_NOT_BUTTON": (
+                    "O controle observado não é mais um botão nativo.",
+                    "SEMANTIC_CONTROL_NOT_BUTTON",
+                ),
+                "SEMANTIC_CONTROL_METADATA_CHANGED": (
+                    "Os metadados do botão mudaram; inspecione a janela novamente.",
+                    "SEMANTIC_CONTROL_METADATA_CHANGED",
+                ),
+                "SEMANTIC_CONTROL_NOT_VISIBLE": (
+                    "O botão semântico não está mais visível.",
+                    "SEMANTIC_CONTROL_NOT_VISIBLE",
+                ),
+                "SEMANTIC_CONTROL_DISABLED": (
+                    "O botão semântico está desabilitado e não foi acionado.",
+                    "SEMANTIC_CONTROL_DISABLED",
+                ),
+                "SEMANTIC_BUTTON_INVOKE_NOT_ACCEPTED": (
+                    "O Windows não confirmou o despacho da invocação do botão.",
+                    "SEMANTIC_BUTTON_INVOKE_NOT_ACCEPTED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui acionar esse botão semântico nativo.",
+                evidence={"reason": reason},
+                error_code="SEMANTIC_BUTTON_INVOKE_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui acionar esse botão semântico nativo.",
+                evidence={"exception": type(exc).__name__},
+                error_code="SEMANTIC_BUTTON_INVOKE_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Botão semântico acionado: {evidence['name']} em "
+                f"{evidence['title']} (PID {evidence['pid']}); "
+                "despacho nativo verificado, efeito interno não inspecionado."
+            ),
+            evidence=evidence,
+            effect_dispatched=True,
+            postcondition_verified=None,
         )
 
 

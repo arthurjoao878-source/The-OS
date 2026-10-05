@@ -41,6 +41,7 @@ _WINDOW_ACTIONS = frozenset(
         "window_snapshot",
         "window_snapshot_many",
         "semantic_window_snapshot",
+        "invoke_semantic_button",
         "activate_window",
         "move_cursor_window_anchor",
         "click_window",

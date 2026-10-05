@@ -10,6 +10,7 @@ from theos.core.actions.desktop_windows import (
     DoubleClickWindowAction,
     DoubleClickWindowAnchorAction,
     DragWindowAnchorAction,
+    InvokeSemanticButtonAction,
     MaximizeWindowAction,
     MinimizeWindowAction,
     MoveCursorWindowAnchorAction,
@@ -126,6 +127,7 @@ def build_action_registry() -> ActionRegistry:
     window_snapshot = WindowSnapshotAction(windows_desktop)
     window_snapshot_many = WindowSnapshotManyAction(windows_desktop)
     semantic_window_snapshot = SemanticWindowSnapshotAction(windows_desktop)
+    invoke_semantic_button = InvokeSemanticButtonAction(windows_desktop)
     activate_window = ActivateWindowAction(windows_desktop)
     move_cursor_window_anchor = MoveCursorWindowAnchorAction(windows_desktop)
     click_window = ClickWindowAction(windows_desktop)
@@ -356,6 +358,12 @@ def build_action_registry() -> ActionRegistry:
         semantic_window_snapshot.execute,
         risk=semantic_window_snapshot.risk,
         confirmation_preview=semantic_window_snapshot.confirmation_preview,
+    )
+    registry.register(
+        invoke_semantic_button.name,
+        invoke_semantic_button.execute,
+        risk=invoke_semantic_button.risk,
+        confirmation_preview=invoke_semantic_button.confirmation_preview,
     )
     registry.register(
         activate_window.name,
