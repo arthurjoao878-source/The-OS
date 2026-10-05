@@ -275,3 +275,39 @@ Phoenix authority, change confirmation policy, or rewrite the Windows engine.
 
 Future milestones may migrate additional consumers and refine stale-reference behavior
 only when a real workflow requires it.
+
+## M98 - Semantic Desktop v1
+
+M98 adds one narrow semantic desktop path without replacing the existing coordinate and
+anchor engines.
+
+The first path is `semantic_window_snapshot`. It starts from an exact, recently
+observed window and enumerates native Win32 child controls from the resolved visual
+frame. The result is structured control metadata rather than a screenshot or a
+coordinate action.
+
+Version 1 returns at most 32 visible native controls with:
+
+- a class-derived semantic role;
+- a bounded UI label only for native Button and Static controls;
+- the native class name;
+- a dialog control id when available;
+- enabled state;
+- an opaque process-local `control_token`.
+
+Text editor and rich-edit values are deliberately not collected. Raw child HWND values
+are never returned. The new control token is an observation reference precursor, not
+an authorization grant.
+
+`semantic_window_snapshot` requires a valid M97 window `observation_handle`, so semantic
+inspection is grounded in a recent exact window observation. The handle is revalidated
+locally before child-control enumeration.
+
+The semantic source in M98 is intentionally narrow: native Win32 child-control metadata.
+It does not claim full Microsoft UI Automation coverage, OCR, visual understanding, or
+cross-framework accessibility support. Existing mouse, keyboard, coordinate, anchor,
+and window-state tools remain unchanged and available as fallbacks when a UI does not
+expose useful native controls.
+
+M98 introduces no Phoenix authority, no new approval policy, no raw command execution,
+and no rewrite of the existing Windows target resolver.

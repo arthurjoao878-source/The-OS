@@ -257,6 +257,188 @@ class WindowSnapshotManyAction:
             ),
             evidence=evidence,
         )
+class SemanticWindowSnapshotAction:
+    name = "semantic_window_snapshot"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def _validated_arguments(
+        request: ActionRequest,
+    ) -> tuple[int, str, str, dict[str, object]] | None:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or observation_handle is None
+        ):
+            return None
+
+        try:
+            validated_handle = validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError:
+            return None
+
+        return pid, title.strip(), target_token, validated_handle
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        validated = SemanticWindowSnapshotAction._validated_arguments(request)
+        if validated is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Inspeção semântica bloqueada: alvo ou referência de observação "
+                    "inválidos, incompatíveis ou expirados."
+                ),
+            )
+
+        pid, title, target_token, _handle = validated
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "INSPECIONAR CONTROLES SEMÂNTICOS NATIVOS\n"
+                f"Janela exata: {title} (PID {pid}).\n"
+                f"Alvo opaco: {target_token[:12]}...\n"
+                "A referência de observação recente será revalidada localmente antes "
+                "da inspeção.\n"
+                "O THE HANDS enumerará somente controles filhos Win32 visíveis da "
+                "janela exata e retornará no máximo 32 controles com papel derivado "
+                "da classe, classe nativa, ID de controle quando disponível, estado "
+                "habilitado e token opaco do controle.\n"
+                "Nomes limitados poderão ser coletados apenas de controles Button e "
+                "Static. Valores de campos de texto/Edit/RichEdit não serão coletados.\n"
+                "Não serão coletados capturas de tela, valores digitados, caminhos de "
+                "executáveis ou handles HWND brutos. Nenhuma ação por coordenadas será "
+                "executada nesta inspeção."
+            ),
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or observation_handle is None
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "PID, título, token opaco e referência de observação recente "
+                    "são obrigatórios para a inspeção semântica."
+                ),
+                error_code="ACTION_VALIDATION_FAILED",
+            )
+
+        try:
+            validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError as exc:
+            messages = {
+                "WINDOW_OBSERVATION_EXPIRED": (
+                    "A observação da janela expirou; inspecione a janela novamente."
+                ),
+                "WINDOW_OBSERVATION_TARGET_MISMATCH": (
+                    "A referência de observação não pertence a essa janela."
+                ),
+            }
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=messages.get(
+                    exc.code,
+                    "A referência de observação da janela é inválida.",
+                ),
+                evidence={"reason": exc.code},
+                error_code=exc.code,
+            )
+
+        try:
+            evidence = self._windows.semantic_window_snapshot(
+                pid,
+                title.strip(),
+                target_token,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            known = {
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido."
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata."
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo opaco."
+                ),
+                "WINDOW_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei a moldura visual da janela exata."
+                ),
+                "WINDOW_VISUAL_FRAME_AMBIGUOUS": (
+                    "A moldura visual da janela ficou ambígua."
+                ),
+            }
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=known.get(
+                    reason,
+                    "Não consegui inspecionar os controles semânticos nativos.",
+                ),
+                evidence={"reason": reason},
+                error_code=(
+                    reason
+                    if reason in known
+                    else "SEMANTIC_WINDOW_SNAPSHOT_FAILED"
+                ),
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui inspecionar os controles semânticos nativos.",
+                evidence={"exception": type(exc).__name__},
+                error_code="SEMANTIC_WINDOW_SNAPSHOT_FAILED",
+            )
+
+        visible = int(evidence["visible_native_controls"])
+        returned = int(evidence["returned_controls"])
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                "Controles semânticos nativos inspecionados: "
+                f"{visible} visíveis; {returned} retornados. "
+                "Valores de campos de texto não foram coletados."
+            ),
+            evidence=evidence,
+        )
+
+
 class ActivateWindowAction:
     name = "activate_window"
     risk = ActionRisk.NORMAL

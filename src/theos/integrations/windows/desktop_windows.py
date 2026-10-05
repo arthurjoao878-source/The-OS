@@ -43,6 +43,14 @@ from theos.core.window_placements import (
     ALLOWED_WINDOW_PLACEMENTS,
     get_window_placement_spec,
 )
+from theos.core.window_semantics import (
+    MAX_SEMANTIC_CONTROLS,
+    MAX_SEMANTIC_NAME_CHARS,
+    SEMANTIC_WINDOW_SNAPSHOT_VERSION,
+    build_semantic_control_token,
+    semantic_name_allowed_for_class,
+    semantic_role_for_class,
+)
 from theos.core.window_targets import (
     is_window_target_token,
     normalize_window_queries,
@@ -515,6 +523,192 @@ class WindowsDesktopWindowAdapter:
             "windows": selected,
         }
 
+
+    def semantic_window_snapshot(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+    ) -> dict[str, object]:
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        (
+            requested_candidate,
+            resolved_candidate,
+            _requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_exact_window_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+
+        root_hwnd = wintypes.HWND(resolved_candidate.hwnd)
+        resolved_pid = resolved_candidate.pid
+
+        user32.EnumChildWindows.argtypes = [
+            wintypes.HWND,
+            callback_type,
+            wintypes.LPARAM,
+        ]
+        user32.EnumChildWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsWindowEnabled.argtypes = [wintypes.HWND]
+        user32.IsWindowEnabled.restype = wintypes.BOOL
+        user32.GetClassNameW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.GetDlgCtrlID.argtypes = [wintypes.HWND]
+        user32.GetDlgCtrlID.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.GetWindowTextLengthW.restype = ctypes.c_int
+        user32.GetWindowTextW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetWindowTextW.restype = ctypes.c_int
+
+        observed_native_children = 0
+        rows: list[dict[str, object]] = []
+
+        def visit_child(hwnd: int, _lparam: int) -> bool:
+            nonlocal observed_native_children
+            observed_native_children += 1
+
+            child_pid_value = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(
+                hwnd,
+                ctypes.byref(child_pid_value),
+            )
+            child_pid = int(child_pid_value.value)
+            if child_pid != resolved_pid:
+                return True
+
+            if not user32.IsWindowVisible(hwnd):
+                return True
+
+            class_buffer = ctypes.create_unicode_buffer(256)
+            class_length = int(
+                user32.GetClassNameW(
+                    hwnd,
+                    class_buffer,
+                    len(class_buffer),
+                )
+            )
+            class_name = class_buffer.value.strip() if class_length > 0 else ""
+            if not class_name:
+                return True
+
+            raw_control_id = int(user32.GetDlgCtrlID(hwnd))
+            control_id = raw_control_id if raw_control_id >= 0 else None
+            role = semantic_role_for_class(class_name)
+
+            name: str | None = None
+            if semantic_name_allowed_for_class(class_name):
+                text_length = int(user32.GetWindowTextLengthW(hwnd))
+                if text_length > 0:
+                    text_buffer = ctypes.create_unicode_buffer(
+                        min(text_length, MAX_SEMANTIC_NAME_CHARS) + 1
+                    )
+                    copied = int(
+                        user32.GetWindowTextW(
+                            hwnd,
+                            text_buffer,
+                            len(text_buffer),
+                        )
+                    )
+                    if copied > 0:
+                        bounded_name = text_buffer.value.strip()[
+                            :MAX_SEMANTIC_NAME_CHARS
+                        ]
+                        name = bounded_name or None
+
+            rows.append(
+                {
+                    "role": role,
+                    "name": name,
+                    "class_name": class_name,
+                    "control_id": control_id,
+                    "enabled": bool(user32.IsWindowEnabled(hwnd)),
+                    "control_token": build_semantic_control_token(
+                        target_token,
+                        child_hwnd=int(hwnd),
+                        pid=child_pid,
+                        class_name=class_name,
+                        control_id=raw_control_id,
+                    ),
+                }
+            )
+            return True
+
+        callback = callback_type(visit_child)
+        if not user32.EnumChildWindows(root_hwnd, callback, 0):
+            error_code = ctypes.get_last_error()
+            if error_code:
+                raise OSError(error_code, "EnumChildWindows failed")
+
+        selected = rows[:MAX_SEMANTIC_CONTROLS]
+
+        return {
+            "pid": pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "target_token": target_token,
+            "semantic_snapshot_version": SEMANTIC_WINDOW_SNAPSHOT_VERSION,
+            "semantic_source": "win32_native_child_controls",
+            "observed_native_children": observed_native_children,
+            "visible_native_controls": len(rows),
+            "returned_controls": len(selected),
+            "max_results": MAX_SEMANTIC_CONTROLS,
+            "max_name_chars": MAX_SEMANTIC_NAME_CHARS,
+            "text_values_collected": False,
+            "label_roles_collected": ["button", "label"],
+            "raw_hwnd_exposed": False,
+            "coordinate_action_dispatched": False,
+            "fields": [
+                "role",
+                "name",
+                "class_name",
+                "control_id",
+                "enabled",
+                "control_token",
+            ],
+            "controls": selected,
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_pid": resolved_pid,
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": requested_candidate.pid,
+            "requested_title": requested_candidate.title,
+            "requested_target_token": requested_candidate.target_token,
+            "fallback": "existing_coordinate_and_anchor_tools_remain_available",
+        }
 
     def _enumerate_action_window_candidates(
         self,

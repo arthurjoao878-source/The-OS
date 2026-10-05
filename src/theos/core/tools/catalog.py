@@ -1075,6 +1075,63 @@ def build_default_tool_catalog() -> ToolCatalog:
     )
     catalog.register(
         ToolDefinition(
+            name="semantic_window_snapshot",
+            description=(
+                "Inspeciona semanticamente uma janela exata e recentemente observada "
+                "usando apenas metadados de controles filhos Win32 nativos. Requer "
+                "pid, título, target_token e o observation_handle não nulo retornados "
+                "pela mesma window_snapshot recente. Retorna no máximo 32 controles "
+                "visíveis com papel derivado da classe, classe nativa, ID de controle "
+                "quando disponível, estado habilitado e control_token opaco. Nomes "
+                "limitados são coletados apenas de Button e Static; valores de Edit "
+                "e RichEdit não são coletados. Não executa clique, teclado ou ação por "
+                "coordenadas. Se a interface não expuser controles Win32 úteis, as "
+                "ferramentas existentes de coordenadas e anchors continuam disponíveis "
+                "como fallback; nunca invente controles ou tokens."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "PID exato retornado por window_snapshot.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 160,
+                        "description": "Título limitado exato retornado por window_snapshot.",
+                    },
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "description": "Token opaco exato retornado por window_snapshot.",
+                    },
+                    "observation_handle": {
+                        **_window_observation_handle_schema(),
+                        "type": "object",
+                        "description": (
+                            "Referência de observação M97 inteira e inalterada da "
+                            "mesma linha da janela; null não é aceito neste tool."
+                        ),
+                    },
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "observation_handle",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_semantic_window_snapshot,
+    )
+
+    catalog.register(
+        ToolDefinition(
             name="activate_window",
             description=(
                 "Traz para o primeiro plano uma janela visível exata já identificada por "
@@ -2888,6 +2945,47 @@ def _window_observation_handle_schema() -> dict[str, object]:
         ],
         "additionalProperties": False,
     }
+
+
+def _validate_semantic_window_snapshot(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    required = {
+        "pid",
+        "title",
+        "target_token",
+        "observation_handle",
+    }
+    if set(arguments) != required:
+        raise ToolValidationError(
+            "semantic_window_snapshot requires pid, title, target_token, "
+            "and observation_handle"
+        )
+
+    validated = _validate_exact_window_target(
+        {
+            "pid": arguments["pid"],
+            "title": arguments["title"],
+            "target_token": arguments["target_token"],
+        }
+    )
+
+    observation_handle = arguments.get("observation_handle")
+    if observation_handle is None:
+        raise ToolValidationError(
+            "semantic_window_snapshot requires a recent observation_handle"
+        )
+
+    try:
+        validated_handle = validate_window_observation_handle(
+            observation_handle,
+            expected_target_token=str(validated["target_token"]),
+        )
+    except WindowObservationHandleError as exc:
+        raise ToolValidationError(exc.code) from exc
+
+    validated["observation_handle"] = validated_handle
+    return validated
 
 
 def _validate_maximize_window_target(
