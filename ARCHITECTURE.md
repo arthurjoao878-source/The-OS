@@ -198,9 +198,10 @@ clear.
    rewrite.
 5. M98: Semantic Desktop v1, adding one real accessibility/semantic path while keeping
    coordinate interaction as fallback.
-6. Then continue user-facing LYRA capabilities, structured run state, file workflows,
-   perception, personality, voice, and composed workflows as concrete needs justify
-   them.
+6. M99: Structured Run State v1, giving LYRA explicit bounded in-memory execution
+   state without adding authority or supervision.
+7. Then continue user-facing LYRA capabilities, file workflows, perception,
+   personality, voice, and composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
 
@@ -311,3 +312,45 @@ expose useful native controls.
 
 M98 introduces no Phoenix authority, no new approval policy, no raw command execution,
 and no rewrite of the existing Windows target resolver.
+
+## M99 - Structured LYRA Run State v1
+
+M99 gives LYRA an explicit in-memory representation of a tool-loop run without turning
+that representation into authority, persistence, or supervision.
+
+`LyraRunState` records:
+
+- a process-local `run_id`;
+- the normalized user goal that started the tool loop;
+- lifecycle status;
+- the bounded step budget and completed step count;
+- the currently executing or confirmation-pending action when one exists;
+- completed `RunStepState` entries containing the corresponding The Hands
+  `ActionResult` evidence snapshot;
+- a final provider reply or terminal error when the run ends.
+
+The v1 lifecycle states are `RUNNING`, `AWAITING_CONFIRMATION`, `COMPLETED`, `FAILED`,
+and `CANCELLED`. The existing `ExecutionControl` remains the separate cooperative
+pause/resume/cancel mechanism; M99 does not turn run state into an execution controller.
+
+A `COMPLETED` run means the bounded provider/tool loop reached a final provider reply.
+It does not mean that LYRA or The Hands proved the user's higher-level goal was
+achieved. M96's rule remains authoritative:
+
+    effect dispatched != goal achieved
+
+Each completed step snapshots the concrete `ActionResult`, including evidence,
+`error_code`, `effect_dispatched`, and `postcondition_verified`. The run state therefore
+lets LYRA track what The Hands actually reported without manufacturing semantic success.
+
+Confirmation pauses carry the same run identity and structured state through
+`PendingActionConfirmation`, so approval resumes the same run rather than creating a
+new logical execution.
+
+The tool loop also accepts an optional observational state callback for hosts that need
+structured progress. That callback grants no capability and cannot authorize an action.
+
+M99 is intentionally process-local and ephemeral. It adds no durable run store,
+cross-process recovery, background supervisor, Phoenix capability or grant, new runtime
+tool, or new remote authority. Exact future actions remain provider-driven; v1 exposes
+the remaining bounded step budget rather than pretending the rest of the plan is known.

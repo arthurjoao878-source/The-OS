@@ -7,7 +7,11 @@ from theos.core.actions.contracts import (
 )
 from theos.core.tools import ToolCall
 from theos.integrations.ai import AIContinuation, AIToolTurn
-from theos.lyra.execution import PendingActionConfirmation, ToolLoopResult
+from theos.lyra.execution import (
+    LyraRunState,
+    PendingActionConfirmation,
+    ToolLoopResult,
+)
 from theos.shell.assistant.main_window import MainWindow
 
 
@@ -86,18 +90,24 @@ def _pending_result() -> ToolLoopResult:
         action="copy_path",
         arguments=dict(call.arguments),
     )
+    run_state = LyraRunState.start(
+        "Teste local de previa bloqueada.",
+        max_steps=4,
+    ).wait_for_confirmation(request)
     pending = PendingActionConfirmation(
         turn=turn,
         call=call,
         request=request,
         risk=ActionRisk.CONFIRM,
         completed_steps=0,
+        run_state=run_state,
     )
     return ToolLoopResult(
         success=False,
         messages=(),
         final_reply=None,
         completed_steps=0,
+        run_state=run_state,
         pending_confirmation=pending,
     )
 

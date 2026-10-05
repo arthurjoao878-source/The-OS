@@ -5,7 +5,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from theos.core.actions.contracts import ActionRequest, ActionRisk
+from theos.core.actions.contracts import ActionRequest, ActionResult, ActionRisk
 from theos.core.actions.policy import requires_confirmation
 from theos.core.actions.registry import ActionRegistry
 from theos.core.tools import ToolCall, ToolCatalog, ToolDefinition, ToolValidationError
@@ -18,9 +18,11 @@ from theos.integrations.ai import (
 )
 from theos.lyra.context import ConversationTurn
 from theos.lyra.execution.control import ExecutionControl
+from theos.lyra.execution.run_state import LyraRunState, RunStatus
 
 MAX_TOOL_LOOP_STEPS = 4
 ProgressCallback = Callable[[str], None]
+RunStateCallback = Callable[[LyraRunState], None]
 
 _APPLICATION_LAUNCH_RE = re.compile(
     r"\b(?:abre|abra|abrir|inicia|inicie|iniciar|execute|executa|executar|"
@@ -71,6 +73,7 @@ class PendingActionConfirmation:
     request: ActionRequest
     risk: ActionRisk
     completed_steps: int
+    run_state: LyraRunState
     application_launch_allowed: bool = False
 
     def __post_init__(self) -> None:
@@ -78,6 +81,14 @@ class PendingActionConfirmation:
             raise ValueError("pending tool call must contain call_id")
         if self.completed_steps < 0 or self.completed_steps >= MAX_TOOL_LOOP_STEPS:
             raise ValueError("completed_steps is out of range")
+        if self.run_state.status is not RunStatus.AWAITING_CONFIRMATION:
+            raise ValueError("pending confirmation requires awaiting run state")
+        if self.run_state.completed_steps != self.completed_steps:
+            raise ValueError("pending completed_steps do not match run state")
+        if self.run_state.current_request_id != self.request.request_id:
+            raise ValueError("pending run state request does not match")
+        if self.run_state.current_action != self.request.action:
+            raise ValueError("pending run state action does not match")
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,18 +97,37 @@ class ToolLoopResult:
     messages: tuple[str, ...]
     final_reply: str | None
     completed_steps: int
+    run_state: LyraRunState
     error: str | None = None
     pending_confirmation: PendingActionConfirmation | None = None
 
     def __post_init__(self) -> None:
         if self.completed_steps < 0 or self.completed_steps > MAX_TOOL_LOOP_STEPS:
             raise ValueError("completed_steps is out of range")
+        if self.completed_steps != self.run_state.completed_steps:
+            raise ValueError("completed_steps do not match run state")
         if self.success and self.error is not None:
             raise ValueError("successful tool loop cannot contain an error")
         if self.success and self.pending_confirmation is not None:
             raise ValueError("successful tool loop cannot be pending confirmation")
         if self.error is not None and self.pending_confirmation is not None:
             raise ValueError("failed tool loop cannot be both errored and pending")
+        if self.success and self.run_state.status is not RunStatus.COMPLETED:
+            raise ValueError("successful tool loop requires completed run state")
+        if self.pending_confirmation is not None:
+            if self.run_state.status is not RunStatus.AWAITING_CONFIRMATION:
+                raise ValueError("pending tool loop requires awaiting run state")
+            if self.pending_confirmation.run_state != self.run_state:
+                raise ValueError(
+                    "pending confirmation run state must match result"
+                )
+        if self.error is not None and self.run_state.status not in {
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+        }:
+            raise ValueError(
+                "errored tool loop requires failed or cancelled run state"
+            )
 
     @property
     def awaiting_confirmation(self) -> bool:
@@ -130,11 +160,20 @@ class ToolLoopExecutor:
         tools: tuple[ToolDefinition, ...] = (),
         control: ExecutionControl | None = None,
         progress: ProgressCallback | None = None,
+        state: RunStateCallback | None = None,
     ) -> ToolLoopResult:
+        run_state = LyraRunState.start(
+            text,
+            max_steps=self._max_steps,
+        )
+        self._emit_state(state, run_state)
+
         cancelled = self._checkpoint(
             control,
             completed_steps=0,
             messages=[],
+            run_state=run_state,
+            state=state,
         )
         if cancelled is not None:
             return cancelled
@@ -152,7 +191,11 @@ class ToolLoopExecutor:
                 tools=visible_tools,
             )
         except AIProviderError as exception:
-            return self._failure(str(exception), completed_steps=0)
+            return self._failure(
+                str(exception),
+                run_state=run_state,
+                state=state,
+            )
 
         return self._drive(
             response,
@@ -160,6 +203,8 @@ class ToolLoopExecutor:
             messages=[],
             control=control,
             progress=progress,
+            state=state,
+            run_state=run_state,
             application_launch_allowed=application_launch_allowed,
         )
 
@@ -170,20 +215,32 @@ class ToolLoopExecutor:
         approved: bool,
         control: ExecutionControl | None = None,
         progress: ProgressCallback | None = None,
+        state: RunStateCallback | None = None,
     ) -> ToolLoopResult:
+        run_state = pending.run_state
+
         if not approved:
+            error = "Ação cancelada pelo usuário."
+            cancelled_state = run_state.cancel(error)
+            self._emit_state(state, cancelled_state)
             return ToolLoopResult(
                 success=False,
                 messages=(),
                 final_reply=None,
                 completed_steps=pending.completed_steps,
-                error="Ação cancelada pelo usuário.",
+                run_state=cancelled_state,
+                error=error,
             )
+
+        run_state = run_state.resume_after_confirmation()
+        self._emit_state(state, run_state)
 
         cancelled = self._checkpoint(
             control,
             completed_steps=pending.completed_steps,
             messages=[],
+            run_state=run_state,
+            state=state,
         )
         if cancelled is not None:
             return cancelled
@@ -192,30 +249,26 @@ class ToolLoopExecutor:
             pending.request,
             completed_steps=pending.completed_steps,
             progress=progress,
+            state=state,
+            run_state=run_state,
         )
         messages = list(result.messages)
-        if result.action_result is None:
-            return ToolLoopResult(
-                success=False,
-                messages=tuple(messages),
-                final_reply=None,
-                completed_steps=result.completed_steps,
-                error=result.error,
-            )
+        run_state = result.run_state
 
         if not result.action_result.success:
-            return ToolLoopResult(
-                success=False,
-                messages=tuple(messages),
-                final_reply=None,
-                completed_steps=result.completed_steps,
-                error="Plano interrompido porque uma ação falhou na verificação.",
+            return self._failure(
+                "Plano interrompido porque uma ação falhou na verificação.",
+                run_state=run_state,
+                messages=messages,
+                state=state,
             )
 
         cancelled = self._checkpoint(
             control,
             completed_steps=result.completed_steps,
             messages=messages,
+            run_state=run_state,
+            state=state,
         )
         if cancelled is not None:
             return cancelled
@@ -230,12 +283,11 @@ class ToolLoopExecutor:
                 (output,),
             )
         except AIProviderError as exception:
-            return ToolLoopResult(
-                success=False,
-                messages=tuple(messages),
-                final_reply=None,
-                completed_steps=result.completed_steps,
-                error=str(exception),
+            return self._failure(
+                str(exception),
+                run_state=run_state,
+                messages=messages,
+                state=state,
             )
 
         return self._drive(
@@ -244,6 +296,8 @@ class ToolLoopExecutor:
             messages=messages,
             control=control,
             progress=progress,
+            state=state,
+            run_state=run_state,
             application_launch_allowed=pending.application_launch_allowed,
         )
 
@@ -255,6 +309,8 @@ class ToolLoopExecutor:
         messages: list[str],
         control: ExecutionControl | None,
         progress: ProgressCallback | None,
+        state: RunStateCallback | None,
+        run_state: LyraRunState,
         application_launch_allowed: bool,
     ) -> ToolLoopResult:
         while True:
@@ -262,6 +318,8 @@ class ToolLoopExecutor:
                 control,
                 completed_steps=completed_steps,
                 messages=messages,
+                run_state=run_state,
+                state=state,
             )
             if cancelled is not None:
                 return cancelled
@@ -270,21 +328,19 @@ class ToolLoopExecutor:
                 break
 
             if completed_steps >= self._max_steps:
-                return ToolLoopResult(
-                    success=False,
-                    messages=tuple(messages),
-                    final_reply=None,
-                    completed_steps=completed_steps,
-                    error=f"O plano excedeu o limite de {self._max_steps} ações por pedido.",
+                return self._failure(
+                    f"O plano excedeu o limite de {self._max_steps} ações por pedido.",
+                    run_state=run_state,
+                    messages=messages,
+                    state=state,
                 )
 
             if len(response.calls) != 1:
-                return ToolLoopResult(
-                    success=False,
-                    messages=tuple(messages),
-                    final_reply=None,
-                    completed_steps=completed_steps,
-                    error="O provedor retornou mais de uma ação na mesma etapa serial.",
+                return self._failure(
+                    "O provedor retornou mais de uma ação na mesma etapa serial.",
+                    run_state=run_state,
+                    messages=messages,
+                    state=state,
                 )
 
             call = response.calls[0]
@@ -293,35 +349,41 @@ class ToolLoopExecutor:
                 application_launch_allowed=application_launch_allowed,
             )
             if isinstance(prepared, str):
-                return ToolLoopResult(
-                    success=False,
-                    messages=tuple(messages),
-                    final_reply=None,
-                    completed_steps=completed_steps,
-                    error=prepared,
+                return self._failure(
+                    prepared,
+                    run_state=run_state,
+                    messages=messages,
+                    state=state,
                 )
 
             risk = self._actions.risk_for(prepared)
             if requires_confirmation(risk):
+                pending_state = run_state.wait_for_confirmation(prepared)
+                self._emit_state(state, pending_state)
+                pending = PendingActionConfirmation(
+                    turn=response,
+                    call=call,
+                    request=prepared,
+                    risk=risk,
+                    completed_steps=completed_steps,
+                    run_state=pending_state,
+                    application_launch_allowed=application_launch_allowed,
+                )
                 return ToolLoopResult(
                     success=False,
                     messages=tuple(messages),
                     final_reply=None,
                     completed_steps=completed_steps,
-                    pending_confirmation=PendingActionConfirmation(
-                        turn=response,
-                        call=call,
-                        request=prepared,
-                        risk=risk,
-                        completed_steps=completed_steps,
-                        application_launch_allowed=application_launch_allowed,
-                    ),
+                    run_state=pending_state,
+                    pending_confirmation=pending,
                 )
 
             cancelled = self._checkpoint(
                 control,
                 completed_steps=completed_steps,
                 messages=messages,
+                run_state=run_state,
+                state=state,
             )
             if cancelled is not None:
                 return cancelled
@@ -330,32 +392,27 @@ class ToolLoopExecutor:
                 prepared,
                 completed_steps=completed_steps,
                 progress=progress,
+                state=state,
+                run_state=run_state,
             )
             messages.extend(result.messages)
             completed_steps = result.completed_steps
-
-            if result.action_result is None:
-                return ToolLoopResult(
-                    success=False,
-                    messages=tuple(messages),
-                    final_reply=None,
-                    completed_steps=completed_steps,
-                    error=result.error,
-                )
+            run_state = result.run_state
 
             if not result.action_result.success:
-                return ToolLoopResult(
-                    success=False,
-                    messages=tuple(messages),
-                    final_reply=None,
-                    completed_steps=completed_steps,
-                    error="Plano interrompido porque uma ação falhou na verificação.",
+                return self._failure(
+                    "Plano interrompido porque uma ação falhou na verificação.",
+                    run_state=run_state,
+                    messages=messages,
+                    state=state,
                 )
 
             cancelled = self._checkpoint(
                 control,
                 completed_steps=completed_steps,
                 messages=messages,
+                run_state=run_state,
+                state=state,
             )
             if cancelled is not None:
                 return cancelled
@@ -367,28 +424,30 @@ class ToolLoopExecutor:
                     (output,),
                 )
             except AIProviderError as exception:
-                return ToolLoopResult(
-                    success=False,
-                    messages=tuple(messages),
-                    final_reply=None,
-                    completed_steps=completed_steps,
-                    error=str(exception),
+                return self._failure(
+                    str(exception),
+                    run_state=run_state,
+                    messages=messages,
+                    state=state,
                 )
 
         if not isinstance(response, AIReply):
-            return ToolLoopResult(
-                success=False,
-                messages=tuple(messages),
-                final_reply=None,
-                completed_steps=completed_steps,
-                error="A IA retornou um resultado que não reconheço.",
+            return self._failure(
+                "A IA retornou um resultado que não reconheço.",
+                run_state=run_state,
+                messages=messages,
+                state=state,
             )
+
+        completed_state = run_state.complete(response.text)
+        self._emit_state(state, completed_state)
 
         return ToolLoopResult(
             success=True,
             messages=tuple(messages),
             final_reply=response.text,
             completed_steps=completed_steps,
+            run_state=completed_state,
         )
 
     def _prepare_call(
@@ -416,8 +475,8 @@ class ToolLoopExecutor:
     class _Execution:
         messages: tuple[str, ...]
         completed_steps: int
-        action_result: object | None
-        error: str | None = None
+        action_result: ActionResult
+        run_state: LyraRunState
 
     def _execute_request(
         self,
@@ -425,12 +484,21 @@ class ToolLoopExecutor:
         *,
         completed_steps: int,
         progress: ProgressCallback | None,
+        state: RunStateCallback | None,
+        run_state: LyraRunState,
     ) -> _Execution:
+        if run_state.current_request_id != request.request_id:
+            run_state = run_state.begin_action(request)
+            self._emit_state(state, run_state)
+
         opening = self._progress_message(request)
         self._emit_progress(progress, opening)
 
         action_result = self._actions.execute(request)
-        completed_steps += 1
+        run_state = run_state.record_action(request, action_result)
+        self._emit_state(state, run_state)
+
+        completed_steps = run_state.completed_steps
         completed = f"Etapa {completed_steps}: {action_result.message}"
         self._emit_progress(progress, completed)
 
@@ -438,6 +506,7 @@ class ToolLoopExecutor:
             messages=(opening, completed),
             completed_steps=completed_steps,
             action_result=action_result,
+            run_state=run_state,
         )
 
     @staticmethod
@@ -589,15 +658,22 @@ class ToolLoopExecutor:
         *,
         completed_steps: int,
         messages: list[str],
+        run_state: LyraRunState,
+        state: RunStateCallback | None,
     ) -> ToolLoopResult | None:
         if control is None or control.checkpoint():
             return None
+
+        error = "Tarefa cancelada pelo usuário."
+        cancelled_state = run_state.cancel(error)
+        ToolLoopExecutor._emit_state(state, cancelled_state)
         return ToolLoopResult(
             success=False,
             messages=tuple(messages),
             final_reply=None,
             completed_steps=completed_steps,
-            error="Tarefa cancelada pelo usuário.",
+            run_state=cancelled_state,
+            error=error,
         )
 
     @staticmethod
@@ -609,11 +685,28 @@ class ToolLoopExecutor:
             progress(message)
 
     @staticmethod
-    def _failure(message: str, *, completed_steps: int) -> ToolLoopResult:
+    def _emit_state(
+        state: RunStateCallback | None,
+        run_state: LyraRunState,
+    ) -> None:
+        if state is not None:
+            state(run_state)
+
+    @staticmethod
+    def _failure(
+        message: str,
+        *,
+        run_state: LyraRunState,
+        messages: list[str] | tuple[str, ...] = (),
+        state: RunStateCallback | None = None,
+    ) -> ToolLoopResult:
+        failed_state = run_state.fail(message)
+        ToolLoopExecutor._emit_state(state, failed_state)
         return ToolLoopResult(
             success=False,
-            messages=(),
+            messages=tuple(messages),
             final_reply=None,
-            completed_steps=completed_steps,
+            completed_steps=failed_state.completed_steps,
+            run_state=failed_state,
             error=message,
         )
