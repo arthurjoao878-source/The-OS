@@ -204,7 +204,9 @@ clear.
    evidence while reusing existing bounded filesystem primitives.
 8. M101: Composed Workflow v1, deriving ordered cross-domain stages from M99 evidence
    while reusing specialized workflow summaries such as M100.
-9. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+9. M102: Structured Workflow Progress v1, deriving compact live progress snapshots
+   from M99/M100/M101 evidence without adding execution semantics.
+10. Then continue user-facing LYRA capabilities, perception, personality, voice, and
    composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -430,4 +432,28 @@ M101 does not create a static future plan, infer unexecuted steps, grant authori
 change confirmation policy, add a supervisor, persist workflows, add cross-process
 resume, or introduce a new runtime tool. A completed composed workflow still means the
 bounded tool loop reached a provider reply; it is not proof that the user's higher-level
+goal was achieved.
+
+## M102 - Structured Workflow Progress v1
+
+M102 derives a compact, host-facing workflow progress snapshot from the M99 run state.
+It does not introduce another source of execution state.
+
+`WorkflowProgressState` identifies whether a run is newly started, actively executing
+an action, awaiting confirmation, between completed steps, completed, failed, or
+cancelled. The snapshot carries the bounded step budget, current action/domain when one
+exists, latest completed action/domain, latest step success/error code, the ordered
+domain sequence observed so far, and the current M100 file-workflow phase when relevant.
+
+Domain transitions are derived from completed M99 steps plus the current action. This
+means a second domain becomes visible while that action is current or awaiting
+confirmation, without pretending the action has completed.
+
+`ToolLoopResult.workflow_progress` exposes the derived snapshot. Existing M99 state
+callbacks remain the source of live state events; hosts can derive this progress view
+from each callback without changing execution semantics.
+
+M102 adds no future-plan inference, no persistence, no supervisor, no new authority,
+no new confirmation rule, no cross-process resume, and no runtime tool. Progress is an
+interpretation of already-recorded run evidence, not proof that the user's higher-level
 goal was achieved.

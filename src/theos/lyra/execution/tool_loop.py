@@ -27,6 +27,10 @@ from theos.lyra.execution.file_workflow import (
     summarize_file_workflow,
 )
 from theos.lyra.execution.run_state import LyraRunState, RunStatus
+from theos.lyra.execution.workflow_progress import (
+    WorkflowProgressState,
+    summarize_workflow_progress,
+)
 
 MAX_TOOL_LOOP_STEPS = 4
 ProgressCallback = Callable[[str], None]
@@ -148,6 +152,10 @@ class ToolLoopResult:
     @property
     def composed_workflow(self) -> ComposedWorkflowState | None:
         return summarize_composed_workflow(self.run_state)
+
+    @property
+    def workflow_progress(self) -> WorkflowProgressState:
+        return summarize_workflow_progress(self.run_state)
 
 
 class ToolLoopExecutor:

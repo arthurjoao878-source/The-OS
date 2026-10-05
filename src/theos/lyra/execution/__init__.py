@@ -28,6 +28,11 @@ from theos.lyra.execution.tool_loop import (
     ToolLoopExecutor,
     ToolLoopResult,
 )
+from theos.lyra.execution.workflow_progress import (
+    WORKFLOW_PROGRESS_VERSION,
+    WorkflowProgressKind,
+    WorkflowProgressState,
+)
 
 __all__ = [
     "COMPOSED_WORKFLOW_VERSION",
@@ -35,6 +40,7 @@ __all__ = [
     "LYRA_RUN_STATE_VERSION",
     "MAX_ACTION_SEQUENCE_STEPS",
     "MAX_TOOL_LOOP_STEPS",
+    "WORKFLOW_PROGRESS_VERSION",
     "ActionSequenceResult",
     "ComposedWorkflowState",
     "ExecutionControl",
@@ -50,5 +56,7 @@ __all__ = [
     "ToolLoopExecutor",
     "ToolLoopResult",
     "WorkflowDomain",
+    "WorkflowProgressKind",
+    "WorkflowProgressState",
     "WorkflowStageState",
 ]
