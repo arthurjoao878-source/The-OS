@@ -17,6 +17,10 @@ from theos.integrations.ai import (
     AIToolTurn,
 )
 from theos.lyra.context import ConversationTurn
+from theos.lyra.execution.composed_workflow import (
+    ComposedWorkflowState,
+    summarize_composed_workflow,
+)
 from theos.lyra.execution.control import ExecutionControl
 from theos.lyra.execution.file_workflow import (
     FileWorkflowState,
@@ -140,6 +144,10 @@ class ToolLoopResult:
     @property
     def file_workflow(self) -> FileWorkflowState | None:
         return summarize_file_workflow(self.run_state)
+
+    @property
+    def composed_workflow(self) -> ComposedWorkflowState | None:
+        return summarize_composed_workflow(self.run_state)
 
 
 class ToolLoopExecutor:

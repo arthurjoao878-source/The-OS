@@ -202,7 +202,9 @@ clear.
    state without adding authority or supervision.
 7. M100: Verified Text File Workflow v1, deriving file-workflow state from execution
    evidence while reusing existing bounded filesystem primitives.
-8. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+8. M101: Composed Workflow v1, deriving ordered cross-domain stages from M99 evidence
+   while reusing specialized workflow summaries such as M100.
+9. Then continue user-facing LYRA capabilities, perception, personality, voice, and
    composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -395,3 +397,37 @@ The Hands evidence such as `write_verified` and SHA-256.
 M100 adds no Phoenix authority, no new approval rule, no durable workflow store, no
 cross-process resume, no new runtime tool, and no filesystem primitive. Existing local
 previews and mutation guards remain authoritative at the execution boundary.
+
+## M101 - Composed Workflow v1
+
+M101 lets LYRA derive a bounded cross-domain workflow view from the M99 run state while
+reusing M100's specialized text-file workflow summary.
+
+A composed workflow exists only when the run spans at least two action domains. Version
+1 classifies completed or current actions into `APPLICATION`, `FILE`, `WINDOW`,
+`PROCESS`, `SYSTEM`, `DEVELOPMENT`, or `OTHER`.
+
+Completed actions are grouped into ordered contiguous `WorkflowStageState` values. Each
+stage records its source run-step range, ordered actions, success/failure counts,
+evidence-bearing step count, explicit `effect_dispatched=True` count, and explicit
+`postcondition_verified=True` count. Adjacent actions in the same domain remain one
+stage; a domain transition starts another stage.
+
+A confirmation-pending or currently executing action is represented by
+`current_action` and `current_domain` without pretending it has completed. This allows
+the composition to become visible as soon as a run crosses into a second domain while
+preserving the same M99 `run_id`.
+
+When file actions are present, `ComposedWorkflowState.file_workflow` reuses M100's
+derived `FileWorkflowState`; it does not copy or replace the underlying evidence. M99
+run steps remain the source of truth.
+
+`ToolLoopResult.composed_workflow` exposes the derived state to hosts. The provider
+guidance now explicitly tells LYRA to preserve requested ordering across domains and to
+base later steps and the final reply on evidence returned by prior actions.
+
+M101 does not create a static future plan, infer unexecuted steps, grant authority,
+change confirmation policy, add a supervisor, persist workflows, add cross-process
+resume, or introduce a new runtime tool. A completed composed workflow still means the
+bounded tool loop reached a provider reply; it is not proof that the user's higher-level
+goal was achieved.

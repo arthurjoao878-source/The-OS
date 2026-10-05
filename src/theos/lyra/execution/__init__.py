@@ -1,3 +1,9 @@
+from theos.lyra.execution.composed_workflow import (
+    COMPOSED_WORKFLOW_VERSION,
+    ComposedWorkflowState,
+    WorkflowDomain,
+    WorkflowStageState,
+)
 from theos.lyra.execution.control import ExecutionControl, ExecutionStatus
 from theos.lyra.execution.file_workflow import (
     FILE_WORKFLOW_VERSION,
@@ -24,11 +30,13 @@ from theos.lyra.execution.tool_loop import (
 )
 
 __all__ = [
+    "COMPOSED_WORKFLOW_VERSION",
     "FILE_WORKFLOW_VERSION",
     "LYRA_RUN_STATE_VERSION",
     "MAX_ACTION_SEQUENCE_STEPS",
     "MAX_TOOL_LOOP_STEPS",
     "ActionSequenceResult",
+    "ComposedWorkflowState",
     "ExecutionControl",
     "ExecutionStatus",
     "FileTargetWorkflow",
@@ -41,4 +49,6 @@ __all__ = [
     "SequentialActionExecutor",
     "ToolLoopExecutor",
     "ToolLoopResult",
+    "WorkflowDomain",
+    "WorkflowStageState",
 ]
