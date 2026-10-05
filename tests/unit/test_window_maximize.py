@@ -3,6 +3,7 @@ from __future__ import annotations
 from theos.core.actions.contracts import ActionRequest, ActionRisk
 from theos.core.actions.desktop_windows import MaximizeWindowAction
 from theos.core.tools import ToolCall, ToolValidationError, build_default_tool_catalog
+from theos.core.window_observations import build_window_observation_handle
 
 
 class _FakeWindowAdapter:
@@ -76,6 +77,59 @@ def test_maximize_window_can_verify_postcondition_without_new_dispatch() -> None
     assert result.effect_dispatched is False
     assert result.postcondition_verified is True
     assert result.evidence["already_maximized"] is True
+
+
+def test_maximize_window_validates_fresh_observation_handle() -> None:
+    adapter = _FakeWindowAdapter()
+    action = MaximizeWindowAction(adapter)
+    token = "f" * 64
+    handle = build_window_observation_handle(token)
+    request = ActionRequest(
+        action="maximize_window",
+        arguments={
+            "pid": 4321,
+            "title": "Calculadora",
+            "target_token": token,
+            "observation_handle": handle,
+        },
+    )
+
+    result = action.execute(request)
+
+    assert result.success is True
+    assert result.effect_dispatched is True
+    assert result.postcondition_verified is True
+    assert result.evidence["observation_handle_validated"] is True
+    assert result.evidence["observation_id"] == handle["observation_id"]
+    assert "Referência de observação temporária validada." in result.message
+
+
+def test_maximize_window_rejects_expired_observation_before_dispatch() -> None:
+    adapter = _FakeWindowAdapter()
+    action = MaximizeWindowAction(adapter)
+    token = "9" * 64
+    handle = build_window_observation_handle(
+        token,
+        now=1,
+        observation_id="8" * 32,
+    )
+    request = ActionRequest(
+        action="maximize_window",
+        arguments={
+            "pid": 4321,
+            "title": "Calculadora",
+            "target_token": token,
+            "observation_handle": handle,
+        },
+    )
+
+    result = action.execute(request)
+
+    assert result.success is False
+    assert result.effect_dispatched is False
+    assert result.postcondition_verified is None
+    assert result.error_code == "WINDOW_OBSERVATION_EXPIRED"
+    assert adapter.calls == []
 
 
 def test_catalog_builds_maximize_window_request() -> None:

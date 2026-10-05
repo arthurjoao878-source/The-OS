@@ -14,15 +14,24 @@ _STATE_TOOLS = (
 )
 
 
-def test_state_tool_schemas_remain_exact_pid_title_token_only() -> None:
+def test_state_tool_schemas_remain_strict_with_m97_maximize_handle() -> None:
     definitions = {
         definition.name: definition
         for definition in build_default_tool_catalog().definitions()
     }
     for name in _STATE_TOOLS:
         schema = definitions[name].parameters
-        assert set(schema["properties"]) == {"pid", "title", "target_token"}
-        assert set(schema["required"]) == set(schema["properties"])
+        expected = {"pid", "title", "target_token"}
+        if name == "maximize_window":
+            expected.add("observation_handle")
+            handle_schema = schema["properties"]["observation_handle"]
+            assert handle_schema["type"] == ["object", "null"]
+            assert set(handle_schema["required"]) == set(
+                handle_schema["properties"]
+            )
+            assert handle_schema["additionalProperties"] is False
+        assert set(schema["properties"]) == expected
+        assert set(schema["required"]) == expected
         assert schema["additionalProperties"] is False
 
 

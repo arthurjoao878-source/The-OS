@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from theos.core.actions.contracts import ActionRequest, ActionRisk
 from theos.core.actions.desktop_windows import WindowSnapshotAction
+from theos.core.window_observations import (
+    WINDOW_OBSERVATION_HANDLE_VERSION,
+    WINDOW_OBSERVATION_TTL_SECONDS,
+    build_window_observation_handle,
+)
 
 
 class _FakeWindowAdapter:
@@ -19,18 +24,21 @@ class _FakeWindowAdapter:
                 "pid": 100,
                 "process_name": "notepad.exe",
                 "target_token": "1" * 64,
+                "observation_handle": build_window_observation_handle("1" * 64),
             },
             {
                 "title": "ChatGPT",
                 "pid": 200,
                 "process_name": "ChatGPT.exe",
                 "target_token": "2" * 64,
+                "observation_handle": build_window_observation_handle("2" * 64),
             },
             {
                 "title": "THE OS — LYRA",
                 "pid": 300,
                 "process_name": "python.exe",
                 "target_token": "3" * 64,
+                "observation_handle": build_window_observation_handle("3" * 64),
             },
         ]
         selected = [rows[0]] if filtered else rows
@@ -48,7 +56,15 @@ class _FakeWindowAdapter:
                 if filtered
                 else "windows_z_order"
             ),
-            "fields": ["title", "pid", "process_name", "target_token"],
+            "fields": [
+                "title",
+                "pid",
+                "process_name",
+                "target_token",
+                "observation_handle",
+            ],
+            "observation_handle_version": WINDOW_OBSERVATION_HANDLE_VERSION,
+            "observation_handle_ttl_seconds": WINDOW_OBSERVATION_TTL_SECONDS,
             "windows": selected,
         }
 
@@ -88,7 +104,11 @@ def test_window_snapshot_returns_bounded_evidence() -> None:
         "pid",
         "process_name",
         "target_token",
+        "observation_handle",
     ]
+    assert result.evidence["observation_handle_version"] == 1
+    assert result.evidence["observation_handle_ttl_seconds"] == 120
+    assert "observation_handle" in result.evidence["windows"][0]
 
 
 def test_window_snapshot_forwards_local_filter_before_output_cap() -> None:

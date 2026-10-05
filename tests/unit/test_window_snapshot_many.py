@@ -8,6 +8,11 @@ from theos.core.tools import (
     ToolValidationError,
     build_default_tool_catalog,
 )
+from theos.core.window_observations import (
+    WINDOW_OBSERVATION_HANDLE_VERSION,
+    WINDOW_OBSERVATION_TTL_SECONDS,
+    build_window_observation_handle,
+)
 from theos.core.window_targets import normalize_window_queries
 from theos.integrations.ai import AIContinuation, AIReply, AIToolTurn
 from theos.lyra.execution import ToolLoopExecutor
@@ -30,12 +35,14 @@ class _FakeWindowAdapter:
                 "pid": 100,
                 "process_name": "notepad.exe",
                 "target_token": "1" * 64,
+                "observation_handle": build_window_observation_handle("1" * 64),
             },
             {
                 "title": "THE OS — LYRA",
                 "pid": 300,
                 "process_name": "python.exe",
                 "target_token": "3" * 64,
+                "observation_handle": build_window_observation_handle("3" * 64),
             },
         ]
         return {
@@ -54,7 +61,15 @@ class _FakeWindowAdapter:
                 queries[1]: 1,
             },
             "order": "windows_z_order_within_multi_filter",
-            "fields": ["title", "pid", "process_name", "target_token"],
+            "fields": [
+                "title",
+                "pid",
+                "process_name",
+                "target_token",
+                "observation_handle",
+            ],
+            "observation_handle_version": WINDOW_OBSERVATION_HANDLE_VERSION,
+            "observation_handle_ttl_seconds": WINDOW_OBSERVATION_TTL_SECONDS,
             "windows": rows,
         }
 
@@ -94,6 +109,12 @@ def test_window_snapshot_many_executes_single_adapter_contract() -> None:
     assert result.evidence["filter_count"] == 2
     assert result.evidence["filter_mode"] == "any_query"
     assert result.evidence["returned_windows"] == 2
+    assert result.evidence["observation_handle_version"] == 1
+    assert result.evidence["observation_handle_ttl_seconds"] == 120
+    assert all(
+        "observation_handle" in row
+        for row in result.evidence["windows"]
+    )
     assert "2 filtros locais" in result.message
 
 

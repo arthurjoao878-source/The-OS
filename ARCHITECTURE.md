@@ -236,3 +236,42 @@ effects that are not observed.
 The migration rule for later actions is evidence-first: populate these fields only when
 the current execution boundary can establish them from real local control flow or
 verification evidence.
+
+## M97 - Window Observation Handle v1
+
+M97 evolves the existing process-local `target_token` into a structured, ephemeral
+observation reference without removing or replacing the token.
+
+Each window returned by `window_snapshot` and `window_snapshot_many` now also carries
+an `observation_handle` containing:
+
+- `version`;
+- `observation_id`;
+- `resource`;
+- `element_ref`;
+- `observed_at`;
+- `expires_at`;
+- `signature`.
+
+The v1 window handle is short lived, signed with a process-local secret, bound to the
+existing `target_token`, and invalid after the process restarts because a new local
+secret is generated. It is evidence of a recent observation, not an authorization
+grant.
+
+`maximize_window` is the first consumer migrated to understand the handle. When the
+model forwards a handle from the selected snapshot row, the tool catalog and action
+validate its structure, signature, freshness, and binding before execution. The action
+revalidates the handle immediately before entering the existing Windows execution path.
+
+For the strict AI tool surface, `observation_handle` is required but nullable: the
+model forwards the handle object when the selected snapshot row has one and uses `null`
+for legacy contexts without a handle. Internally, the legacy token-only maximize path
+remains accepted during migration. No other window action is forced to consume
+observation handles yet.
+
+The existing Windows target resolution remains authoritative for the concrete local
+window identity. M97 does not expose raw HWND values, create a handle registry, add
+Phoenix authority, change confirmation policy, or rewrite the Windows engine.
+
+Future milestones may migrate additional consumers and refine stale-reference behavior
+only when a real workflow requires it.

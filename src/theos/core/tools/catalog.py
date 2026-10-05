@@ -50,6 +50,12 @@ from theos.core.window_layout_sets import (
     build_window_set_layout_tool_description,
     get_window_set_layout_spec,
 )
+from theos.core.window_observations import (
+    WINDOW_OBSERVATION_HANDLE_VERSION,
+    WINDOW_OBSERVATION_TTL_SECONDS,
+    WindowObservationHandleError,
+    validate_window_observation_handle,
+)
 from theos.core.window_placements import (
     ALLOWED_WINDOW_PLACEMENTS,
     build_window_placement_tool_description,
@@ -1001,7 +1007,8 @@ def build_default_tool_catalog() -> ToolCatalog:
             description=(
                 "Inspeciona de forma limitada as janelas de nível superior atualmente "
                 "visíveis no desktop. Retorna no máximo 12 entradas com título da janela, "
-                "nome do processo, PID e um target_token opaco local para seleção exata. "
+                "nome do processo, PID, target_token opaco e observation_handle "
+                "temporário assinado para seleção recente e exata. "
                 "Quando o usuário procura uma janela específica, forneça opcionalmente "
                 "query com um trecho conhecido do título ou nome do processo; o THE OS "
                 "filtra localmente todas as janelas visíveis antes de aplicar o limite "
@@ -1039,7 +1046,8 @@ def build_default_tool_catalog() -> ToolCatalog:
                 "O THE OS enumera as janelas uma vez, aplica localmente correspondência "
                 "case-insensitive por substring contra título limitado ou nome do processo, "
                 "faz a união determinística dos resultados e retorna no máximo 12 janelas "
-                "com título, processo, PID e target_token opaco. Não aceita regex, fuzzy "
+                "com título, processo, PID, target_token opaco e observation_handle "
+                "temporário assinado. Não aceita regex, fuzzy "
                 "match, consultas duplicadas ou menos de dois filtros."
             ),
             parameters={
@@ -1858,9 +1866,14 @@ def build_default_tool_catalog() -> ToolCatalog:
             description=(
                 "Maximiza uma janela visível exata já identificada por PID, título "
                 "limitado e target_token retornados pelo mesmo window_snapshot. "
-                "Use somente esse alvo conhecido; nunca invente PID, título ou token. "
-                "A operação é normal, revalida o alvo opaco localmente e verifica "
-                "que a janela exata entrou no estado maximizado."
+                "Quando a linha escolhida também contiver observation_handle, REPASSE "
+                "esse objeto inteiro e inalterado em observation_handle; ele é uma "
+                f"referência assinada que expira em {WINDOW_OBSERVATION_TTL_SECONDS} "
+                "segundos. O caminho somente com target_token continua aceito por "
+                "compatibilidade no M97. Use somente o alvo conhecido; nunca invente "
+                "PID, título, token ou handle. A operação é normal, revalida o alvo "
+                "opaco localmente e verifica que a janela exata entrou no estado "
+                "maximizado."
                 + _HOSTED_WINDOW_STATE_SELECTION_GUIDANCE
             ),
             parameters={
@@ -1887,12 +1900,26 @@ def build_default_tool_catalog() -> ToolCatalog:
                             "Token opaco exato retornado por window_snapshot para esta janela."
                         ),
                     },
+                    "observation_handle": {
+                        **_window_observation_handle_schema(),
+                        "description": (
+                            "Referência estruturada temporária retornada na mesma linha "
+                            "do window_snapshot. Quando presente na observação, copie "
+                            "o objeto inteiro sem alterar nenhum campo. Se uma chamada "
+                            "legada não tiver handle disponível, use null."
+                        ),
+                    },
                 },
-                "required": ["pid", "title", "target_token"],
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "observation_handle",
+                ],
                 "additionalProperties": False,
             },
         ),
-        _validate_exact_window_target,
+        _validate_maximize_window_target,
     )
     catalog.register(
         ToolDefinition(
@@ -2809,6 +2836,92 @@ def _validate_exact_window_target(
         "title": normalized_title,
         "target_token": target_token,
     }
+
+
+def _window_observation_handle_schema() -> dict[str, object]:
+    return {
+        "type": ["object", "null"],
+        "properties": {
+            "version": {
+                "type": "integer",
+                "enum": [WINDOW_OBSERVATION_HANDLE_VERSION],
+            },
+            "observation_id": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$",
+            },
+            "resource": {
+                "type": "string",
+                "enum": ["window"],
+            },
+            "element_ref": {
+                "type": "string",
+                "minLength": 64,
+                "maxLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+            },
+            "observed_at": {
+                "type": "integer",
+                "minimum": 0,
+            },
+            "expires_at": {
+                "type": "integer",
+                "minimum": 0,
+            },
+            "signature": {
+                "type": "string",
+                "minLength": 64,
+                "maxLength": 64,
+                "pattern": "^[0-9a-f]{64}$",
+            },
+        },
+        "required": [
+            "version",
+            "observation_id",
+            "resource",
+            "element_ref",
+            "observed_at",
+            "expires_at",
+            "signature",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def _validate_maximize_window_target(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    required = {"pid", "title", "target_token"}
+    allowed = required | {"observation_handle"}
+    keys = set(arguments)
+    if not required.issubset(keys) or not keys.issubset(allowed):
+        raise ToolValidationError(
+            "maximize_window requires pid, title, target_token and optionally "
+            "observation_handle"
+        )
+
+    validated = _validate_exact_window_target(
+        {
+            "pid": arguments["pid"],
+            "title": arguments["title"],
+            "target_token": arguments["target_token"],
+        }
+    )
+
+    observation_handle = arguments.get("observation_handle")
+    if observation_handle is not None:
+        try:
+            validated_handle = validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=str(validated["target_token"]),
+            )
+        except WindowObservationHandleError as exc:
+            raise ToolValidationError(exc.code) from exc
+        validated["observation_handle"] = validated_handle
+
+    return validated
 
 
 def _validate_window_target(

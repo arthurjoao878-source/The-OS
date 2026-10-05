@@ -34,6 +34,11 @@ from theos.core.window_layout_sets import (
     get_window_set_layout_spec,
     resolve_hosted_visual_frame_for_set,
 )
+from theos.core.window_observations import (
+    WINDOW_OBSERVATION_HANDLE_VERSION,
+    WINDOW_OBSERVATION_TTL_SECONDS,
+    build_window_observation_handle,
+)
 from theos.core.window_placements import (
     ALLOWED_WINDOW_PLACEMENTS,
     get_window_placement_spec,
@@ -304,15 +309,19 @@ class WindowsDesktopWindowAdapter:
                 process_name = "processo-indisponivel"
 
             bounded_title = title[:MAX_WINDOW_TITLE_CHARS]
+            target_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
             rows.append(
                 {
                     "title": bounded_title,
                     "pid": pid,
                     "process_name": process_name,
-                    "target_token": _window_target_token(
-                        int(hwnd),
-                        pid,
-                        bounded_title,
+                    "target_token": target_token,
+                    "observation_handle": build_window_observation_handle(
+                        target_token
                     ),
                 }
             )
@@ -350,7 +359,15 @@ class WindowsDesktopWindowAdapter:
                 if normalized_query is not None
                 else "windows_z_order"
             ),
-            "fields": ["title", "pid", "process_name", "target_token"],
+            "fields": [
+                "title",
+                "pid",
+                "process_name",
+                "target_token",
+                "observation_handle",
+            ],
+            "observation_handle_version": WINDOW_OBSERVATION_HANDLE_VERSION,
+            "observation_handle_ttl_seconds": WINDOW_OBSERVATION_TTL_SECONDS,
             "windows": selected,
         }
 
@@ -431,15 +448,19 @@ class WindowsDesktopWindowAdapter:
                 process_name = "processo-indisponivel"
 
             bounded_title = title[:MAX_WINDOW_TITLE_CHARS]
+            target_token = _window_target_token(
+                int(hwnd),
+                pid,
+                bounded_title,
+            )
             rows.append(
                 {
                     "title": bounded_title,
                     "pid": pid,
                     "process_name": process_name,
-                    "target_token": _window_target_token(
-                        int(hwnd),
-                        pid,
-                        bounded_title,
+                    "target_token": target_token,
+                    "observation_handle": build_window_observation_handle(
+                        target_token
                     ),
                 }
             )
@@ -482,7 +503,15 @@ class WindowsDesktopWindowAdapter:
             "filter_match": "casefold_substring_title_or_process_name",
             "query_match_counts": query_match_counts,
             "order": "windows_z_order_within_multi_filter",
-            "fields": ["title", "pid", "process_name", "target_token"],
+            "fields": [
+                "title",
+                "pid",
+                "process_name",
+                "target_token",
+                "observation_handle",
+            ],
+            "observation_handle_version": WINDOW_OBSERVATION_HANDLE_VERSION,
+            "observation_handle_ttl_seconds": WINDOW_OBSERVATION_TTL_SECONDS,
             "windows": selected,
         }
 

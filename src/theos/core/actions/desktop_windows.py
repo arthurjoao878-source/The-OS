@@ -32,6 +32,10 @@ from theos.core.mouse_scroll import (
 )
 from theos.core.window_layout_pairs import get_window_pair_layout_spec
 from theos.core.window_layout_sets import get_window_set_layout_spec
+from theos.core.window_observations import (
+    WindowObservationHandleError,
+    validate_window_observation_handle,
+)
 from theos.core.window_placements import get_window_placement_spec
 from theos.core.window_targets import (
     is_window_target_token,
@@ -80,7 +84,8 @@ class WindowSnapshotAction:
                 "INSPECIONAR JANELAS VISÍVEIS\n"
                 "A LYRA enumerará localmente janelas de nível superior que estão visíveis "
                 "e enviará ao provedor de IA somente título da janela, nome do processo, "
-                "PID e um token opaco de alvo gerado localmente.\n"
+                "PID, um token opaco de alvo e uma referência de observação "
+                "temporária assinada gerados localmente.\n"
                 f"{filter_text}\n"
                 "Limite de saída: 12 janelas; títulos são limitados a 160 caracteres.\n"
                 "Não serão coletados conteúdo interno das janelas, teclas digitadas, "
@@ -185,7 +190,8 @@ class WindowSnapshotManyAction:
                 "INSPECIONAR MÚLTIPLAS JANELAS VISÍVEIS\n"
                 "A LYRA enumerará localmente as janelas de nível superior que estão "
                 "visíveis uma única vez e enviará ao provedor de IA somente as janelas "
-                "que corresponderem a pelo menos um dos filtros literais aprovados.\n"
+                "que corresponderem a pelo menos um dos filtros literais aprovados, "
+                "incluindo uma referência de observação temporária assinada por alvo.\n"
                 f"Filtros locais solicitados ({len(normalized_queries)}): {filters}\n"
                 "Correspondência: substring determinística sem regex ou fuzzy match, "
                 "aplicada somente ao título limitado ou nome do processo.\n"
@@ -3303,6 +3309,7 @@ class MaximizeWindowAction:
         pid = request.arguments.get("pid")
         title = request.arguments.get("title")
         target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
         if (
             not isinstance(pid, int)
             or isinstance(pid, bool)
@@ -3317,6 +3324,37 @@ class MaximizeWindowAction:
                 message="PID, título e alvo opaco exatos da janela são obrigatórios.",
                 error_code="ACTION_VALIDATION_FAILED",
             )
+
+        validated_observation = None
+        if observation_handle is not None:
+            try:
+                validated_observation = validate_window_observation_handle(
+                    observation_handle,
+                    expected_target_token=target_token,
+                )
+            except WindowObservationHandleError as exc:
+                messages = {
+                    "WINDOW_OBSERVATION_EXPIRED": (
+                        "A referência de observação da janela expirou; "
+                        "inspecione as janelas novamente."
+                    ),
+                    "WINDOW_OBSERVATION_TARGET_MISMATCH": (
+                        "A referência de observação não corresponde ao alvo opaco."
+                    ),
+                    "WINDOW_OBSERVATION_HANDLE_INVALID": (
+                        "A referência de observação da janela é inválida."
+                    ),
+                }
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=messages.get(
+                        exc.code,
+                        "A referência de observação da janela é inválida.",
+                    ),
+                    error_code=exc.code,
+                    effect_dispatched=False,
+                )
 
         try:
             evidence = self._windows.maximize_window(
@@ -3385,12 +3423,24 @@ class MaximizeWindowAction:
                 error_code="WINDOW_MAXIMIZE_FAILED",
             )
 
+        evidence["observation_handle_validated"] = (
+            validated_observation is not None
+        )
+        if validated_observation is not None:
+            evidence["observation_id"] = validated_observation["observation_id"]
+            evidence["observation_handle_version"] = validated_observation["version"]
+
+        observation_note = (
+            " Referência de observação temporária validada."
+            if validated_observation is not None
+            else ""
+        )
         return ActionResult(
             request_id=request.request_id,
             success=True,
             message=(
                 f"Janela exata maximizada e verificada: {evidence['title']} "
-                f"(PID {evidence['pid']})."
+                f"(PID {evidence['pid']}).{observation_note}"
             ),
             evidence=evidence,
             effect_dispatched=not bool(evidence["already_maximized"]),
