@@ -1,4 +1,10 @@
 from theos.lyra.execution.control import ExecutionControl, ExecutionStatus
+from theos.lyra.execution.file_workflow import (
+    FILE_WORKFLOW_VERSION,
+    FileTargetWorkflow,
+    FileWorkflowPhase,
+    FileWorkflowState,
+)
 from theos.lyra.execution.run_state import (
     LYRA_RUN_STATE_VERSION,
     LyraRunState,
@@ -18,12 +24,16 @@ from theos.lyra.execution.tool_loop import (
 )
 
 __all__ = [
+    "FILE_WORKFLOW_VERSION",
     "LYRA_RUN_STATE_VERSION",
     "MAX_ACTION_SEQUENCE_STEPS",
     "MAX_TOOL_LOOP_STEPS",
     "ActionSequenceResult",
     "ExecutionControl",
     "ExecutionStatus",
+    "FileTargetWorkflow",
+    "FileWorkflowPhase",
+    "FileWorkflowState",
     "LyraRunState",
     "PendingActionConfirmation",
     "RunStatus",

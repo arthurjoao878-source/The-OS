@@ -18,6 +18,10 @@ from theos.integrations.ai import (
 )
 from theos.lyra.context import ConversationTurn
 from theos.lyra.execution.control import ExecutionControl
+from theos.lyra.execution.file_workflow import (
+    FileWorkflowState,
+    summarize_file_workflow,
+)
 from theos.lyra.execution.run_state import LyraRunState, RunStatus
 
 MAX_TOOL_LOOP_STEPS = 4
@@ -132,6 +136,10 @@ class ToolLoopResult:
     @property
     def awaiting_confirmation(self) -> bool:
         return self.pending_confirmation is not None
+
+    @property
+    def file_workflow(self) -> FileWorkflowState | None:
+        return summarize_file_workflow(self.run_state)
 
 
 class ToolLoopExecutor:

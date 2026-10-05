@@ -200,8 +200,10 @@ clear.
    coordinate interaction as fallback.
 6. M99: Structured Run State v1, giving LYRA explicit bounded in-memory execution
    state without adding authority or supervision.
-7. Then continue user-facing LYRA capabilities, file workflows, perception,
-   personality, voice, and composed workflows as concrete needs justify them.
+7. M100: Verified Text File Workflow v1, deriving file-workflow state from execution
+   evidence while reusing existing bounded filesystem primitives.
+8. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+   composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
 
@@ -354,3 +356,42 @@ M99 is intentionally process-local and ephemeral. It adds no durable run store,
 cross-process recovery, background supervisor, Phoenix capability or grant, new runtime
 tool, or new remote authority. Exact future actions remain provider-driven; v1 exposes
 the remaining bounded step budget rather than pretending the rest of the plan is known.
+
+## M100 - Verified Text File Workflow v1
+
+M100 gives LYRA a structured interpretation of bounded text-file work by deriving a
+`FileWorkflowState` from the M99 run evidence. It does not add a new executor or tool.
+
+The v1 workflow recognizes these existing The Hands actions:
+
+- observations: `inspect_path`, `read_text_file`, `read_text_lines`;
+- mutations: `write_text_file`, `replace_text_literal`, `replace_text_block`.
+
+Only resolved paths returned in The Hands `ActionResult.evidence` are used to group file
+targets. Raw model arguments are not promoted into trusted workflow identity.
+
+For each target, LYRA can now distinguish:
+
+- successful observations before a mutation;
+- successful observations after a mutation;
+- attempted mutations;
+- mutations that The Hands locally verified with `write_verified=True`;
+- failed mutations and their latest error code;
+- the latest returned SHA-256 when the concrete executor supplied one.
+
+The derived workflow phase is `OBSERVED`, `VERIFIED`, `UNVERIFIED`, or `FAILED`.
+`VERIFIED` means every recorded text-file mutation in that run carried local write
+verification evidence from The Hands. It does not mean the user's higher-level goal was
+proved complete.
+
+`ToolLoopResult.file_workflow` exposes this derived state without duplicating storage.
+The source of truth remains M99's immutable run steps.
+
+LYRA's provider guidance also becomes file-workflow aware: when current file content is
+needed to make a safe edit, LYRA should read the relevant content first, prefer narrow
+literal replacement over whole-file rewrite when appropriate, and ground completion in
+The Hands evidence such as `write_verified` and SHA-256.
+
+M100 adds no Phoenix authority, no new approval rule, no durable workflow store, no
+cross-process resume, no new runtime tool, and no filesystem primitive. Existing local
+previews and mutation guards remain authoritative at the execution boundary.
