@@ -210,7 +210,9 @@ clear.
     host without adding authority or execution behavior.
 11. M104: Native Semantic Button Invoke v1, consuming an exact M98 control token for
     one bounded Win32 Button action before coordinate fallback.
-12. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+12. M105: Native Semantic Edit Text v1, setting one exact native Edit value with
+    local postcondition verification before keyboard or coordinate fallback.
+13. Then continue user-facing LYRA capabilities, perception, personality, voice, and
     composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -515,3 +517,36 @@ infrastructure, not Phoenix authority.
 M104 adds one normal-runtime The Hands tool and no development-only tool. It adds no
 Phoenix policy, grant, supervisor, durable control registry, raw HWND exposure, OCR,
 cross-process resume, or general UI Automation framework.
+
+## M105 - Native Semantic Edit Text v1
+
+M105 extends the M98 semantic desktop path from native Button invocation to one narrow
+text-editing primitive: `set_semantic_text`.
+
+Version 1 accepts only an exact native Win32 `Edit` row returned by
+`semantic_window_snapshot`. The request carries the recent M97 window observation, the
+window target token, the M98 semantic control token, the exact control id and the text
+approved by the user-facing confirmation bridge.
+
+Before mutation, The Hands revalidates the signed window observation, resolves the
+exact window again, enumerates native child controls again, recomputes the semantic
+control token, and requires exactly one visible, enabled `Edit` with the same control
+id. Password and read-only Edit styles fail closed. RichEdit and other text-editor
+classes remain unsupported in this first consumer.
+
+The concrete mutation uses bounded `SendMessageTimeoutW(WM_SETTEXT)` and does not move
+the cursor, synthesize keyboard input, use the clipboard, or expose a raw HWND. The
+approved value is then read back locally with bounded WM_GETTEXT messages and compared
+for exact equality. Evidence reports only length and SHA-256 of the approved value, not
+the read-back text itself.
+
+A successful M105 action therefore records both `effect_dispatched=True` and
+`postcondition_verified=True` for the local Edit value. This remains a concrete
+postcondition, not proof that the user's higher-level application goal was achieved.
+
+`set_semantic_text` stays behind the existing `LEGACY_LOCAL_APPROVAL_BRIDGE`; its
+preview binds the exact window observation, semantic control token, control id, and
+SHA-256 of the approved text. M105 adds no Phoenix policy, grant, durable control
+registry, raw HWND exposure, OCR, general UI Automation framework, or cross-process
+resume. Existing `type_text` and coordinate/anchor actions remain fallbacks when a
+usable native Edit is unavailable.

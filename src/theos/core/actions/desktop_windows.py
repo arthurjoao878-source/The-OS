@@ -763,6 +763,340 @@ class InvokeSemanticButtonAction:
         )
 
 
+_EXPECTED_SEMANTIC_TEXT_PID = "_theos_expected_semantic_text_pid"
+_EXPECTED_SEMANTIC_TEXT_TITLE = "_theos_expected_semantic_text_title"
+_EXPECTED_SEMANTIC_TEXT_TARGET_TOKEN = "_theos_expected_semantic_text_target_token"
+_EXPECTED_SEMANTIC_TEXT_OBSERVATION_HANDLE = (
+    "_theos_expected_semantic_text_observation_handle"
+)
+_EXPECTED_SEMANTIC_TEXT_CONTROL_TOKEN = "_theos_expected_semantic_text_control_token"
+_EXPECTED_SEMANTIC_TEXT_CONTROL_ID = "_theos_expected_semantic_text_control_id"
+_EXPECTED_SEMANTIC_TEXT_SHA256 = "_theos_expected_semantic_text_sha256"
+
+
+class SetSemanticTextAction:
+    name = "set_semantic_text"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def _validated_arguments(
+        request: ActionRequest,
+    ) -> tuple[int, str, str, dict[str, object], str, int | None, str] | None:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
+        control_token = request.arguments.get("control_token")
+        role = request.arguments.get("role")
+        class_name = request.arguments.get("class_name")
+        control_id = request.arguments.get("control_id")
+        enabled = request.arguments.get("enabled")
+        text = request.arguments.get("text")
+
+        valid_text = (
+            isinstance(text, str)
+            and bool(text)
+            and len(text) <= MAX_TEXT_INPUT_CHARS
+            and not any(
+                ord(character) < 0x20 or ord(character) == 0x7F
+                for character in text
+            )
+            and not any(
+                0xD800 <= ord(character) <= 0xDFFF
+                for character in text
+            )
+        )
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or observation_handle is None
+            or not is_semantic_control_token(control_token)
+            or role != "text_editor"
+            or class_name != "Edit"
+            or (
+                control_id is not None
+                and (
+                    not isinstance(control_id, int)
+                    or isinstance(control_id, bool)
+                    or control_id < 0
+                )
+            )
+            or enabled is not True
+            or not valid_text
+        ):
+            return None
+
+        try:
+            validated_handle = validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError:
+            return None
+
+        assert isinstance(text, str)
+        return (
+            pid,
+            title.strip(),
+            target_token,
+            validated_handle,
+            control_token,
+            control_id,
+            text,
+        )
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        validated = SetSemanticTextAction._validated_arguments(request)
+        if validated is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Substituição semântica de texto bloqueada antes da confirmação: "
+                    "alvo, observação, Edit ou texto inválidos."
+                ),
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            control_id,
+            text,
+        ) = validated
+        text_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        control_id_text = "indisponível" if control_id is None else str(control_id)
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "SUBSTITUIR TEXTO DE EDIT SEMÂNTICO NATIVO\n"
+                f"Janela exata: {title} (PID {pid}).\n"
+                f"ID de controle: {control_id_text}\n"
+                f"Alvo da janela: {target_token[:12]}...\n"
+                f"Token do controle: {control_token[:12]}...\n"
+                f"Caracteres: {len(text)}\n"
+                f"Texto exato que substituirá todo o valor atual:\n{text}\n"
+                "Após a confirmação, o THE HANDS revalidará a observação da janela "
+                "e enumerará novamente seus controles Win32. Somente o Edit visível "
+                "e habilitado que ainda corresponda ao token e ID aprovados poderá "
+                "receber o texto. Campos password e read-only são bloqueados. "
+                "A operação usa WM_SETTEXT nativo com timeout, sem mover o cursor, "
+                "sem teclado e sem clipboard. O conteúdo resultante é comparado "
+                "localmente ao texto aprovado; o valor lido de volta não é enviado "
+                "como evidência."
+            ),
+            execution_guard={
+                _EXPECTED_SEMANTIC_TEXT_PID: pid,
+                _EXPECTED_SEMANTIC_TEXT_TITLE: title,
+                _EXPECTED_SEMANTIC_TEXT_TARGET_TOKEN: target_token,
+                _EXPECTED_SEMANTIC_TEXT_OBSERVATION_HANDLE: observation_handle,
+                _EXPECTED_SEMANTIC_TEXT_CONTROL_TOKEN: control_token,
+                _EXPECTED_SEMANTIC_TEXT_CONTROL_ID: control_id,
+                _EXPECTED_SEMANTIC_TEXT_SHA256: text_sha256,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        validated = self._validated_arguments(request)
+        if validated is None:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A substituição semântica de texto não possui argumentos "
+                    "válidos e recentemente observados."
+                ),
+                error_code="SEMANTIC_TEXT_ARGUMENTS_INVALID",
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            control_id,
+            text,
+        ) = validated
+        text_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+        if (
+            request.arguments.get(_EXPECTED_SEMANTIC_TEXT_PID) != pid
+            or request.arguments.get(_EXPECTED_SEMANTIC_TEXT_TITLE) != title
+            or request.arguments.get(_EXPECTED_SEMANTIC_TEXT_TARGET_TOKEN)
+            != target_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_TEXT_OBSERVATION_HANDLE)
+            != observation_handle
+            or request.arguments.get(_EXPECTED_SEMANTIC_TEXT_CONTROL_TOKEN)
+            != control_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_TEXT_CONTROL_ID) != control_id
+            or request.arguments.get(_EXPECTED_SEMANTIC_TEXT_SHA256) != text_sha256
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A substituição semântica de texto não possui uma prévia local "
+                    "aprovada para este controle e texto exatos."
+                ),
+                error_code="SEMANTIC_TEXT_PREVIEW_REQUIRED",
+            )
+
+        try:
+            validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A observação da janela não é mais válida; "
+                    "inspecione a janela novamente."
+                ),
+                evidence={"reason": exc.code},
+                error_code=exc.code,
+            )
+
+        try:
+            evidence = self._windows.set_semantic_text(
+                pid,
+                title,
+                target_token,
+                control_token,
+                control_id,
+                text,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_SEMANTIC_TEXT_BLOCKED": (
+                    "A LYRA bloqueou texto semântico na própria janela.",
+                    "SELF_WINDOW_SEMANTIC_TEXT_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo opaco.",
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei a moldura visual da janela exata.",
+                    "WINDOW_VISUAL_FRAME_NOT_FOUND",
+                ),
+                "WINDOW_VISUAL_FRAME_AMBIGUOUS": (
+                    "A moldura visual da janela ficou ambígua.",
+                    "WINDOW_VISUAL_FRAME_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_TOKEN_INVALID": (
+                    "O token opaco do controle é inválido.",
+                    "SEMANTIC_CONTROL_TOKEN_INVALID",
+                ),
+                "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE": (
+                    "O Edit semântico não existe mais; inspecione novamente.",
+                    "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE",
+                ),
+                "SEMANTIC_CONTROL_AMBIGUOUS": (
+                    "O controle semântico ficou ambíguo e não foi alterado.",
+                    "SEMANTIC_CONTROL_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_NOT_TEXT_EDITOR": (
+                    "O controle observado não é mais um Edit nativo suportado.",
+                    "SEMANTIC_CONTROL_NOT_TEXT_EDITOR",
+                ),
+                "SEMANTIC_CONTROL_METADATA_CHANGED": (
+                    "Os metadados do Edit mudaram; inspecione novamente.",
+                    "SEMANTIC_CONTROL_METADATA_CHANGED",
+                ),
+                "SEMANTIC_CONTROL_NOT_VISIBLE": (
+                    "O Edit semântico não está mais visível.",
+                    "SEMANTIC_CONTROL_NOT_VISIBLE",
+                ),
+                "SEMANTIC_CONTROL_DISABLED": (
+                    "O Edit semântico está desabilitado.",
+                    "SEMANTIC_CONTROL_DISABLED",
+                ),
+                "SEMANTIC_TEXT_PASSWORD_BLOCKED": (
+                    "Campos Edit com estilo password não aceitam esta operação.",
+                    "SEMANTIC_TEXT_PASSWORD_BLOCKED",
+                ),
+                "SEMANTIC_TEXT_READ_ONLY_BLOCKED": (
+                    "Campos Edit read-only não aceitam esta operação.",
+                    "SEMANTIC_TEXT_READ_ONLY_BLOCKED",
+                ),
+                "SEMANTIC_TEXT_SET_NOT_ACCEPTED": (
+                    "O Windows não confirmou o despacho do WM_SETTEXT.",
+                    "SEMANTIC_TEXT_SET_NOT_ACCEPTED",
+                ),
+                "SEMANTIC_TEXT_POSTCONDITION_NOT_VERIFIED": (
+                    (
+                        "O texto foi despachado, mas a leitura local não confirmou "
+                        "o valor exato; a operação não será tratada como verificada."
+                    ),
+                    "SEMANTIC_TEXT_POSTCONDITION_NOT_VERIFIED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                postcondition_failure = (
+                    reason == "SEMANTIC_TEXT_POSTCONDITION_NOT_VERIFIED"
+                )
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                    effect_dispatched=True if postcondition_failure else None,
+                    postcondition_verified=False if postcondition_failure else None,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui substituir o texto do Edit semântico.",
+                evidence={"reason": reason},
+                error_code="SEMANTIC_TEXT_SET_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui substituir o texto do Edit semântico.",
+                evidence={"exception": type(exc).__name__},
+                error_code="SEMANTIC_TEXT_SET_FAILED",
+            )
+
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Texto semântico substituído e verificado em "
+                f"{evidence['title']} (PID {evidence['pid']}), "
+                f"Edit ID {evidence['control_id']}."
+            ),
+            evidence=evidence,
+            effect_dispatched=True,
+            postcondition_verified=True,
+        )
+
+
 class ActivateWindowAction:
     name = "activate_window"
     risk = ActionRisk.NORMAL

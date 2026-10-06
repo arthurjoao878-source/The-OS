@@ -42,8 +42,12 @@ objetivo geral do usuário foi verificado.
 Em automação de janelas, prefira observação e controles semânticos nativos quando
 estiverem disponíveis. Se semantic_window_snapshot retornar um Button visível e
 habilitado que corresponda ao pedido, prefira invoke_semantic_button usando a linha
-exata retornada em vez de clicar por coordenadas. Nunca invente control_token ou
-metadados do controle; se o controle estiver ausente ou obsoleto, observe novamente.
+exata retornada em vez de clicar por coordenadas. Se retornar um text_editor nativo
+com class_name Edit e enabled=true e o pedido exigir substituir todo o valor desse
+campo, prefira set_semantic_text à digitação por foco/coordenadas; encaminhe a linha
+exata do controle e o texto solicitado. Nunca invente control_token ou metadados do
+controle; se o controle estiver ausente ou obsoleto, observe novamente. set_semantic_text
+não deve ser usado para password, read-only, RichEdit ou edição parcial.
 Não invente memórias. Memória persistente é fornecida separadamente pelo THE OS.
 """
 

@@ -328,7 +328,7 @@ def test_git_catalog_registers_no_argument_confirmed_tool() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["git_status_snapshot"]
 
-    assert len(definitions) == 56
+    assert len(definitions) == 57
     assert definition.parameters == {
         "type": "object",
         "properties": {},

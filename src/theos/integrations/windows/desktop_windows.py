@@ -72,7 +72,14 @@ WINDOW_MAXIMIZE_VERIFY_INTERVAL_SECONDS = 0.05
 WINDOW_RESTORE_VERIFY_TIMEOUT_SECONDS = 0.75
 WINDOW_RESTORE_VERIFY_INTERVAL_SECONDS = 0.05
 SEMANTIC_BUTTON_INVOKE_TIMEOUT_MS = 1000
+SEMANTIC_TEXT_SET_TIMEOUT_MS = 1000
 BM_CLICK = 0x00F5
+WM_SETTEXT = 0x000C
+WM_GETTEXT = 0x000D
+WM_GETTEXTLENGTH = 0x000E
+GWL_STYLE = -16
+ES_PASSWORD = 0x0020
+ES_READONLY = 0x0800
 SMTO_BLOCK = 0x0001
 SMTO_ABORTIFHUNG = 0x0002
 MAX_TEXT_INPUT_CHARS = 512
@@ -964,6 +971,300 @@ class WindowsDesktopWindowAdapter:
             ),
             "input_method": "SendMessageTimeoutW_BM_CLICK",
             "invoke_timeout_ms": SEMANTIC_BUTTON_INVOKE_TIMEOUT_MS,
+            "raw_hwnd_exposed": False,
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": requested_candidate.pid,
+            "requested_title": requested_candidate.title,
+            "requested_target_token": requested_candidate.target_token,
+        }
+
+    def set_semantic_text(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+        control_token: str,
+        control_id: int | None,
+        text: str,
+    ) -> dict[str, object]:
+        if pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_SEMANTIC_TEXT_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        if not is_semantic_control_token(control_token):
+            raise RuntimeError("SEMANTIC_CONTROL_TOKEN_INVALID")
+        if (
+            control_id is not None
+            and (
+                not isinstance(control_id, int)
+                or isinstance(control_id, bool)
+                or control_id < 0
+            )
+        ):
+            raise RuntimeError("SEMANTIC_CONTROL_METADATA_CHANGED")
+        if (
+            not isinstance(text, str)
+            or not text
+            or len(text) > MAX_TEXT_INPUT_CHARS
+            or any(
+                ord(character) < 0x20 or ord(character) == 0x7F
+                for character in text
+            )
+            or any(
+                0xD800 <= ord(character) <= 0xDFFF
+                for character in text
+            )
+        ):
+            raise RuntimeError("SEMANTIC_TEXT_INVALID")
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        (
+            requested_candidate,
+            resolved_candidate,
+            _requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_exact_window_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+
+        root_hwnd = wintypes.HWND(resolved_candidate.hwnd)
+        resolved_pid = resolved_candidate.pid
+
+        user32.EnumChildWindows.argtypes = [
+            wintypes.HWND,
+            callback_type,
+            wintypes.LPARAM,
+        ]
+        user32.EnumChildWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsWindowEnabled.argtypes = [wintypes.HWND]
+        user32.IsWindowEnabled.restype = wintypes.BOOL
+        user32.GetClassNameW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.GetDlgCtrlID.argtypes = [wintypes.HWND]
+        user32.GetDlgCtrlID.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.GetWindowLongW.argtypes = [
+            wintypes.HWND,
+            ctypes.c_int,
+        ]
+        user32.GetWindowLongW.restype = ctypes.c_long
+        user32.SendMessageTimeoutW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+            wintypes.UINT,
+            wintypes.UINT,
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        user32.SendMessageTimeoutW.restype = ctypes.c_ssize_t
+
+        matches: list[dict[str, object]] = []
+
+        def visit_child(hwnd: int, _lparam: int) -> bool:
+            child_pid_value = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(
+                hwnd,
+                ctypes.byref(child_pid_value),
+            )
+            child_pid = int(child_pid_value.value)
+            if child_pid != resolved_pid:
+                return True
+
+            class_buffer = ctypes.create_unicode_buffer(256)
+            class_length = int(
+                user32.GetClassNameW(
+                    hwnd,
+                    class_buffer,
+                    len(class_buffer),
+                )
+            )
+            class_name = (
+                class_buffer.value.strip()
+                if class_length > 0
+                else ""
+            )
+            if not class_name:
+                return True
+
+            raw_control_id = int(user32.GetDlgCtrlID(hwnd))
+            candidate_token = build_semantic_control_token(
+                target_token,
+                child_hwnd=int(hwnd),
+                pid=child_pid,
+                class_name=class_name,
+                control_id=raw_control_id,
+            )
+            if candidate_token != control_token:
+                return True
+
+            matches.append(
+                {
+                    "hwnd": int(hwnd),
+                    "role": semantic_role_for_class(class_name),
+                    "class_name": class_name,
+                    "control_id": raw_control_id if raw_control_id >= 0 else None,
+                    "visible": bool(user32.IsWindowVisible(hwnd)),
+                    "enabled": bool(user32.IsWindowEnabled(hwnd)),
+                    "style": int(user32.GetWindowLongW(hwnd, GWL_STYLE)),
+                }
+            )
+            return True
+
+        callback = callback_type(visit_child)
+        if not user32.EnumChildWindows(root_hwnd, callback, 0):
+            error_code = ctypes.get_last_error()
+            if error_code:
+                raise OSError(error_code, "EnumChildWindows failed")
+
+        if not matches:
+            raise RuntimeError("SEMANTIC_CONTROL_NOT_FOUND_OR_STALE")
+        if len(matches) != 1:
+            raise RuntimeError("SEMANTIC_CONTROL_AMBIGUOUS")
+
+        selected = matches[0]
+        if (
+            selected["role"] != "text_editor"
+            or selected["class_name"] != "Edit"
+        ):
+            raise RuntimeError("SEMANTIC_CONTROL_NOT_TEXT_EDITOR")
+        if selected["control_id"] != control_id:
+            raise RuntimeError("SEMANTIC_CONTROL_METADATA_CHANGED")
+        if selected["visible"] is not True:
+            raise RuntimeError("SEMANTIC_CONTROL_NOT_VISIBLE")
+        if selected["enabled"] is not True:
+            raise RuntimeError("SEMANTIC_CONTROL_DISABLED")
+
+        style = int(selected["style"])
+        if style & ES_PASSWORD:
+            raise RuntimeError("SEMANTIC_TEXT_PASSWORD_BLOCKED")
+        if style & ES_READONLY:
+            raise RuntimeError("SEMANTIC_TEXT_READ_ONLY_BLOCKED")
+
+        text_buffer = ctypes.create_unicode_buffer(text)
+        set_result = ctypes.c_size_t()
+        dispatch_result = int(
+            user32.SendMessageTimeoutW(
+                wintypes.HWND(int(selected["hwnd"])),
+                WM_SETTEXT,
+                0,
+                ctypes.addressof(text_buffer),
+                SMTO_BLOCK | SMTO_ABORTIFHUNG,
+                SEMANTIC_TEXT_SET_TIMEOUT_MS,
+                ctypes.byref(set_result),
+            )
+        )
+        if dispatch_result == 0 or int(set_result.value) == 0:
+            raise RuntimeError("SEMANTIC_TEXT_SET_NOT_ACCEPTED")
+
+        length_result = ctypes.c_size_t()
+        length_dispatch = int(
+            user32.SendMessageTimeoutW(
+                wintypes.HWND(int(selected["hwnd"])),
+                WM_GETTEXTLENGTH,
+                0,
+                0,
+                SMTO_BLOCK | SMTO_ABORTIFHUNG,
+                SEMANTIC_TEXT_SET_TIMEOUT_MS,
+                ctypes.byref(length_result),
+            )
+        )
+        if length_dispatch == 0:
+            raise RuntimeError("SEMANTIC_TEXT_POSTCONDITION_NOT_VERIFIED")
+
+        approved_units = len(text.encode("utf-16-le")) // 2
+        if int(length_result.value) != approved_units:
+            raise RuntimeError("SEMANTIC_TEXT_POSTCONDITION_NOT_VERIFIED")
+
+        read_buffer = ctypes.create_unicode_buffer(approved_units + 1)
+        read_result = ctypes.c_size_t()
+        read_dispatch = int(
+            user32.SendMessageTimeoutW(
+                wintypes.HWND(int(selected["hwnd"])),
+                WM_GETTEXT,
+                approved_units + 1,
+                ctypes.addressof(read_buffer),
+                SMTO_BLOCK | SMTO_ABORTIFHUNG,
+                SEMANTIC_TEXT_SET_TIMEOUT_MS,
+                ctypes.byref(read_result),
+            )
+        )
+        if read_dispatch == 0:
+            raise RuntimeError("SEMANTIC_TEXT_POSTCONDITION_NOT_VERIFIED")
+        if (
+            int(read_result.value) != approved_units
+            or read_buffer.value != text
+        ):
+            raise RuntimeError("SEMANTIC_TEXT_POSTCONDITION_NOT_VERIFIED")
+
+        try:
+            process_name = psutil.Process(resolved_pid).name()
+        except psutil.Error:
+            process_name = "processo-indisponivel"
+
+        return {
+            "pid": resolved_pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "process_name": process_name,
+            "target_token": target_token,
+            "control_token": control_token,
+            "role": "text_editor",
+            "class_name": "Edit",
+            "control_id": control_id,
+            "enabled_before": True,
+            "visible_before": True,
+            "password_style": False,
+            "read_only_style": False,
+            "text_chars": len(text),
+            "text_utf16_units": approved_units,
+            "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "semantic_source": "win32_native_child_controls",
+            "semantic_text_set_dispatched": True,
+            "coordinate_action_dispatched": False,
+            "cursor_moved": False,
+            "keyboard_input_dispatched": False,
+            "clipboard_used": False,
+            "content_effect_verified": True,
+            "text_postcondition_verified": True,
+            "text_value_returned_in_evidence": False,
+            "verification": (
+                "exact_window_and_semantic_control_token_revalidation_"
+                "then_wm_settext_and_exact_local_readback"
+            ),
+            "input_method": (
+                "SendMessageTimeoutW_WM_SETTEXT_then_"
+                "WM_GETTEXTLENGTH_WM_GETTEXT"
+            ),
+            "set_timeout_ms": SEMANTIC_TEXT_SET_TIMEOUT_MS,
             "raw_hwnd_exposed": False,
             "hosted_visual_frame_resolution": True,
             "visual_frame_normalized": visual_frame_normalized,

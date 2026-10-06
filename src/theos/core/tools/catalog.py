@@ -1218,6 +1218,75 @@ def build_default_tool_catalog() -> ToolCatalog:
 
     catalog.register(
         ToolDefinition(
+            name="set_semantic_text",
+            description=(
+                "Substitui todo o valor de um controle Edit Win32 nativo exato "
+                "retornado por semantic_window_snapshot. Use preferencialmente esta "
+                "ferramenta, em vez de type_text ou clique por coordenadas, quando a "
+                "inspeção semântica retornar role='text_editor', class_name='Edit' e "
+                "enabled=true para o campo solicitado. Requer pid, título, "
+                "target_token e observation_handle da janela, além de control_token, "
+                "role, class_name, control_id, enabled e o texto exato. O THE HANDS "
+                "revalida a janela e o controle, bloqueia Edit password/read-only, usa "
+                "WM_SETTEXT com timeout e verifica localmente o valor exato por "
+                "WM_GETTEXT sem devolver esse conteúdo como evidência. Esta operação "
+                "substitui todo o valor atual do Edit. Não invente control_token ou "
+                "metadados; observe novamente se o controle estiver obsoleto."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {"type": "integer", "minimum": 1},
+                    "title": {"type": "string", "maxLength": 160},
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "observation_handle": {
+                        **_window_observation_handle_schema(),
+                        "type": "object",
+                    },
+                    "control_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "role": {"type": "string", "enum": ["text_editor"]},
+                    "class_name": {"type": "string", "enum": ["Edit"]},
+                    "control_id": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                    },
+                    "enabled": {"type": "boolean", "enum": [True]},
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512,
+                    },
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "observation_handle",
+                    "control_token",
+                    "role",
+                    "class_name",
+                    "control_id",
+                    "enabled",
+                    "text",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_set_semantic_text,
+    )
+
+    catalog.register(
+        ToolDefinition(
             name="activate_window",
             description=(
                 "Traz para o primeiro plano uma janela visível exata já identificada por "
@@ -3158,6 +3227,116 @@ def _validate_invoke_semantic_button(
         "class_name": "Button",
         "control_id": control_id,
         "enabled": True,
+    }
+
+
+def _validate_set_semantic_text(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    required = {
+        "pid",
+        "title",
+        "target_token",
+        "observation_handle",
+        "control_token",
+        "role",
+        "class_name",
+        "control_id",
+        "enabled",
+        "text",
+    }
+    if set(arguments) != required:
+        raise ToolValidationError(
+            "set_semantic_text requires the exact semantic Edit row and text"
+        )
+
+    validated = _validate_exact_window_target(
+        {
+            "pid": arguments["pid"],
+            "title": arguments["title"],
+            "target_token": arguments["target_token"],
+        }
+    )
+
+    observation_handle = arguments.get("observation_handle")
+    if observation_handle is None:
+        raise ToolValidationError(
+            "set_semantic_text requires a recent observation_handle"
+        )
+    try:
+        validated_handle = validate_window_observation_handle(
+            observation_handle,
+            expected_target_token=str(validated["target_token"]),
+        )
+    except WindowObservationHandleError as exc:
+        raise ToolValidationError(exc.code) from exc
+
+    control_token = arguments.get("control_token")
+    role = arguments.get("role")
+    class_name = arguments.get("class_name")
+    control_id = arguments.get("control_id")
+    enabled = arguments.get("enabled")
+    text = arguments.get("text")
+
+    if not is_semantic_control_token(control_token):
+        raise ToolValidationError(
+            "control_token must be a 64-character lowercase hex token"
+        )
+    if role != "text_editor":
+        raise ToolValidationError(
+            "semantic text control role must be text_editor"
+        )
+    if class_name != "Edit":
+        raise ToolValidationError(
+            "M105 supports only native Edit controls"
+        )
+    if (
+        control_id is not None
+        and (
+            not isinstance(control_id, int)
+            or isinstance(control_id, bool)
+            or control_id < 0
+        )
+    ):
+        raise ToolValidationError(
+            "semantic text control_id must be a non-negative integer or null"
+        )
+    if enabled is not True:
+        raise ToolValidationError(
+            "semantic text editor must have enabled=true"
+        )
+    if not isinstance(text, str) or not text:
+        raise ToolValidationError(
+            "semantic text must be a non-empty string"
+        )
+    if len(text) > 512:
+        raise ToolValidationError(
+            "semantic text exceeds the 512-character local limit"
+        )
+    if any(
+        ord(character) < 0x20 or ord(character) == 0x7F
+        for character in text
+    ):
+        raise ToolValidationError(
+            "semantic text contains blocked control characters"
+        )
+    if any(
+        0xD800 <= ord(character) <= 0xDFFF
+        for character in text
+    ):
+        raise ToolValidationError(
+            "semantic text contains invalid surrogate code points"
+        )
+
+    return {
+        **validated,
+        "observation_handle": validated_handle,
+        "control_token": control_token,
+        "role": "text_editor",
+        "class_name": "Edit",
+        "control_id": control_id,
+        "enabled": True,
+        "text": text,
     }
 
 
