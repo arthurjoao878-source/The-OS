@@ -1287,6 +1287,78 @@ def build_default_tool_catalog() -> ToolCatalog:
 
     catalog.register(
         ToolDefinition(
+            name="set_semantic_checkbox_state",
+            description=(
+                "Define de forma idempotente o estado marcado/desmarcado de um "
+                "checkbox Win32 nativo exato retornado por semantic_window_snapshot. "
+                "Use quando a linha semântica for role='button', class_name='Button', "
+                "enabled=true e o pedido exigir um estado final explícito, em vez de "
+                "apenas clicar. Requer pid, título, target_token e observation_handle "
+                "da janela, além de control_token, nome, control_id e checked. O "
+                "THE HANDS revalida a janela e o controle e aceita na v1 somente "
+                "BS_AUTOCHECKBOX. O estado atual é lido com BM_GETCHECK; se já for "
+                "igual ao desejado nenhum clique é enviado, caso contrário usa "
+                "BM_CLICK com timeout e verifica novamente com BM_GETCHECK. Não "
+                "invente control_token ou metadados; observe novamente se estiverem "
+                "obsoletos. A pós-condição local verificada não prova o objetivo "
+                "geral do usuário."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {"type": "integer", "minimum": 1},
+                    "title": {"type": "string", "maxLength": 160},
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "observation_handle": {
+                        **_window_observation_handle_schema(),
+                        "type": "object",
+                    },
+                    "control_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "role": {"type": "string", "enum": ["button"]},
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_SEMANTIC_NAME_CHARS,
+                    },
+                    "class_name": {"type": "string", "enum": ["Button"]},
+                    "control_id": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                    },
+                    "enabled": {"type": "boolean", "enum": [True]},
+                    "checked": {"type": "boolean"},
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "observation_handle",
+                    "control_token",
+                    "role",
+                    "name",
+                    "class_name",
+                    "control_id",
+                    "enabled",
+                    "checked",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_set_semantic_checkbox_state,
+    )
+
+    catalog.register(
+        ToolDefinition(
             name="activate_window",
             description=(
                 "Traz para o primeiro plano uma janela visível exata já identificada por "
@@ -3337,6 +3409,111 @@ def _validate_set_semantic_text(
         "control_id": control_id,
         "enabled": True,
         "text": text,
+    }
+
+
+def _validate_set_semantic_checkbox_state(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    required = {
+        "pid",
+        "title",
+        "target_token",
+        "observation_handle",
+        "control_token",
+        "role",
+        "name",
+        "class_name",
+        "control_id",
+        "enabled",
+        "checked",
+    }
+    if set(arguments) != required:
+        raise ToolValidationError(
+            "set_semantic_checkbox_state requires the exact semantic Button row "
+            "and desired checked state"
+        )
+
+    validated = _validate_exact_window_target(
+        {
+            "pid": arguments["pid"],
+            "title": arguments["title"],
+            "target_token": arguments["target_token"],
+        }
+    )
+
+    observation_handle = arguments.get("observation_handle")
+    if observation_handle is None:
+        raise ToolValidationError(
+            "set_semantic_checkbox_state requires a recent observation_handle"
+        )
+    try:
+        validated_handle = validate_window_observation_handle(
+            observation_handle,
+            expected_target_token=str(validated["target_token"]),
+        )
+    except WindowObservationHandleError as exc:
+        raise ToolValidationError(exc.code) from exc
+
+    control_token = arguments.get("control_token")
+    role = arguments.get("role")
+    name = arguments.get("name")
+    class_name = arguments.get("class_name")
+    control_id = arguments.get("control_id")
+    enabled = arguments.get("enabled")
+    checked = arguments.get("checked")
+
+    if not is_semantic_control_token(control_token):
+        raise ToolValidationError(
+            "control_token must be a 64-character lowercase hex token"
+        )
+    if role != "button":
+        raise ToolValidationError(
+            "semantic checkbox control role must be button"
+        )
+    if not isinstance(name, str) or not name.strip():
+        raise ToolValidationError(
+            "semantic checkbox name must be non-blank"
+        )
+    normalized_name = name.strip()
+    if len(normalized_name) > MAX_SEMANTIC_NAME_CHARS:
+        raise ToolValidationError(
+            "semantic checkbox name exceeds local limit"
+        )
+    if class_name != "Button":
+        raise ToolValidationError(
+            "semantic checkbox class_name must be Button"
+        )
+    if (
+        control_id is not None
+        and (
+            not isinstance(control_id, int)
+            or isinstance(control_id, bool)
+            or control_id < 0
+        )
+    ):
+        raise ToolValidationError(
+            "semantic checkbox control_id must be a non-negative integer or null"
+        )
+    if enabled is not True:
+        raise ToolValidationError(
+            "semantic checkbox must have enabled=true"
+        )
+    if not isinstance(checked, bool):
+        raise ToolValidationError(
+            "semantic checkbox checked must be boolean"
+        )
+
+    return {
+        **validated,
+        "observation_handle": validated_handle,
+        "control_token": control_token,
+        "role": "button",
+        "name": normalized_name,
+        "class_name": "Button",
+        "control_id": control_id,
+        "enabled": True,
+        "checked": checked,
     }
 
 

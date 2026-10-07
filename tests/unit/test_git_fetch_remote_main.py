@@ -46,7 +46,7 @@ def test_git_fetch_remote_main_catalog_has_no_model_arguments() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["git_fetch_remote_main"]
 
-    assert len(definitions) == 57
+    assert len(definitions) == 58
     assert definition.parameters["properties"] == {}
     assert definition.parameters["additionalProperties"] is False
     assert "refs/remotes/origin/main" in definition.description

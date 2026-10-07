@@ -1097,6 +1097,361 @@ class SetSemanticTextAction:
         )
 
 
+_EXPECTED_SEMANTIC_CHECKBOX_PID = "_theos_expected_semantic_checkbox_pid"
+_EXPECTED_SEMANTIC_CHECKBOX_TITLE = "_theos_expected_semantic_checkbox_title"
+_EXPECTED_SEMANTIC_CHECKBOX_TARGET_TOKEN = (
+    "_theos_expected_semantic_checkbox_target_token"
+)
+_EXPECTED_SEMANTIC_CHECKBOX_OBSERVATION_HANDLE = (
+    "_theos_expected_semantic_checkbox_observation_handle"
+)
+_EXPECTED_SEMANTIC_CHECKBOX_CONTROL_TOKEN = (
+    "_theos_expected_semantic_checkbox_control_token"
+)
+_EXPECTED_SEMANTIC_CHECKBOX_NAME = "_theos_expected_semantic_checkbox_name"
+_EXPECTED_SEMANTIC_CHECKBOX_CONTROL_ID = (
+    "_theos_expected_semantic_checkbox_control_id"
+)
+_EXPECTED_SEMANTIC_CHECKBOX_STATE = "_theos_expected_semantic_checkbox_state"
+
+
+class SetSemanticCheckboxStateAction:
+    name = "set_semantic_checkbox_state"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def _validated_arguments(
+        request: ActionRequest,
+    ) -> tuple[
+        int,
+        str,
+        str,
+        dict[str, object],
+        str,
+        str,
+        int | None,
+        bool,
+    ] | None:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
+        control_token = request.arguments.get("control_token")
+        role = request.arguments.get("role")
+        name = request.arguments.get("name")
+        class_name = request.arguments.get("class_name")
+        control_id = request.arguments.get("control_id")
+        enabled = request.arguments.get("enabled")
+        checked = request.arguments.get("checked")
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or observation_handle is None
+            or not is_semantic_control_token(control_token)
+            or role != "button"
+            or not isinstance(name, str)
+            or not name.strip()
+            or len(name.strip()) > MAX_SEMANTIC_NAME_CHARS
+            or class_name != "Button"
+            or (
+                control_id is not None
+                and (
+                    not isinstance(control_id, int)
+                    or isinstance(control_id, bool)
+                    or control_id < 0
+                )
+            )
+            or enabled is not True
+            or not isinstance(checked, bool)
+        ):
+            return None
+
+        try:
+            validated_handle = validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError:
+            return None
+
+        return (
+            pid,
+            title.strip(),
+            target_token,
+            validated_handle,
+            control_token,
+            name.strip(),
+            control_id,
+            checked,
+        )
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        validated = SetSemanticCheckboxStateAction._validated_arguments(request)
+        if validated is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Definição de checkbox semântico bloqueada antes da confirmação: "
+                    "alvo, observação, Button ou estado inválidos."
+                ),
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            name,
+            control_id,
+            checked,
+        ) = validated
+        control_id_text = "indisponível" if control_id is None else str(control_id)
+        state_text = "marcado" if checked else "desmarcado"
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "DEFINIR ESTADO DE CHECKBOX SEMÂNTICO NATIVO\n"
+                f"Janela exata: {title} (PID {pid}).\n"
+                f"Controle: {name}\n"
+                f"ID de controle: {control_id_text}\n"
+                f"Estado desejado: {state_text}\n"
+                f"Alvo da janela: {target_token[:12]}...\n"
+                f"Token do controle: {control_token[:12]}...\n"
+                "Após a confirmação, o THE HANDS revalidará a observação da janela "
+                "e enumerará novamente seus controles Win32. A v1 aceita somente "
+                "Button nativo com estilo BS_AUTOCHECKBOX. O estado atual será lido "
+                "com BM_GETCHECK; se já estiver no estado aprovado, nenhum clique "
+                "será despachado. Caso contrário, um BM_CLICK nativo com timeout "
+                "será enviado e o estado será lido novamente com BM_GETCHECK para "
+                "verificação exata. A operação não usa coordenadas, cursor, teclado "
+                "ou clipboard e não trata a pós-condição local como objetivo geral "
+                "do usuário concluído."
+            ),
+            execution_guard={
+                _EXPECTED_SEMANTIC_CHECKBOX_PID: pid,
+                _EXPECTED_SEMANTIC_CHECKBOX_TITLE: title,
+                _EXPECTED_SEMANTIC_CHECKBOX_TARGET_TOKEN: target_token,
+                _EXPECTED_SEMANTIC_CHECKBOX_OBSERVATION_HANDLE: observation_handle,
+                _EXPECTED_SEMANTIC_CHECKBOX_CONTROL_TOKEN: control_token,
+                _EXPECTED_SEMANTIC_CHECKBOX_NAME: name,
+                _EXPECTED_SEMANTIC_CHECKBOX_CONTROL_ID: control_id,
+                _EXPECTED_SEMANTIC_CHECKBOX_STATE: checked,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        validated = self._validated_arguments(request)
+        if validated is None:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A definição do checkbox semântico não possui argumentos "
+                    "válidos e recentemente observados."
+                ),
+                error_code="SEMANTIC_CHECKBOX_ARGUMENTS_INVALID",
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            name,
+            control_id,
+            checked,
+        ) = validated
+
+        if (
+            request.arguments.get(_EXPECTED_SEMANTIC_CHECKBOX_PID) != pid
+            or request.arguments.get(_EXPECTED_SEMANTIC_CHECKBOX_TITLE) != title
+            or request.arguments.get(_EXPECTED_SEMANTIC_CHECKBOX_TARGET_TOKEN)
+            != target_token
+            or request.arguments.get(
+                _EXPECTED_SEMANTIC_CHECKBOX_OBSERVATION_HANDLE
+            )
+            != observation_handle
+            or request.arguments.get(_EXPECTED_SEMANTIC_CHECKBOX_CONTROL_TOKEN)
+            != control_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_CHECKBOX_NAME) != name
+            or request.arguments.get(_EXPECTED_SEMANTIC_CHECKBOX_CONTROL_ID)
+            != control_id
+            or request.arguments.get(_EXPECTED_SEMANTIC_CHECKBOX_STATE)
+            is not checked
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "O checkbox semântico não possui uma prévia local aprovada "
+                    "para este controle e estado exatos."
+                ),
+                error_code="SEMANTIC_CHECKBOX_PREVIEW_REQUIRED",
+            )
+
+        try:
+            validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A observação da janela não é mais válida; "
+                    "inspecione a janela novamente."
+                ),
+                evidence={"reason": exc.code},
+                error_code=exc.code,
+            )
+
+        try:
+            evidence = self._windows.set_semantic_checkbox_state(
+                pid,
+                title,
+                target_token,
+                control_token,
+                name,
+                control_id,
+                checked,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_SEMANTIC_CHECKBOX_BLOCKED": (
+                    "A LYRA bloqueou o checkbox semântico na própria janela.",
+                    "SELF_WINDOW_SEMANTIC_CHECKBOX_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo opaco.",
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei a moldura visual da janela exata.",
+                    "WINDOW_VISUAL_FRAME_NOT_FOUND",
+                ),
+                "WINDOW_VISUAL_FRAME_AMBIGUOUS": (
+                    "A moldura visual da janela ficou ambígua.",
+                    "WINDOW_VISUAL_FRAME_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_TOKEN_INVALID": (
+                    "O token opaco do controle é inválido.",
+                    "SEMANTIC_CONTROL_TOKEN_INVALID",
+                ),
+                "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE": (
+                    "O checkbox semântico não existe mais; inspecione novamente.",
+                    "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE",
+                ),
+                "SEMANTIC_CONTROL_AMBIGUOUS": (
+                    "O controle semântico ficou ambíguo e não foi alterado.",
+                    "SEMANTIC_CONTROL_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_NOT_BUTTON": (
+                    "O controle observado não é mais um Button nativo.",
+                    "SEMANTIC_CONTROL_NOT_BUTTON",
+                ),
+                "SEMANTIC_CONTROL_METADATA_CHANGED": (
+                    "Os metadados do checkbox mudaram; inspecione novamente.",
+                    "SEMANTIC_CONTROL_METADATA_CHANGED",
+                ),
+                "SEMANTIC_CONTROL_NOT_VISIBLE": (
+                    "O checkbox semântico não está mais visível.",
+                    "SEMANTIC_CONTROL_NOT_VISIBLE",
+                ),
+                "SEMANTIC_CONTROL_DISABLED": (
+                    "O checkbox semântico está desabilitado.",
+                    "SEMANTIC_CONTROL_DISABLED",
+                ),
+                "SEMANTIC_CHECKBOX_UNSUPPORTED_STYLE": (
+                    "O Button não é um BS_AUTOCHECKBOX suportado pela v1.",
+                    "SEMANTIC_CHECKBOX_UNSUPPORTED_STYLE",
+                ),
+                "SEMANTIC_CHECKBOX_STATE_READ_FAILED": (
+                    "Não consegui ler com segurança o estado atual do checkbox.",
+                    "SEMANTIC_CHECKBOX_STATE_READ_FAILED",
+                ),
+                "SEMANTIC_CHECKBOX_INDETERMINATE": (
+                    "O checkbox está em estado indeterminado e foi bloqueado.",
+                    "SEMANTIC_CHECKBOX_INDETERMINATE",
+                ),
+                "SEMANTIC_CHECKBOX_CLICK_NOT_ACCEPTED": (
+                    "O Windows não confirmou o despacho do BM_CLICK.",
+                    "SEMANTIC_CHECKBOX_CLICK_NOT_ACCEPTED",
+                ),
+                "SEMANTIC_CHECKBOX_POSTCONDITION_NOT_VERIFIED": (
+                    (
+                        "O clique foi despachado, mas BM_GETCHECK não confirmou "
+                        "o estado aprovado; a operação não será tratada como verificada."
+                    ),
+                    "SEMANTIC_CHECKBOX_POSTCONDITION_NOT_VERIFIED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                postcondition_failure = (
+                    reason == "SEMANTIC_CHECKBOX_POSTCONDITION_NOT_VERIFIED"
+                )
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                    effect_dispatched=True if postcondition_failure else None,
+                    postcondition_verified=False if postcondition_failure else None,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui definir o estado do checkbox semântico.",
+                evidence={"reason": reason},
+                error_code="SEMANTIC_CHECKBOX_SET_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui definir o estado do checkbox semântico.",
+                evidence={"exception": type(exc).__name__},
+                error_code="SEMANTIC_CHECKBOX_SET_FAILED",
+            )
+
+        dispatched = bool(evidence["semantic_checkbox_click_dispatched"])
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Checkbox semântico {evidence['name']} ficou "
+                f"{'marcado' if evidence['desired_checked'] else 'desmarcado'} "
+                f"em {evidence['title']} (PID {evidence['pid']}); "
+                "pós-condição local verificada."
+            ),
+            evidence=evidence,
+            effect_dispatched=dispatched,
+            postcondition_verified=True,
+        )
+
 class ActivateWindowAction:
     name = "activate_window"
     risk = ActionRisk.NORMAL

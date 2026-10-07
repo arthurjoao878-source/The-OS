@@ -212,7 +212,9 @@ clear.
     one bounded Win32 Button action before coordinate fallback.
 12. M105: Native Semantic Edit Text v1, setting one exact native Edit value with
     local postcondition verification before keyboard or coordinate fallback.
-13. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+13. M106: Native Semantic Checkbox State v1, setting one exact BS_AUTOCHECKBOX state
+    idempotently with native readback verification before coordinate fallback.
+14. Then continue user-facing LYRA capabilities, perception, personality, voice, and
     composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -550,3 +552,36 @@ SHA-256 of the approved text. M105 adds no Phoenix policy, grant, durable contro
 registry, raw HWND exposure, OCR, general UI Automation framework, or cross-process
 resume. Existing `type_text` and coordinate/anchor actions remain fallbacks when a
 usable native Edit is unavailable.
+
+## M106 - Native Semantic Checkbox State v1
+
+M106 extends the M98 semantic desktop path with one narrow idempotent state-setting
+primitive: `set_semantic_checkbox_state`.
+
+Version 1 accepts the exact native Win32 `Button` row returned by
+`semantic_window_snapshot`, but execution fails closed unless the revalidated native
+style is `BS_AUTOCHECKBOX`. Push buttons, radio buttons, three-state checkboxes and
+other Button styles remain unsupported by this first checkbox consumer.
+
+The request carries the recent M97 window observation, the window target token, the M98
+semantic control token, the bounded Button name, exact control id and the desired
+boolean checked state. The existing local confirmation preview binds all of those
+values before execution.
+
+Before any mutation, The Hands revalidates the signed window observation, resolves the
+exact window again, enumerates native child controls again, recomputes the semantic
+control token and requires exactly one visible, enabled matching Button. The current
+checkbox state is then read through bounded `SendMessageTimeoutW(BM_GETCHECK)`.
+
+If the checkbox already equals the approved state, M106 dispatches no click and reports
+`effect_dispatched=False` with `postcondition_verified=True`. Otherwise it dispatches
+one bounded native `BM_CLICK`, reads the state again with `BM_GETCHECK`, and requires
+exact equality with the approved state. A dispatched click whose postcondition cannot
+be verified is reported as dispatched but unverified rather than as success.
+
+M106 does not move the cursor, synthesize keyboard input, use the clipboard, expose raw
+HWND values or claim that the user's higher-level application goal was achieved.
+Existing `invoke_semantic_button`, keyboard and coordinate actions remain available for
+interfaces outside this narrow native checkbox path. M106 adds no Phoenix policy,
+grant, supervisor, durable registry, OCR, general UI Automation framework or
+cross-process resume.
