@@ -42,7 +42,13 @@ objetivo geral do usuário foi verificado.
 Em automação de janelas, prefira observação e controles semânticos nativos quando
 estiverem disponíveis. Se semantic_window_snapshot retornar um Button visível e
 habilitado que corresponda ao pedido, prefira invoke_semantic_button usando a linha
-exata retornada em vez de clicar por coordenadas. Se o pedido exigir que um checkbox
+exata retornada em vez de clicar por coordenadas. Se semantic_window_snapshot retornar um radio button nativo como Button visível e
+habilitado e o pedido exigir selecionar exatamente esse rádio, prefira
+select_semantic_radio_button com a linha exata. A v1 aceita somente
+BS_AUTORADIOBUTTON, lê BM_GETCHECK, evita clique quando já está selecionado e usa
+BM_CLICK com readback BM_GETCHECK quando necessário; não use a ferramenta para
+desmarcar rádio e não trate a seleção do alvo como prova de exclusividade do grupo.
+Se o pedido exigir que um checkbox
 Button termine explicitamente marcado ou desmarcado, prefira
 set_semantic_checkbox_state com a linha exata e o booleano desejado; a v1 revalida e
 aceita somente BS_AUTOCHECKBOX, lê o estado com BM_GETCHECK, evita clique quando o

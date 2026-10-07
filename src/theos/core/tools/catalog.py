@@ -1485,10 +1485,78 @@ def build_default_tool_catalog() -> ToolCatalog:
         _validate_set_semantic_list_box_index,
     )
 
+
     catalog.register(
         ToolDefinition(
-            name="activate_window",
+            name="select_semantic_radio_button",
             description=(
+                "Seleciona de forma idempotente um radio button Win32 nativo exato "
+                "retornado por semantic_window_snapshot. Use quando a linha semântica "
+                "for role='button', class_name='Button', enabled=true e o pedido exigir "
+                "selecionar esse rádio. Requer pid, título, target_token e "
+                "observation_handle da janela, além de control_token, nome e control_id. "
+                "O THE HANDS revalida a janela e o controle e aceita na v1 somente "
+                "BS_AUTORADIOBUTTON. O estado atual é lido com BM_GETCHECK; se já "
+                "estiver selecionado nenhum clique é enviado, caso contrário usa "
+                "BM_CLICK com timeout e verifica novamente com BM_GETCHECK. A v1 não "
+                "oferece operação para desmarcar rádio e não afirma verificar a "
+                "exclusividade do grupo ou o objetivo geral do usuário."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {"type": "integer", "minimum": 1},
+                    "title": {"type": "string", "maxLength": 160},
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "observation_handle": {
+                        **_window_observation_handle_schema(),
+                        "type": "object",
+                    },
+                    "control_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "role": {"type": "string", "enum": ["button"]},
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_SEMANTIC_NAME_CHARS,
+                    },
+                    "class_name": {"type": "string", "enum": ["Button"]},
+                    "control_id": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                    },
+                    "enabled": {"type": "boolean", "enum": [True]},
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "observation_handle",
+                    "control_token",
+                    "role",
+                    "name",
+                    "class_name",
+                    "control_id",
+                    "enabled",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_select_semantic_radio_button,
+    )
+
+    catalog.register(
+        ToolDefinition(
+            name="activate_window",            description=(
                 "Traz para o primeiro plano uma janela visível exata já identificada por "
                 "PID, título limitado e target_token retornados pelo mesmo window_snapshot. "
                 "Use somente esse alvo conhecido; nunca invente PID, título ou token. "
@@ -3836,6 +3904,104 @@ def _validate_set_semantic_list_box_index(
         "control_id": control_id,
         "enabled": True,
         "selected_index": selected_index,
+    }
+
+
+
+def _validate_select_semantic_radio_button(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    required = {
+        "pid",
+        "title",
+        "target_token",
+        "observation_handle",
+        "control_token",
+        "role",
+        "name",
+        "class_name",
+        "control_id",
+        "enabled",
+    }
+    if set(arguments) != required:
+        raise ToolValidationError(
+            "select_semantic_radio_button requires the exact semantic Button row"
+        )
+
+    validated = _validate_exact_window_target(
+        {
+            "pid": arguments["pid"],
+            "title": arguments["title"],
+            "target_token": arguments["target_token"],
+        }
+    )
+
+    observation_handle = arguments.get("observation_handle")
+    if observation_handle is None:
+        raise ToolValidationError(
+            "select_semantic_radio_button requires a recent observation_handle"
+        )
+    try:
+        validated_handle = validate_window_observation_handle(
+            observation_handle,
+            expected_target_token=str(validated["target_token"]),
+        )
+    except WindowObservationHandleError as exc:
+        raise ToolValidationError(exc.code) from exc
+
+    control_token = arguments.get("control_token")
+    role = arguments.get("role")
+    name = arguments.get("name")
+    class_name = arguments.get("class_name")
+    control_id = arguments.get("control_id")
+    enabled = arguments.get("enabled")
+
+    if not is_semantic_control_token(control_token):
+        raise ToolValidationError(
+            "control_token must be a 64-character lowercase hex token"
+        )
+    if role != "button":
+        raise ToolValidationError(
+            "semantic radio control role must be button"
+        )
+    if not isinstance(name, str) or not name.strip():
+        raise ToolValidationError(
+            "semantic radio name must be non-blank"
+        )
+    normalized_name = name.strip()
+    if len(normalized_name) > MAX_SEMANTIC_NAME_CHARS:
+        raise ToolValidationError(
+            "semantic radio name exceeds local limit"
+        )
+    if class_name != "Button":
+        raise ToolValidationError(
+            "semantic radio class_name must be Button"
+        )
+    if (
+        control_id is not None
+        and (
+            not isinstance(control_id, int)
+            or isinstance(control_id, bool)
+            or control_id < 0
+        )
+    ):
+        raise ToolValidationError(
+            "semantic radio control_id must be a non-negative integer or null"
+        )
+    if enabled is not True:
+        raise ToolValidationError(
+            "semantic radio must have enabled=true"
+        )
+
+    return {
+        **validated,
+        "observation_handle": validated_handle,
+        "control_token": control_token,
+        "role": "button",
+        "name": normalized_name,
+        "class_name": "Button",
+        "control_id": control_id,
+        "enabled": True,
     }
 
 

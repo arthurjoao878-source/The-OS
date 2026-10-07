@@ -40,7 +40,7 @@ def test_git_remote_identity_catalog_has_no_model_arguments() -> None:
     definitions = {item.name: item for item in catalog.definitions()}
     definition = definitions["git_remote_identity_snapshot"]
 
-    assert len(definitions) == 60
+    assert len(definitions) == 61
     assert definition.parameters["properties"] == {}
     assert definition.parameters["additionalProperties"] is False
     assert "configuração Git local" in definition.description

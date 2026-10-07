@@ -49,6 +49,7 @@ EXPECTED_ASSISTANT = frozenset(
         "window_snapshot_many",
         "semantic_window_snapshot",
         "invoke_semantic_button",
+        "select_semantic_radio_button",
         "set_semantic_checkbox_state",
         "set_semantic_combo_box_index",
         "set_semantic_list_box_index",
@@ -88,8 +89,8 @@ def test_m94r_profiles_partition_existing_catalog_without_loss() -> None:
     assistant = _names(build_assistant_tool_catalog())
     development = _names(build_development_tool_catalog())
 
-    assert len(full) == 60
-    assert len(assistant) == 44
+    assert len(full) == 61
+    assert len(assistant) == 45
     assert len(development) == 16
     assert assistant.isdisjoint(development)
     assert assistant | development == full
@@ -116,7 +117,7 @@ def test_m94r_development_actions_remain_implemented_in_host_registry() -> None:
 
     assert EXPECTED_DEVELOPMENT <= registry_names
     assert EXPECTED_ASSISTANT <= registry_names
-    assert len(registry_names) == 60
+    assert len(registry_names) == 61
 
 
 def test_m94r_full_catalog_remains_available_for_development_and_tests() -> None:
@@ -124,4 +125,4 @@ def test_m94r_full_catalog_remains_available_for_development_and_tests() -> None
 
     assert EXPECTED_DEVELOPMENT <= full
     assert EXPECTED_ASSISTANT <= full
-    assert len(full) == 60
+    assert len(full) == 61

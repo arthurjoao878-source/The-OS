@@ -42,6 +42,7 @@ _WINDOW_ACTIONS = frozenset(
         "window_snapshot_many",
         "semantic_window_snapshot",
         "invoke_semantic_button",
+        "select_semantic_radio_button",
         "set_semantic_checkbox_state",
         "set_semantic_combo_box_index",
         "set_semantic_list_box_index",

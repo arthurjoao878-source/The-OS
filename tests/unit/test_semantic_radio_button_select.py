@@ -4,7 +4,7 @@ import pytest
 
 from theos.bootstrap import build_action_registry
 from theos.core.actions.contracts import ActionRequest, ActionRisk
-from theos.core.actions.desktop_windows import SetSemanticListBoxIndexAction
+from theos.core.actions.desktop_windows import SelectSemanticRadioButtonAction
 from theos.core.tools import (
     ToolCall,
     ToolValidationError,
@@ -19,7 +19,7 @@ from theos.lyra.execution.composed_workflow import (
 )
 
 
-class _FakeSemanticListBoxAdapter:
+class _FakeSemanticRadioAdapter:
     def __init__(
         self,
         *,
@@ -29,17 +29,17 @@ class _FakeSemanticListBoxAdapter:
         self.error = error
         self.dispatched = dispatched
         self.calls: list[
-            tuple[int, str, str, str, int | None, int]
+            tuple[int, str, str, str, str, int | None]
         ] = []
 
-    def set_semantic_list_box_index(
+    def select_semantic_radio_button(
         self,
         pid: int,
         title: str,
         target_token: str,
         control_token: str,
+        name: str,
         control_id: int | None,
-        selected_index: int,
     ) -> dict[str, object]:
         self.calls.append(
             (
@@ -47,147 +47,139 @@ class _FakeSemanticListBoxAdapter:
                 title,
                 target_token,
                 control_token,
+                name,
                 control_id,
-                selected_index,
             )
         )
         if self.error is not None:
             raise RuntimeError(self.error)
-        before = 0 if self.dispatched else selected_index
         return {
             "pid": pid,
             "title": title,
             "target_token": target_token,
             "control_token": control_token,
-            "role": "list",
-            "class_name": "ListBox",
+            "role": "button",
+            "name": name,
+            "class_name": "Button",
             "control_id": control_id,
-            "item_count": 4,
-            "single_selection": True,
-            "selected_index_before": before,
-            "selected_index_after": selected_index,
-            "desired_index": selected_index,
-            "semantic_list_box_selection_dispatched": self.dispatched,
-            "list_item_text_collected": False,
+            "radio_style": "BS_AUTORADIOBUTTON",
+            "selected_before": not self.dispatched,
+            "selected_after": True,
+            "semantic_radio_click_dispatched": self.dispatched,
             "coordinate_action_dispatched": False,
             "cursor_moved": False,
             "keyboard_input_dispatched": False,
             "clipboard_used": False,
             "content_effect_verified": True,
-            "list_box_postcondition_verified": True,
-            "application_selection_notification_verified": False,
+            "radio_postcondition_verified": True,
+            "radio_group_exclusivity_verified": False,
             "raw_hwnd_exposed": False,
         }
 
 
-def _request(*, selected_index: int = 2) -> ActionRequest:
+def _request() -> ActionRequest:
     token = "a" * 64
     return ActionRequest(
-        action="set_semantic_list_box_index",
+        action="select_semantic_radio_button",
         arguments={
             "pid": 4321,
             "title": "Janela de teste",
             "target_token": token,
             "observation_handle": build_window_observation_handle(token),
             "control_token": "b" * 64,
-            "role": "list",
-            "class_name": "ListBox",
+            "role": "button",
+            "name": "Modo avançado",
+            "class_name": "Button",
             "control_id": 100,
             "enabled": True,
-            "selected_index": selected_index,
         },
     )
 
 
 def _approved_request(
-    action: SetSemanticListBoxIndexAction,
-    *,
-    selected_index: int = 2,
+    action: SelectSemanticRadioButtonAction,
 ) -> ActionRequest:
-    request = _request(selected_index=selected_index)
+    request = _request()
     preview = action.confirmation_preview(request)
     assert preview.allowed is True
     request.arguments.update(preview.execution_guard)
     return request
 
 
-def test_semantic_list_box_preview_binds_exact_control_and_index() -> None:
-    adapter = _FakeSemanticListBoxAdapter()
-    action = SetSemanticListBoxIndexAction(adapter)
+def test_semantic_radio_preview_binds_exact_control() -> None:
+    adapter = _FakeSemanticRadioAdapter()
+    action = SelectSemanticRadioButtonAction(adapter)
     preview = action.confirmation_preview(_request())
 
     assert action.risk is ActionRisk.CONFIRM
     assert preview.allowed is True
-    assert "DEFINIR ÍNDICE DE LISTBOX SEMÂNTICO NATIVO" in preview.text
-    assert "LB_GETCOUNT" in preview.text
-    assert "LB_GETCURSEL" in preview.text
-    assert "LB_SETCURSEL" in preview.text
-    assert "base zero" in preview.text
+    assert "SELECIONAR RADIO BUTTON SEMÂNTICO NATIVO" in preview.text
+    assert "Modo avançado" in preview.text
+    assert "BS_AUTORADIOBUTTON" in preview.text
+    assert "BM_GETCHECK" in preview.text
+    assert "BM_CLICK" in preview.text
     assert len(preview.execution_guard) == 7
     assert adapter.calls == []
 
 
-def test_semantic_list_box_preview_blocks_non_list_box_row() -> None:
-    adapter = _FakeSemanticListBoxAdapter()
-    action = SetSemanticListBoxIndexAction(adapter)
+def test_semantic_radio_preview_blocks_non_button_row() -> None:
+    adapter = _FakeSemanticRadioAdapter()
+    action = SelectSemanticRadioButtonAction(adapter)
     request = _request()
-    request.arguments["class_name"] = "SysListView32"
+    request.arguments["class_name"] = "Static"
 
     assert action.confirmation_preview(request).allowed is False
     assert adapter.calls == []
 
 
-def test_semantic_list_box_execute_requires_approved_preview_guard() -> None:
-    adapter = _FakeSemanticListBoxAdapter()
-    action = SetSemanticListBoxIndexAction(adapter)
+def test_semantic_radio_execute_requires_approved_preview_guard() -> None:
+    adapter = _FakeSemanticRadioAdapter()
+    action = SelectSemanticRadioButtonAction(adapter)
 
     result = action.execute(_request())
 
     assert result.success is False
-    assert result.error_code == "SEMANTIC_LIST_BOX_PREVIEW_REQUIRED"
+    assert result.error_code == "SEMANTIC_RADIO_PREVIEW_REQUIRED"
     assert adapter.calls == []
 
 
-def test_semantic_list_box_executes_exact_approved_index_and_verifies() -> None:
-    adapter = _FakeSemanticListBoxAdapter()
-    action = SetSemanticListBoxIndexAction(adapter)
+def test_semantic_radio_executes_exact_approved_control_and_verifies() -> None:
+    adapter = _FakeSemanticRadioAdapter()
+    action = SelectSemanticRadioButtonAction(adapter)
 
     result = action.execute(_approved_request(action))
 
     assert result.success is True
     assert result.effect_dispatched is True
     assert result.postcondition_verified is True
-    assert result.evidence["semantic_list_box_selection_dispatched"] is True
+    assert result.evidence["semantic_radio_click_dispatched"] is True
     assert result.evidence["content_effect_verified"] is True
-    assert result.evidence["list_box_postcondition_verified"] is True
-    assert result.evidence["desired_index"] == 2
-    assert result.evidence["selected_index_after"] == 2
-    assert result.evidence["list_item_text_collected"] is False
-    assert result.evidence["application_selection_notification_verified"] is False
+    assert result.evidence["radio_postcondition_verified"] is True
+    assert result.evidence["selected_after"] is True
+    assert result.evidence["radio_group_exclusivity_verified"] is False
     assert result.evidence["coordinate_action_dispatched"] is False
     assert result.evidence["keyboard_input_dispatched"] is False
     assert result.evidence["clipboard_used"] is False
     assert result.evidence["raw_hwnd_exposed"] is False
 
 
-def test_semantic_list_box_successful_noop_is_verified_without_dispatch() -> None:
-    adapter = _FakeSemanticListBoxAdapter(dispatched=False)
-    action = SetSemanticListBoxIndexAction(adapter)
+def test_semantic_radio_successful_noop_is_verified_without_dispatch() -> None:
+    adapter = _FakeSemanticRadioAdapter(dispatched=False)
+    action = SelectSemanticRadioButtonAction(adapter)
 
-    result = action.execute(_approved_request(action, selected_index=1))
+    result = action.execute(_approved_request(action))
 
     assert result.success is True
     assert result.effect_dispatched is False
     assert result.postcondition_verified is True
-    assert result.evidence["semantic_list_box_selection_dispatched"] is False
-    assert result.evidence["desired_index"] == 1
-    assert result.evidence["selected_index_before"] == 1
-    assert result.evidence["selected_index_after"] == 1
+    assert result.evidence["semantic_radio_click_dispatched"] is False
+    assert result.evidence["selected_before"] is True
+    assert result.evidence["selected_after"] is True
 
 
-def test_semantic_list_box_rejects_expired_window_observation() -> None:
-    adapter = _FakeSemanticListBoxAdapter()
-    action = SetSemanticListBoxIndexAction(adapter)
+def test_semantic_radio_rejects_expired_window_observation() -> None:
+    adapter = _FakeSemanticRadioAdapter()
+    action = SelectSemanticRadioButtonAction(adapter)
     request = _request()
     request.arguments["observation_handle"] = build_window_observation_handle(
         "a" * 64,
@@ -198,63 +190,63 @@ def test_semantic_list_box_rejects_expired_window_observation() -> None:
     assert adapter.calls == []
 
 
-def test_semantic_list_box_maps_unsupported_multiselect_without_dispatch_claim() -> None:
-    adapter = _FakeSemanticListBoxAdapter(
-        error="SEMANTIC_LIST_BOX_UNSUPPORTED_MULTISELECT"
+def test_semantic_radio_maps_unsupported_style_without_dispatch_claim() -> None:
+    adapter = _FakeSemanticRadioAdapter(
+        error="SEMANTIC_RADIO_UNSUPPORTED_STYLE"
     )
-    action = SetSemanticListBoxIndexAction(adapter)
+    action = SelectSemanticRadioButtonAction(adapter)
     result = action.execute(_approved_request(action))
 
     assert result.success is False
-    assert result.error_code == "SEMANTIC_LIST_BOX_UNSUPPORTED_MULTISELECT"
+    assert result.error_code == "SEMANTIC_RADIO_UNSUPPORTED_STYLE"
     assert result.effect_dispatched is None
     assert result.postcondition_verified is None
 
 
-def test_semantic_list_box_maps_unverified_postcondition_as_dispatched_failure() -> None:
-    adapter = _FakeSemanticListBoxAdapter(
-        error="SEMANTIC_LIST_BOX_POSTCONDITION_NOT_VERIFIED"
+def test_semantic_radio_maps_unverified_postcondition_as_dispatched_failure() -> None:
+    adapter = _FakeSemanticRadioAdapter(
+        error="SEMANTIC_RADIO_POSTCONDITION_NOT_VERIFIED"
     )
-    action = SetSemanticListBoxIndexAction(adapter)
+    action = SelectSemanticRadioButtonAction(adapter)
     result = action.execute(_approved_request(action))
 
     assert result.success is False
-    assert result.error_code == "SEMANTIC_LIST_BOX_POSTCONDITION_NOT_VERIFIED"
+    assert result.error_code == "SEMANTIC_RADIO_POSTCONDITION_NOT_VERIFIED"
     assert result.effect_dispatched is True
     assert result.postcondition_verified is False
 
 
-def test_catalog_builds_strict_semantic_list_box_request() -> None:
+def test_catalog_builds_strict_semantic_radio_request() -> None:
     catalog = build_default_tool_catalog()
     token = "c" * 64
     handle = build_window_observation_handle(token)
 
     request = catalog.build_action_request(
         ToolCall(
-            name="set_semantic_list_box_index",
+            name="select_semantic_radio_button",
             arguments={
                 "pid": 987,
                 "title": " Janela ",
                 "target_token": token,
                 "observation_handle": handle,
                 "control_token": "d" * 64,
-                "role": "list",
-                "class_name": "ListBox",
+                "role": "button",
+                "name": " Opção A ",
+                "class_name": "Button",
                 "control_id": None,
                 "enabled": True,
-                "selected_index": 3,
             },
         )
     )
 
-    assert request.action == "set_semantic_list_box_index"
+    assert request.action == "select_semantic_radio_button"
     assert request.arguments["title"] == "Janela"
-    assert request.arguments["selected_index"] == 3
+    assert request.arguments["name"] == "Opção A"
     assert request.arguments["observation_handle"] == handle
 
     definition = next(
         item for item in catalog.definitions()
-        if item.name == "set_semantic_list_box_index"
+        if item.name == "select_semantic_radio_button"
     )
     assert set(definition.parameters["required"]) == set(
         definition.parameters["properties"]
@@ -262,7 +254,7 @@ def test_catalog_builds_strict_semantic_list_box_request() -> None:
     assert definition.parameters["additionalProperties"] is False
 
 
-def test_catalog_rejects_invalid_semantic_list_box_rows_and_index() -> None:
+def test_catalog_rejects_invalid_semantic_radio_rows() -> None:
     catalog = build_default_tool_catalog()
     token = "e" * 64
     base = {
@@ -271,33 +263,31 @@ def test_catalog_rejects_invalid_semantic_list_box_rows_and_index() -> None:
         "target_token": token,
         "observation_handle": build_window_observation_handle(token),
         "control_token": "f" * 64,
-        "role": "list",
-        "class_name": "ListBox",
+        "role": "button",
+        "name": "Opção A",
+        "class_name": "Button",
         "control_id": 1,
         "enabled": True,
-        "selected_index": 1,
     }
 
     for changed in (
         {"control_token": "INVALID"},
-        {"role": "combo_box"},
-        {"class_name": "SysListView32"},
+        {"role": "list"},
+        {"name": " "},
+        {"class_name": "Static"},
         {"enabled": False},
         {"control_id": -1},
-        {"selected_index": -1},
-        {"selected_index": True},
-        {"selected_index": "1"},
     ):
         with pytest.raises(ToolValidationError):
             catalog.build_action_request(
                 ToolCall(
-                    name="set_semantic_list_box_index",
+                    name="select_semantic_radio_button",
                     arguments={**base, **changed},
                 )
             )
 
 
-def test_semantic_list_box_is_normal_window_capability_with_guidance() -> None:
+def test_semantic_radio_is_normal_window_capability_with_guidance() -> None:
     full = {item.name for item in build_default_tool_catalog().definitions()}
     assistant = {
         item.name for item in build_assistant_tool_catalog().definitions()
@@ -306,14 +296,14 @@ def test_semantic_list_box_is_normal_window_capability_with_guidance() -> None:
 
     assert len(full) == 61
     assert len(assistant) == 45
-    assert "set_semantic_list_box_index" in full
-    assert "set_semantic_list_box_index" in assistant
-    assert "set_semantic_list_box_index" in registry
+    assert "select_semantic_radio_button" in full
+    assert "select_semantic_radio_button" in assistant
+    assert "select_semantic_radio_button" in registry
     assert (
-        workflow_domain_for_action("set_semantic_list_box_index")
+        workflow_domain_for_action("select_semantic_radio_button")
         is WorkflowDomain.WINDOW
     )
-    assert "set_semantic_list_box_index" in _SYSTEM_INSTRUCTIONS
-    assert "LB_GETCOUNT" in _SYSTEM_INSTRUCTIONS
-    assert "LB_GETCURSEL" in _SYSTEM_INSTRUCTIONS
-    assert "LB_SETCURSEL" in _SYSTEM_INSTRUCTIONS
+    assert "select_semantic_radio_button" in _SYSTEM_INSTRUCTIONS
+    assert "BS_AUTORADIOBUTTON" in _SYSTEM_INSTRUCTIONS
+    assert "BM_GETCHECK" in _SYSTEM_INSTRUCTIONS
+    assert "BM_CLICK" in _SYSTEM_INSTRUCTIONS

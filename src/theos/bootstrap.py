@@ -22,6 +22,7 @@ from theos.core.actions.desktop_windows import (
     RestoreWindowAction,
     ScrollWindowAction,
     ScrollWindowAnchorAction,
+    SelectSemanticRadioButtonAction,
     SemanticWindowSnapshotAction,
     SetSemanticCheckboxStateAction,
     SetSemanticComboBoxIndexAction,
@@ -132,6 +133,7 @@ def build_action_registry() -> ActionRegistry:
     window_snapshot_many = WindowSnapshotManyAction(windows_desktop)
     semantic_window_snapshot = SemanticWindowSnapshotAction(windows_desktop)
     invoke_semantic_button = InvokeSemanticButtonAction(windows_desktop)
+    select_semantic_radio_button = SelectSemanticRadioButtonAction(windows_desktop)
     set_semantic_checkbox_state = SetSemanticCheckboxStateAction(windows_desktop)
     set_semantic_combo_box_index = SetSemanticComboBoxIndexAction(windows_desktop)
     set_semantic_list_box_index = SetSemanticListBoxIndexAction(windows_desktop)
@@ -372,6 +374,12 @@ def build_action_registry() -> ActionRegistry:
         invoke_semantic_button.execute,
         risk=invoke_semantic_button.risk,
         confirmation_preview=invoke_semantic_button.confirmation_preview,
+    )
+    registry.register(
+        select_semantic_radio_button.name,
+        select_semantic_radio_button.execute,
+        risk=select_semantic_radio_button.risk,
+        confirmation_preview=select_semantic_radio_button.confirmation_preview,
     )
     registry.register(
         set_semantic_checkbox_state.name,

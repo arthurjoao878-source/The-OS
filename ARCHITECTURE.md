@@ -218,7 +218,9 @@ clear.
     index idempotently with CB_GETCURSEL readback before coordinate fallback.
 15. M108: Native Semantic ListBox Selection v1, setting one exact single-selection
     native ListBox index idempotently with LB_GETCURSEL readback before coordinate fallback.
-16. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+16. M109: Native Semantic Radio Button Select v1, selecting one exact native
+    BS_AUTORADIOBUTTON idempotently with BM_GETCHECK readback before coordinate fallback.
+17. Then continue user-facing LYRA capabilities, perception, personality, voice, and
     composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -655,4 +657,39 @@ application-level selection-change notification was observed or that the user's
 higher-level goal was achieved. Existing keyboard and coordinate actions remain
 fallbacks when an exact index is not known, selection is multiple, or a usable native
 ListBox is unavailable. M108 adds no Phoenix policy, grant, supervisor, durable
+registry, OCR, general UI Automation framework or cross-process resume.
+
+## M109 - Native Semantic Radio Button Select v1
+
+M109 extends the M98 semantic desktop path with one narrow idempotent native radio
+selection primitive: `select_semantic_radio_button`.
+
+Version 1 accepts the exact native Win32 `Button` row returned by
+`semantic_window_snapshot`, but execution fails closed unless the revalidated native
+style is `BS_AUTORADIOBUTTON`. Manual `BS_RADIOBUTTON`, checkboxes, push buttons and
+other Button styles remain unsupported by this first radio consumer.
+
+The request carries the recent M97 window observation, the window target token, the M98
+semantic control token, the bounded Button name and exact control id. There is no
+desired boolean argument: M109 only means "select this exact radio button". It does not
+offer a semantic operation for directly unchecking a radio button.
+
+Before mutation, The Hands revalidates the signed window observation, resolves the exact
+window again, enumerates native child controls again, recomputes the semantic control
+token and requires exactly one visible, enabled matching Button. The current target
+state is read through bounded `SendMessageTimeoutW(BM_GETCHECK)`.
+
+If the target radio is already checked, M109 dispatches no click and reports
+`effect_dispatched=False` with `postcondition_verified=True`. Otherwise it dispatches
+one bounded native `BM_CLICK`, reads the target again with `BM_GETCHECK`, and requires
+the exact target to be checked. A dispatched click whose target postcondition cannot be
+verified is reported as dispatched but unverified rather than as success.
+
+M109 deliberately verifies only the selected target. It does not enumerate native radio
+group boundaries or claim that sibling exclusivity was independently verified, even
+though `BS_AUTORADIOBUTTON` supplies native group behavior when the application is
+configured correctly. The action does not move the cursor, synthesize keyboard input,
+use the clipboard, expose raw HWND values or claim that the user's higher-level goal
+was achieved. Existing button, keyboard and coordinate actions remain fallbacks for
+unsupported radio styles. M109 adds no Phoenix policy, grant, supervisor, durable
 registry, OCR, general UI Automation framework or cross-process resume.

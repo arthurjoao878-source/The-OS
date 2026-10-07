@@ -2133,6 +2133,343 @@ class SetSemanticListBoxIndexAction:
 
 
 
+_EXPECTED_SEMANTIC_RADIO_PID = "_theos_expected_semantic_radio_pid"
+_EXPECTED_SEMANTIC_RADIO_TITLE = "_theos_expected_semantic_radio_title"
+_EXPECTED_SEMANTIC_RADIO_TARGET_TOKEN = "_theos_expected_semantic_radio_target_token"
+_EXPECTED_SEMANTIC_RADIO_OBSERVATION_HANDLE = (
+    "_theos_expected_semantic_radio_observation_handle"
+)
+_EXPECTED_SEMANTIC_RADIO_CONTROL_TOKEN = (
+    "_theos_expected_semantic_radio_control_token"
+)
+_EXPECTED_SEMANTIC_RADIO_NAME = "_theos_expected_semantic_radio_name"
+_EXPECTED_SEMANTIC_RADIO_CONTROL_ID = "_theos_expected_semantic_radio_control_id"
+
+
+class SelectSemanticRadioButtonAction:
+    name = "select_semantic_radio_button"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def _validated_arguments(
+        request: ActionRequest,
+    ) -> tuple[
+        int,
+        str,
+        str,
+        dict[str, object],
+        str,
+        str,
+        int | None,
+    ] | None:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
+        control_token = request.arguments.get("control_token")
+        role = request.arguments.get("role")
+        name = request.arguments.get("name")
+        class_name = request.arguments.get("class_name")
+        control_id = request.arguments.get("control_id")
+        enabled = request.arguments.get("enabled")
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or observation_handle is None
+            or not is_semantic_control_token(control_token)
+            or role != "button"
+            or not isinstance(name, str)
+            or not name.strip()
+            or len(name.strip()) > MAX_SEMANTIC_NAME_CHARS
+            or class_name != "Button"
+            or (
+                control_id is not None
+                and (
+                    not isinstance(control_id, int)
+                    or isinstance(control_id, bool)
+                    or control_id < 0
+                )
+            )
+            or enabled is not True
+        ):
+            return None
+
+        try:
+            validated_handle = validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError:
+            return None
+
+        return (
+            pid,
+            title.strip(),
+            target_token,
+            validated_handle,
+            control_token,
+            name.strip(),
+            control_id,
+        )
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        validated = SelectSemanticRadioButtonAction._validated_arguments(request)
+        if validated is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Seleção de radio button semântico bloqueada antes da confirmação: "
+                    "alvo, observação ou Button inválidos."
+                ),
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            name,
+            control_id,
+        ) = validated
+        control_id_text = "indisponível" if control_id is None else str(control_id)
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "SELECIONAR RADIO BUTTON SEMÂNTICO NATIVO\n"
+                f"Janela exata: {title} (PID {pid}).\n"
+                f"Controle: {name}\n"
+                f"ID de controle: {control_id_text}\n"
+                f"Alvo da janela: {target_token[:12]}...\n"
+                f"Token do controle: {control_token[:12]}...\n"
+                "Após a confirmação, o THE HANDS revalidará a observação da janela "
+                "e enumerará novamente seus controles Win32. A v1 aceita somente "
+                "Button nativo com estilo BS_AUTORADIOBUTTON. O estado atual será "
+                "lido com BM_GETCHECK; se o rádio já estiver selecionado, nenhum "
+                "clique será despachado. Caso contrário, um BM_CLICK nativo com "
+                "timeout será enviado e BM_GETCHECK deverá confirmar o alvo marcado. "
+                "Esta operação seleciona o rádio exato; não oferece uma operação de "
+                "desmarcar rádio e não afirma verificar a exclusividade do grupo, "
+                "uma reação interna do aplicativo ou o objetivo geral do usuário."
+            ),
+            execution_guard={
+                _EXPECTED_SEMANTIC_RADIO_PID: pid,
+                _EXPECTED_SEMANTIC_RADIO_TITLE: title,
+                _EXPECTED_SEMANTIC_RADIO_TARGET_TOKEN: target_token,
+                _EXPECTED_SEMANTIC_RADIO_OBSERVATION_HANDLE: observation_handle,
+                _EXPECTED_SEMANTIC_RADIO_CONTROL_TOKEN: control_token,
+                _EXPECTED_SEMANTIC_RADIO_NAME: name,
+                _EXPECTED_SEMANTIC_RADIO_CONTROL_ID: control_id,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        validated = self._validated_arguments(request)
+        if validated is None:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A seleção do radio button semântico não possui argumentos "
+                    "válidos e recentemente observados."
+                ),
+                error_code="SEMANTIC_RADIO_ARGUMENTS_INVALID",
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            name,
+            control_id,
+        ) = validated
+
+        if (
+            request.arguments.get(_EXPECTED_SEMANTIC_RADIO_PID) != pid
+            or request.arguments.get(_EXPECTED_SEMANTIC_RADIO_TITLE) != title
+            or request.arguments.get(_EXPECTED_SEMANTIC_RADIO_TARGET_TOKEN)
+            != target_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_RADIO_OBSERVATION_HANDLE)
+            != observation_handle
+            or request.arguments.get(_EXPECTED_SEMANTIC_RADIO_CONTROL_TOKEN)
+            != control_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_RADIO_NAME) != name
+            or request.arguments.get(_EXPECTED_SEMANTIC_RADIO_CONTROL_ID)
+            != control_id
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "O radio button semântico não possui uma prévia local aprovada "
+                    "para este controle exato."
+                ),
+                error_code="SEMANTIC_RADIO_PREVIEW_REQUIRED",
+            )
+
+        try:
+            validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A observação da janela não é mais válida; "
+                    "inspecione a janela novamente."
+                ),
+                evidence={"reason": exc.code},
+                error_code=exc.code,
+            )
+
+        try:
+            evidence = self._windows.select_semantic_radio_button(
+                pid,
+                title,
+                target_token,
+                control_token,
+                name,
+                control_id,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_SEMANTIC_RADIO_BLOCKED": (
+                    "A LYRA bloqueou o radio button semântico na própria janela.",
+                    "SELF_WINDOW_SEMANTIC_RADIO_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo opaco.",
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei a moldura visual da janela exata.",
+                    "WINDOW_VISUAL_FRAME_NOT_FOUND",
+                ),
+                "WINDOW_VISUAL_FRAME_AMBIGUOUS": (
+                    "A moldura visual da janela ficou ambígua.",
+                    "WINDOW_VISUAL_FRAME_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_TOKEN_INVALID": (
+                    "O token opaco do controle é inválido.",
+                    "SEMANTIC_CONTROL_TOKEN_INVALID",
+                ),
+                "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE": (
+                    "O radio button semântico não existe mais; inspecione novamente.",
+                    "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE",
+                ),
+                "SEMANTIC_CONTROL_AMBIGUOUS": (
+                    "O controle semântico ficou ambíguo e não foi alterado.",
+                    "SEMANTIC_CONTROL_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_NOT_BUTTON": (
+                    "O controle observado não é mais um Button nativo.",
+                    "SEMANTIC_CONTROL_NOT_BUTTON",
+                ),
+                "SEMANTIC_CONTROL_METADATA_CHANGED": (
+                    "Os metadados do radio button mudaram; inspecione novamente.",
+                    "SEMANTIC_CONTROL_METADATA_CHANGED",
+                ),
+                "SEMANTIC_CONTROL_NOT_VISIBLE": (
+                    "O radio button semântico não está mais visível.",
+                    "SEMANTIC_CONTROL_NOT_VISIBLE",
+                ),
+                "SEMANTIC_CONTROL_DISABLED": (
+                    "O radio button semântico está desabilitado.",
+                    "SEMANTIC_CONTROL_DISABLED",
+                ),
+                "SEMANTIC_RADIO_UNSUPPORTED_STYLE": (
+                    "O Button não é um BS_AUTORADIOBUTTON suportado pela v1.",
+                    "SEMANTIC_RADIO_UNSUPPORTED_STYLE",
+                ),
+                "SEMANTIC_RADIO_STATE_READ_FAILED": (
+                    "Não consegui ler com segurança o estado atual do radio button.",
+                    "SEMANTIC_RADIO_STATE_READ_FAILED",
+                ),
+                "SEMANTIC_RADIO_INDETERMINATE": (
+                    "O radio button retornou estado indeterminado e foi bloqueado.",
+                    "SEMANTIC_RADIO_INDETERMINATE",
+                ),
+                "SEMANTIC_RADIO_CLICK_NOT_ACCEPTED": (
+                    "O Windows não confirmou o despacho do BM_CLICK.",
+                    "SEMANTIC_RADIO_CLICK_NOT_ACCEPTED",
+                ),
+                "SEMANTIC_RADIO_POSTCONDITION_NOT_VERIFIED": (
+                    (
+                        "O clique foi despachado, mas BM_GETCHECK não confirmou "
+                        "o radio button selecionado; a operação não será tratada "
+                        "como verificada."
+                    ),
+                    "SEMANTIC_RADIO_POSTCONDITION_NOT_VERIFIED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                postcondition_failure = (
+                    reason == "SEMANTIC_RADIO_POSTCONDITION_NOT_VERIFIED"
+                )
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                    effect_dispatched=True if postcondition_failure else None,
+                    postcondition_verified=False if postcondition_failure else None,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui selecionar o radio button semântico.",
+                evidence={"reason": reason},
+                error_code="SEMANTIC_RADIO_SELECT_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui selecionar o radio button semântico.",
+                evidence={"exception": type(exc).__name__},
+                error_code="SEMANTIC_RADIO_SELECT_FAILED",
+            )
+
+        dispatched = bool(evidence["semantic_radio_click_dispatched"])
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"Radio button semântico {evidence['name']} ficou selecionado "
+                f"em {evidence['title']} (PID {evidence['pid']}); "
+                "pós-condição local verificada."
+            ),
+            evidence=evidence,
+            effect_dispatched=dispatched,
+            postcondition_verified=True,
+        )
+
+
 class ActivateWindowAction:
     name = "activate_window"
     risk = ActionRisk.NORMAL
