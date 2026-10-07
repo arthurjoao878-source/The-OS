@@ -1556,6 +1556,70 @@ def build_default_tool_catalog() -> ToolCatalog:
 
     catalog.register(
         ToolDefinition(
+            name="set_semantic_tab_index",
+            description=(
+                "Define de forma idempotente o índice selecionado de um TabControl "
+                "Win32 nativo exato retornado por semantic_window_snapshot. Use "
+                "somente quando a linha semântica for role='tab', "
+                "class_name='SysTabControl32', enabled=true e o índice base-zero desejado "
+                "for conhecido; nunca invente o índice. Requer pid, título, "
+                "target_token e observation_handle da janela, além de control_token, "
+                "control_id e selected_index. O THE HANDS revalida janela e controle, "
+                "lê TCM_GETITEMCOUNT e TCM_GETCURSEL, evita alteração quando o estado já "
+                "corresponde e usa TCM_SETCURSEL com readback exato quando necessário. "
+                "A v1 atua apenas em SysTabControl32, não enumera textos das abas e não prova notificação semântica "
+                "do aplicativo ou o objetivo geral do usuário."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "pid": {"type": "integer", "minimum": 1},
+                    "title": {"type": "string", "maxLength": 160},
+                    "target_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "observation_handle": {
+                        **_window_observation_handle_schema(),
+                        "type": "object",
+                    },
+                    "control_token": {
+                        "type": "string",
+                        "minLength": 64,
+                        "maxLength": 64,
+                        "pattern": "^[0-9a-f]{64}$",
+                    },
+                    "role": {"type": "string", "enum": ["tab"]},
+                    "class_name": {"type": "string", "enum": ["SysTabControl32"]},
+                    "control_id": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                    },
+                    "enabled": {"type": "boolean", "enum": [True]},
+                    "selected_index": {"type": "integer", "minimum": 0},
+                },
+                "required": [
+                    "pid",
+                    "title",
+                    "target_token",
+                    "observation_handle",
+                    "control_token",
+                    "role",
+                    "class_name",
+                    "control_id",
+                    "enabled",
+                    "selected_index",
+                ],
+                "additionalProperties": False,
+            },
+        ),
+        _validate_set_semantic_tab_index,
+    )
+
+    catalog.register(
+        ToolDefinition(
             name="activate_window",            description=(
                 "Traz para o primeiro plano uma janela visível exata já identificada por "
                 "PID, título limitado e target_token retornados pelo mesmo window_snapshot. "
@@ -4002,6 +4066,103 @@ def _validate_select_semantic_radio_button(
         "class_name": "Button",
         "control_id": control_id,
         "enabled": True,
+    }
+
+
+def _validate_set_semantic_tab_index(
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    required = {
+        "pid",
+        "title",
+        "target_token",
+        "observation_handle",
+        "control_token",
+        "role",
+        "class_name",
+        "control_id",
+        "enabled",
+        "selected_index",
+    }
+    if set(arguments) != required:
+        raise ToolValidationError(
+            "set_semantic_tab_index requires the exact semantic TabControl row "
+            "and a desired zero-based index"
+        )
+
+    validated = _validate_exact_window_target(
+        {
+            "pid": arguments["pid"],
+            "title": arguments["title"],
+            "target_token": arguments["target_token"],
+        }
+    )
+
+    observation_handle = arguments.get("observation_handle")
+    if observation_handle is None:
+        raise ToolValidationError(
+            "set_semantic_tab_index requires a recent observation_handle"
+        )
+    try:
+        validated_handle = validate_window_observation_handle(
+            observation_handle,
+            expected_target_token=str(validated["target_token"]),
+        )
+    except WindowObservationHandleError as exc:
+        raise ToolValidationError(exc.code) from exc
+
+    control_token = arguments.get("control_token")
+    role = arguments.get("role")
+    class_name = arguments.get("class_name")
+    control_id = arguments.get("control_id")
+    enabled = arguments.get("enabled")
+    selected_index = arguments.get("selected_index")
+
+    if not is_semantic_control_token(control_token):
+        raise ToolValidationError(
+            "control_token must be a 64-character lowercase hex token"
+        )
+    if role != "tab":
+        raise ToolValidationError(
+            "semantic TabControl control role must be tab"
+        )
+    if class_name != "SysTabControl32":
+        raise ToolValidationError(
+            "semantic TabControl class_name must be SysTabControl32"
+        )
+    if (
+        control_id is not None
+        and (
+            not isinstance(control_id, int)
+            or isinstance(control_id, bool)
+            or control_id < 0
+        )
+    ):
+        raise ToolValidationError(
+            "semantic TabControl control_id must be a non-negative integer or null"
+        )
+    if enabled is not True:
+        raise ToolValidationError(
+            "semantic TabControl must have enabled=true"
+        )
+    if (
+        not isinstance(selected_index, int)
+        or isinstance(selected_index, bool)
+        or selected_index < 0
+    ):
+        raise ToolValidationError(
+            "semantic TabControl selected_index must be a non-negative integer"
+        )
+
+    return {
+        **validated,
+        "observation_handle": validated_handle,
+        "control_token": control_token,
+        "role": "tab",
+        "class_name": "SysTabControl32",
+        "control_id": control_id,
+        "enabled": True,
+        "selected_index": selected_index,
     }
 
 

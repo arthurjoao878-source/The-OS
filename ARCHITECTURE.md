@@ -220,7 +220,9 @@ clear.
     native ListBox index idempotently with LB_GETCURSEL readback before coordinate fallback.
 16. M109: Native Semantic Radio Button Select v1, selecting one exact native
     BS_AUTORADIOBUTTON idempotently with BM_GETCHECK readback before coordinate fallback.
-17. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+17. M110: Native Semantic Tab Control Selection v1, setting one exact SysTabControl32
+    selected index idempotently with TCM_GETCURSEL readback before coordinate fallback.
+18. Then continue user-facing LYRA capabilities, perception, personality, voice, and
     composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -693,3 +695,31 @@ use the clipboard, expose raw HWND values or claim that the user's higher-level 
 was achieved. Existing button, keyboard and coordinate actions remain fallbacks for
 unsupported radio styles. M109 adds no Phoenix policy, grant, supervisor, durable
 registry, OCR, general UI Automation framework or cross-process resume.
+
+## M110 - Native Semantic Tab Control Selection v1
+
+M110 extends the M98 native semantic desktop path with one idempotent tab-selection
+primitive: `set_semantic_tab_index` for an exact native Win32 `SysTabControl32`.
+
+The user-supplied exact zero-based index is bound to a recent window observation,
+opaque target/control tokens, the native tab control id, and the existing local
+confirmation preview. The Hands revalidates the exact window and control and rejects
+stale, missing, ambiguous, hidden, disabled or non-Tab controls before mutation.
+
+The v1 reads a bounded `TCM_GETITEMCOUNT` and requires a valid current selection
+from `TCM_GETCURSEL`. Unsupported no-selection, out-of-range targets, and ambiguous
+control state fail closed. If the approved index is already active, it reports
+`effect_dispatched=False` with `postcondition_verified=True` without dispatching.
+Otherwise, one bounded `TCM_SETCURSEL` must return the exact *previous* index; then
+`TCM_GETCURSEL` must return the exact approved index. A dispatched mutation whose
+readback cannot be proven is reported as dispatched but unverified.
+
+`TCM_SETCURSEL` does not prove the host application processed tab selection-change
+notifications or updated a corresponding page. M110 verifies only native local tab
+selection state, not visible page contents, item text, application behavior or the
+user's higher-level goal. It does not move the cursor, synthesize keyboard input,
+read tab labels, use clipboard, or expose raw HWND values. Existing coordinate and
+keyboard operations remain fallbacks when a usable native tab is unavailable.
+
+M110 creates no Phoenix policy/grant, agent authority, durable store, supervisor,
+OCR, cross-process resume, or general UI Automation framework.

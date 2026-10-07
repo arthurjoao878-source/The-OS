@@ -77,6 +77,7 @@ SEMANTIC_CHECKBOX_TIMEOUT_MS = 1000
 SEMANTIC_RADIO_TIMEOUT_MS = 1000
 SEMANTIC_COMBO_TIMEOUT_MS = 1000
 SEMANTIC_LIST_BOX_TIMEOUT_MS = 1000
+SEMANTIC_TAB_TIMEOUT_MS = 1000
 BM_GETCHECK = 0x00F0
 BM_CLICK = 0x00F5
 CB_GETCOUNT = 0x0146
@@ -87,6 +88,10 @@ LB_GETCOUNT = 0x018B
 LB_GETCURSEL = 0x0188
 LB_SETCURSEL = 0x0186
 LB_ERR = -1
+TCM_GETITEMCOUNT = 0x1304
+TCM_GETCURSEL = 0x130B
+TCM_SETCURSEL = 0x130C
+TCM_ERR = -1
 WM_SETTEXT = 0x000C
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
@@ -2526,6 +2531,298 @@ class WindowsDesktopWindowAdapter:
             "requested_title": requested_candidate.title,
             "requested_target_token": requested_candidate.target_token,
         }
+
+    def set_semantic_tab_index(
+        self,
+        pid: int,
+        title: str,
+        target_token: str,
+        control_token: str,
+        control_id: int | None,
+        selected_index: int,
+    ) -> dict[str, object]:
+        if pid == os.getpid():
+            raise RuntimeError("SELF_WINDOW_SEMANTIC_TAB_BLOCKED")
+        if not is_window_target_token(target_token):
+            raise RuntimeError("WINDOW_TARGET_TOKEN_INVALID")
+        if not is_semantic_control_token(control_token):
+            raise RuntimeError("SEMANTIC_CONTROL_TOKEN_INVALID")
+        if (
+            control_id is not None
+            and (
+                not isinstance(control_id, int)
+                or isinstance(control_id, bool)
+                or control_id < 0
+            )
+        ):
+            raise RuntimeError("SEMANTIC_CONTROL_METADATA_CHANGED")
+        if (
+            not isinstance(selected_index, int)
+            or isinstance(selected_index, bool)
+            or selected_index < 0
+        ):
+            raise TypeError("SEMANTIC_TAB_INDEX_INVALID")
+        if not hasattr(ctypes, "WinDLL") or not hasattr(ctypes, "WINFUNCTYPE"):
+            raise RuntimeError("WINDOWS_API_UNAVAILABLE")
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HWND,
+            wintypes.LPARAM,
+        )
+
+        (
+            requested_candidate,
+            resolved_candidate,
+            _requested_full_title,
+            full_title,
+            visual_frame_normalized,
+            visual_frame_dwm_tiebreak_used,
+            resolved_dwm_cloaked,
+        ) = self._resolve_exact_window_target(
+            user32,
+            callback_type,
+            pid,
+            title,
+            target_token,
+        )
+
+        root_hwnd = wintypes.HWND(resolved_candidate.hwnd)
+        resolved_pid = resolved_candidate.pid
+
+        user32.EnumChildWindows.argtypes = [
+            wintypes.HWND,
+            callback_type,
+            wintypes.LPARAM,
+        ]
+        user32.EnumChildWindows.restype = wintypes.BOOL
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        user32.IsWindowVisible.restype = wintypes.BOOL
+        user32.IsWindowEnabled.argtypes = [wintypes.HWND]
+        user32.IsWindowEnabled.restype = wintypes.BOOL
+        user32.GetClassNameW.argtypes = [
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        ]
+        user32.GetClassNameW.restype = ctypes.c_int
+        user32.GetDlgCtrlID.argtypes = [wintypes.HWND]
+        user32.GetDlgCtrlID.restype = ctypes.c_int
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.SendMessageTimeoutW.argtypes = [
+            wintypes.HWND,
+            wintypes.UINT,
+            wintypes.WPARAM,
+            wintypes.LPARAM,
+            wintypes.UINT,
+            wintypes.UINT,
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        user32.SendMessageTimeoutW.restype = ctypes.c_ssize_t
+
+        matches: list[dict[str, object]] = []
+
+        def visit_child(hwnd: int, _lparam: int) -> bool:
+            child_pid_value = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(
+                hwnd,
+                ctypes.byref(child_pid_value),
+            )
+            child_pid = int(child_pid_value.value)
+            if child_pid != resolved_pid:
+                return True
+
+            class_buffer = ctypes.create_unicode_buffer(256)
+            class_length = int(
+                user32.GetClassNameW(
+                    hwnd,
+                    class_buffer,
+                    len(class_buffer),
+                )
+            )
+            class_name = (
+                class_buffer.value.strip()
+                if class_length > 0
+                else ""
+            )
+            if not class_name:
+                return True
+
+            raw_control_id = int(user32.GetDlgCtrlID(hwnd))
+            candidate_token = build_semantic_control_token(
+                target_token,
+                child_hwnd=int(hwnd),
+                pid=child_pid,
+                class_name=class_name,
+                control_id=raw_control_id,
+            )
+            if candidate_token != control_token:
+                return True
+
+            matches.append(
+                {
+                    "hwnd": int(hwnd),
+                    "role": semantic_role_for_class(class_name),
+                    "class_name": class_name,
+                    "control_id": (
+                        raw_control_id
+                        if raw_control_id >= 0
+                        else None
+                    ),
+                    "visible": bool(user32.IsWindowVisible(hwnd)),
+                    "enabled": bool(user32.IsWindowEnabled(hwnd)),
+                }
+            )
+            return True
+
+        callback = callback_type(visit_child)
+        if not user32.EnumChildWindows(root_hwnd, callback, 0):
+            error_code = ctypes.get_last_error()
+            if error_code:
+                raise OSError(error_code, "EnumChildWindows failed")
+
+        if not matches:
+            raise RuntimeError("SEMANTIC_CONTROL_NOT_FOUND_OR_STALE")
+        if len(matches) != 1:
+            raise RuntimeError("SEMANTIC_CONTROL_AMBIGUOUS")
+
+        selected = matches[0]
+        if (
+            selected["role"] != "tab"
+            or selected["class_name"] != "SysTabControl32"
+        ):
+            raise RuntimeError("SEMANTIC_CONTROL_NOT_TAB")
+        if selected["control_id"] != control_id:
+            raise RuntimeError("SEMANTIC_CONTROL_METADATA_CHANGED")
+        if selected["visible"] is not True:
+            raise RuntimeError("SEMANTIC_CONTROL_NOT_VISIBLE")
+        if selected["enabled"] is not True:
+            raise RuntimeError("SEMANTIC_CONTROL_DISABLED")
+
+        def send_tab_message(message: int, wparam: int = 0) -> int:
+            result_slot = ctypes.c_size_t()
+            accepted = int(
+                user32.SendMessageTimeoutW(
+                    wintypes.HWND(int(selected["hwnd"])),
+                    message,
+                    wparam,
+                    0,
+                    SMTO_BLOCK | SMTO_ABORTIFHUNG,
+                    SEMANTIC_TAB_TIMEOUT_MS,
+                    ctypes.byref(result_slot),
+                )
+            )
+            if accepted == 0:
+                raise RuntimeError("SEMANTIC_TAB_SELECTION_READ_FAILED")
+            return int(ctypes.c_ssize_t(result_slot.value).value)
+
+        count_slot = ctypes.c_size_t()
+        count_accepted = int(
+            user32.SendMessageTimeoutW(
+                wintypes.HWND(int(selected["hwnd"])),
+                TCM_GETITEMCOUNT,
+                0,
+                0,
+                SMTO_BLOCK | SMTO_ABORTIFHUNG,
+                SEMANTIC_TAB_TIMEOUT_MS,
+                ctypes.byref(count_slot),
+            )
+        )
+        if count_accepted == 0:
+            raise RuntimeError("SEMANTIC_TAB_COUNT_READ_FAILED")
+        item_count = int(ctypes.c_ssize_t(count_slot.value).value)
+        if item_count < 0:
+            raise RuntimeError("SEMANTIC_TAB_COUNT_READ_FAILED")
+        if selected_index >= item_count:
+            raise RuntimeError("SEMANTIC_TAB_INDEX_OUT_OF_RANGE")
+
+        before_index = send_tab_message(TCM_GETCURSEL)
+        if not 0 <= before_index < item_count:
+            raise RuntimeError("SEMANTIC_TAB_SELECTION_READ_FAILED")
+        normalized_before = before_index
+
+        dispatched = False
+        if normalized_before != selected_index:
+            result_slot = ctypes.c_size_t()
+            accepted = int(
+                user32.SendMessageTimeoutW(
+                    wintypes.HWND(int(selected["hwnd"])),
+                    TCM_SETCURSEL,
+                    selected_index,
+                    0,
+                    SMTO_BLOCK | SMTO_ABORTIFHUNG,
+                    SEMANTIC_TAB_TIMEOUT_MS,
+                    ctypes.byref(result_slot),
+                )
+            )
+            set_result = int(ctypes.c_ssize_t(result_slot.value).value)
+            if accepted == 0 or set_result != normalized_before:
+                raise RuntimeError("SEMANTIC_TAB_SET_NOT_ACCEPTED")
+            dispatched = True
+
+        after_index = send_tab_message(TCM_GETCURSEL)
+        if after_index != selected_index:
+            if dispatched:
+                raise RuntimeError(
+                    "SEMANTIC_TAB_POSTCONDITION_NOT_VERIFIED"
+                )
+            raise RuntimeError("SEMANTIC_TAB_SELECTION_READ_FAILED")
+
+        try:
+            process_name = psutil.Process(resolved_pid).name()
+        except psutil.Error:
+            process_name = "processo-indisponivel"
+
+        return {
+            "pid": resolved_pid,
+            "title": full_title[:MAX_WINDOW_TITLE_CHARS],
+            "process_name": process_name,
+            "target_token": target_token,
+            "control_token": control_token,
+            "role": "tab",
+            "class_name": "SysTabControl32",
+            "control_id": control_id,
+            "enabled_before": True,
+            "visible_before": True,
+            "semantic_source": "win32_native_child_controls",
+            "item_count": item_count,
+            "single_selection": True,
+            "selected_index_before": normalized_before,
+            "selected_index_after": after_index,
+            "desired_index": selected_index,
+            "semantic_tab_selection_dispatched": dispatched,
+            "tab_item_text_collected": False,
+            "application_tab_page_verified": False,
+            "coordinate_action_dispatched": False,
+            "cursor_moved": False,
+            "keyboard_input_dispatched": False,
+            "clipboard_used": False,
+            "content_effect_verified": True,
+            "tab_postcondition_verified": True,
+            "application_selection_notification_verified": False,
+            "verification": (
+                "exact_window_and_semantic_control_token_revalidation_"
+                "then_tcm_getitemcount_tcm_getcursel_tcm_setcursel_if_needed_"
+                "tcm_getcursel"
+            ),
+            "input_method": "SendMessageTimeoutW_TCM_SETCURSEL",
+            "invoke_timeout_ms": SEMANTIC_TAB_TIMEOUT_MS,
+            "raw_hwnd_exposed": False,
+            "hosted_visual_frame_resolution": True,
+            "visual_frame_normalized": visual_frame_normalized,
+            "visual_frame_dwm_tiebreak_used": visual_frame_dwm_tiebreak_used,
+            "resolved_window_class": resolved_candidate.class_name,
+            "resolved_dwm_cloaked": resolved_dwm_cloaked,
+            "requested_pid": requested_candidate.pid,
+            "requested_title": requested_candidate.title,
+            "requested_target_token": requested_candidate.target_token,
+        }
+
 
     def _enumerate_action_window_candidates(
         self,

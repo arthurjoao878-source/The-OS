@@ -63,7 +63,12 @@ enabled=true e o pedido fornecer um índice base-zero exato, prefira
 set_semantic_list_box_index; não invente índice. A v1 aceita somente ListBox de
 seleção única, lê LB_GETCOUNT e LB_GETCURSEL, evita alteração quando a seleção já
 corresponde e usa LB_SETCURSEL com readback LB_GETCURSEL quando necessário; ela não
-enumera textos dos itens nem prova notificação de seleção no aplicativo. Se semantic_window_snapshot retornar
+enumera textos dos itens nem prova notificação de seleção no aplicativo. Se semantic_window_snapshot retornar um controle nativo role=tab com
+class_name SysTabControl32, enabled=true e um índice base-zero exato conhecido,
+prefira set_semantic_tab_index. Esta v1 lê TCM_GETITEMCOUNT e TCM_GETCURSEL,
+usa TCM_SETCURSEL somente se o índice mudar e verifica TCM_GETCURSEL; não
+presuma texto de abas, notificação de seleção, troca de página ou objetivo
+concluído. Nunca invente índice. Se semantic_window_snapshot retornar
 um text_editor nativo com class_name Edit e
 enabled=true e o pedido exigir substituir todo o valor desse campo, prefira
 set_semantic_text à digitação por foco/coordenadas; encaminhe a linha exata do controle

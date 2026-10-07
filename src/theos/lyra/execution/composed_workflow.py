@@ -46,6 +46,7 @@ _WINDOW_ACTIONS = frozenset(
         "set_semantic_checkbox_state",
         "set_semantic_combo_box_index",
         "set_semantic_list_box_index",
+        "set_semantic_tab_index",
         "set_semantic_text",
         "activate_window",
         "move_cursor_window_anchor",

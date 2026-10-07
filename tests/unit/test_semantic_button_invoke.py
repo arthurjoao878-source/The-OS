@@ -279,8 +279,8 @@ def test_semantic_button_is_normal_window_capability_with_guidance() -> None:
     }
     registry = set(build_action_registry().names())
 
-    assert len(full) == 61
-    assert len(assistant) == 45
+    assert len(full) == 62
+    assert len(assistant) == 46
     assert "invoke_semantic_button" in full
     assert "invoke_semantic_button" in assistant
     assert "invoke_semantic_button" in registry

@@ -41,7 +41,7 @@ def test_batch_catalog_has_strict_bounded_paths_schema() -> None:
     schema = definition.parameters
     paths_schema = schema["properties"]["paths"]
 
-    assert len(definitions) == 61
+    assert len(definitions) == 62
     assert set(schema["properties"]) == {"paths"}
     assert set(schema["required"]) == {"paths"}
     assert schema["additionalProperties"] is False
