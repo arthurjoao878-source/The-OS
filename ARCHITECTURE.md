@@ -226,8 +226,10 @@ clear.
     summaries of verified The Hands action results without copying raw evidence or arguments.
 19. M112: Bounded LYRA Perception Prompt Exposure v1, exposing only bounded perception
     summaries to the provider while preserving raw user intent for local authority gates.
-20. Then continue user-facing LYRA capabilities, personality, voice, and composed
-    workflows as concrete needs justify them.
+20. M113: Bounded LYRA Personality Context v1, keeping process-local presentation style
+    in a fixed finite schema without free-form instructions or authority-bearing fields.
+21. Then continue user-facing LYRA capabilities, personality prompt exposure, voice,
+    and composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
 
@@ -771,3 +773,22 @@ the perception envelope between steps.
 M112 adds no persistence, background observation, new tool, Phoenix policy/grant, execution
 authority, supervisor, OCR, or general UI Automation framework. Legacy direct planner
 actions remain outside perception capture just as in M111.
+
+
+## M113 - Bounded LYRA Personality Context v1
+
+M113 introduces a fixed-schema, process-local personality context for LYRA. The context
+contains one immutable current snapshot with three finite presentation axes: tone,
+verbosity, and formality. LYRA identity and locale are fixed metadata rather than arbitrary
+user-provided strings.
+
+The v1 deliberately accepts enum values only and stores no free-form personality prompt,
+instruction, goal, policy, approval, authority, or tool directive. Updating one style axis
+preserves the others, reset restores the defaults, and snapshots are immutable. The
+assistant host owns one context for its process lifetime; there is no history buffer and no
+durable personality store.
+
+M113 does not yet expose personality state to the AI provider, add UI controls for changing
+it, infer personality from conversation, persist preferences, alter memory, change tool
+visibility, authorize actions, bypass local confirmation, or create Phoenix policy/grants.
+The Hands execution and perception boundaries remain unchanged.
