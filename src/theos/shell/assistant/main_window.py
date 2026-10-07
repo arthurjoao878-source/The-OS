@@ -29,6 +29,7 @@ from theos.lyra.execution import (
 )
 from theos.lyra.memory.intent import MemoryIntentKind
 from theos.lyra.memory.service import MemoryService
+from theos.lyra.perception import PerceptionContext
 from theos.lyra.planning import LyraPlanner, PlanKind
 from theos.shell.assistant.workflow_progress import present_run_state
 
@@ -131,10 +132,12 @@ class MainWindow(QMainWindow):
         self._tools = tool_catalog
         self._planner = LyraPlanner()
         self._context = SessionContext(max_turns=12)
+        self._perception = PerceptionContext(max_observations=8)
         self._tool_loop = ToolLoopExecutor(
             ai_provider,
             action_registry,
             tool_catalog,
+            perception=self._perception,
         )
         self._pool = QThreadPool.globalInstance()
         self._active_control: ExecutionControl | None = None

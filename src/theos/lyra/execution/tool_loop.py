@@ -31,6 +31,7 @@ from theos.lyra.execution.workflow_progress import (
     WorkflowProgressState,
     summarize_workflow_progress,
 )
+from theos.lyra.perception import PerceptionContext
 
 MAX_TOOL_LOOP_STEPS = 4
 ProgressCallback = Callable[[str], None]
@@ -168,6 +169,7 @@ class ToolLoopExecutor:
         tools: ToolCatalog,
         *,
         max_steps: int = MAX_TOOL_LOOP_STEPS,
+        perception: PerceptionContext | None = None,
     ) -> None:
         if max_steps < 1 or max_steps > MAX_TOOL_LOOP_STEPS:
             raise ValueError(f"max_steps must be between 1 and {MAX_TOOL_LOOP_STEPS}")
@@ -175,6 +177,7 @@ class ToolLoopExecutor:
         self._actions = actions
         self._tools = tools
         self._max_steps = max_steps
+        self._perception = perception
 
     def execute(
         self,
@@ -519,6 +522,8 @@ class ToolLoopExecutor:
         self._emit_progress(progress, opening)
 
         action_result = self._actions.execute(request)
+        if self._perception is not None:
+            self._perception.record(request, action_result)
         run_state = run_state.record_action(request, action_result)
         self._emit_state(state, run_state)
 

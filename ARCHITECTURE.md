@@ -222,8 +222,10 @@ clear.
     BS_AUTORADIOBUTTON idempotently with BM_GETCHECK readback before coordinate fallback.
 17. M110: Native Semantic Tab Control Selection v1, setting one exact SysTabControl32
     selected index idempotently with TCM_GETCURSEL readback before coordinate fallback.
-18. Then continue user-facing LYRA capabilities, perception, personality, voice, and
-    composed workflows as concrete needs justify them.
+18. M111: Bounded LYRA Perception Context v1, retaining only bounded process-local
+    summaries of verified The Hands action results without copying raw evidence or arguments.
+19. Then continue user-facing LYRA capabilities, personality, voice, and composed
+    workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
 
@@ -723,3 +725,23 @@ keyboard operations remain fallbacks when a usable native tab is unavailable.
 
 M110 creates no Phoenix policy/grant, agent authority, durable store, supervisor,
 OCR, cross-process resume, or general UI Automation framework.
+
+
+## M111 - Bounded LYRA Perception Context v1
+
+M111 begins the post-semantic-control LYRA phase with a bounded process-local perception
+context. The context records only a compact summary after The Hands returns an
+`ActionResult`: action name, success, bounded visible message, error code, dispatched
+effect evidence and verified local postcondition evidence.
+
+The perception buffer deliberately does not copy action arguments or the raw `evidence`
+mapping. This keeps file contents, HWND-like implementation data, tool-specific payloads
+and other potentially sensitive evidence out of the new cross-turn perception object.
+The buffer is capped, evicts oldest observations, can be explicitly cleared, and is lost
+on process restart. It is separate from `SessionContext` and persistent SQLite memory.
+
+The existing tool loop may record action results into this context, and the assistant
+host owns one context for its process lifetime. M111 does not yet inject perception into
+AI provider prompts, perform background observation, create durable memory, change tool
+visibility, add execution authority, or create Phoenix policy/grants. The legacy local
+approval bridge remains unchanged.

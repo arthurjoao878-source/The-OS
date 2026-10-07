@@ -10,6 +10,7 @@ from theos.integrations.ai import (
     AIToolTurn,
 )
 from theos.lyra.execution import ExecutionControl, ToolLoopExecutor
+from theos.lyra.perception import PerceptionContext
 
 
 class TwoStepProvider:
@@ -370,3 +371,65 @@ def test_tool_loop_blocks_forced_open_without_explicit_launch_intent() -> None:
     assert provider.continuations == 0
     assert result.error is not None
     assert "sem pedido explícito" in result.error
+
+def test_tool_loop_records_verified_results_in_bounded_perception_context() -> None:
+    executed: list[str] = []
+    registry = ActionRegistry()
+    _register_open_application(registry, executed)
+    provider = TwoStepProvider()
+    perception = PerceptionContext(max_observations=4)
+    executor = ToolLoopExecutor(
+        provider,
+        registry,
+        build_default_tool_catalog(),
+        perception=perception,
+    )
+
+    result = executor.execute(
+        "Inicie o Bloco de Notas e depois o Google Chrome.",
+        tools=build_default_tool_catalog().definitions(),
+    )
+
+    assert result.success is True
+    observations = perception.snapshot()
+    assert tuple(item.action for item in observations) == (
+        "open_application",
+        "open_application",
+    )
+    assert tuple(item.message for item in observations) == (
+        "Notepad aberto.",
+        "Chrome aberto.",
+    )
+
+
+def test_tool_loop_records_failed_action_without_raw_evidence() -> None:
+    registry = ActionRegistry()
+
+    def handler(request: ActionRequest) -> ActionResult:
+        return ActionResult(
+            request_id=request.request_id,
+            success=False,
+            message="Falhou de forma verificada.",
+            evidence={"sensitive": "must-not-enter-perception"},
+            error_code="ACTION_VERIFICATION_FAILED",
+        )
+
+    registry.register("open_application", handler)
+    perception = PerceptionContext()
+    executor = ToolLoopExecutor(
+        TwoStepProvider(),
+        registry,
+        build_default_tool_catalog(),
+        perception=perception,
+    )
+
+    result = executor.execute(
+        "Abra dois aplicativos.",
+        tools=build_default_tool_catalog().definitions(),
+    )
+
+    assert result.success is False
+    observation = perception.snapshot()[0]
+    assert observation.success is False
+    assert observation.error_code == "ACTION_VERIFICATION_FAILED"
+    assert not hasattr(observation, "evidence")
