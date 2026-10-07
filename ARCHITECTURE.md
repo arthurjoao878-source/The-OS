@@ -224,7 +224,9 @@ clear.
     selected index idempotently with TCM_GETCURSEL readback before coordinate fallback.
 18. M111: Bounded LYRA Perception Context v1, retaining only bounded process-local
     summaries of verified The Hands action results without copying raw evidence or arguments.
-19. Then continue user-facing LYRA capabilities, personality, voice, and composed
+19. M112: Bounded LYRA Perception Prompt Exposure v1, exposing only bounded perception
+    summaries to the provider while preserving raw user intent for local authority gates.
+20. Then continue user-facing LYRA capabilities, personality, voice, and composed
     workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -745,3 +747,27 @@ host owns one context for its process lifetime. M111 does not yet inject percept
 AI provider prompts, perform background observation, create durable memory, change tool
 visibility, add execution authority, or create Phoenix policy/grants. The legacy local
 approval bridge remains unchanged.
+
+
+## M112 - Bounded LYRA Perception Prompt Exposure v1
+
+M112 exposes a bounded snapshot of the existing M111 perception context to the AI provider
+at the start of a new tool-loop request. The provider-facing envelope contains only the
+M111 summary fields and explicitly labels them as untrusted observed data, not instructions,
+authorization, current user intent, or proof that the user's higher-level goal succeeded.
+
+The renderer considers at most eight recent observations, truncates error codes for prompt
+use, and enforces a 4096-character bound on the perception block. When no observations are
+available, the original provider text is preserved unchanged. Action arguments and raw
+`ActionResult.evidence` remain absent from the perception prompt.
+
+The original user request remains the sole input to local request-scoped gates such as the
+`open_application` visibility check. Perception text may inform model reasoning, but it
+cannot expand the locally exposed tool set, bypass risk confirmation, authorize an action,
+or change The Hands validation. Results produced inside the current loop continue through
+the existing structured tool-result continuation path; M112 does not recursively rebuild
+the perception envelope between steps.
+
+M112 adds no persistence, background observation, new tool, Phoenix policy/grant, execution
+authority, supervisor, OCR, or general UI Automation framework. Legacy direct planner
+actions remain outside perception capture just as in M111.

@@ -31,7 +31,10 @@ from theos.lyra.execution.workflow_progress import (
     WorkflowProgressState,
     summarize_workflow_progress,
 )
-from theos.lyra.perception import PerceptionContext
+from theos.lyra.perception import (
+    PerceptionContext,
+    compose_perception_provider_text,
+)
 
 MAX_TOOL_LOOP_STEPS = 4
 ProgressCallback = Callable[[str], None]
@@ -211,9 +214,14 @@ class ToolLoopExecutor:
             application_launch_allowed=application_launch_allowed,
         )
 
+        provider_text = compose_perception_provider_text(
+            text,
+            () if self._perception is None else self._perception.snapshot(),
+        )
+
         try:
             response = self._provider.respond(
-                text,
+                provider_text,
                 history=history,
                 tools=visible_tools,
             )
