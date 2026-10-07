@@ -25,6 +25,7 @@ from theos.core.actions.desktop_windows import (
     SemanticWindowSnapshotAction,
     SetSemanticCheckboxStateAction,
     SetSemanticComboBoxIndexAction,
+    SetSemanticListBoxIndexAction,
     SetSemanticTextAction,
     TypeTextAction,
     WindowSnapshotAction,
@@ -133,6 +134,7 @@ def build_action_registry() -> ActionRegistry:
     invoke_semantic_button = InvokeSemanticButtonAction(windows_desktop)
     set_semantic_checkbox_state = SetSemanticCheckboxStateAction(windows_desktop)
     set_semantic_combo_box_index = SetSemanticComboBoxIndexAction(windows_desktop)
+    set_semantic_list_box_index = SetSemanticListBoxIndexAction(windows_desktop)
     set_semantic_text = SetSemanticTextAction(windows_desktop)
     activate_window = ActivateWindowAction(windows_desktop)
     move_cursor_window_anchor = MoveCursorWindowAnchorAction(windows_desktop)
@@ -382,6 +384,12 @@ def build_action_registry() -> ActionRegistry:
         set_semantic_combo_box_index.execute,
         risk=set_semantic_combo_box_index.risk,
         confirmation_preview=set_semantic_combo_box_index.confirmation_preview,
+    )
+    registry.register(
+        set_semantic_list_box_index.name,
+        set_semantic_list_box_index.execute,
+        risk=set_semantic_list_box_index.risk,
+        confirmation_preview=set_semantic_list_box_index.confirmation_preview,
     )
     registry.register(
         set_semantic_text.name,

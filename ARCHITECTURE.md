@@ -216,7 +216,9 @@ clear.
     idempotently with native readback verification before coordinate fallback.
 14. M107: Native Semantic Combo Box Selection v1, setting one exact native ComboBox
     index idempotently with CB_GETCURSEL readback before coordinate fallback.
-15. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+15. M108: Native Semantic ListBox Selection v1, setting one exact single-selection
+    native ListBox index idempotently with LB_GETCURSEL readback before coordinate fallback.
+16. Then continue user-facing LYRA capabilities, perception, personality, voice, and
     composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -619,3 +621,38 @@ achieved. Existing keyboard and coordinate actions remain fallbacks when an exac
 index is not known or a usable native ComboBox is unavailable. M107 adds no Phoenix
 policy, grant, supervisor, durable registry, OCR, general UI Automation framework or
 cross-process resume.
+
+## M108 - Native Semantic ListBox Selection v1
+
+M108 extends the M98 semantic desktop path with one narrow idempotent ListBox
+selection primitive: `set_semantic_list_box_index`.
+
+Version 1 accepts only the exact native Win32 `ListBox` row returned by
+`semantic_window_snapshot`. The request carries the recent M97 window observation,
+window target token, M98 semantic control token, exact control id and a zero-based
+desired item index. `SysListView32`, owner-specific list frameworks and other list
+controls remain unsupported in v1.
+
+Before mutation, The Hands revalidates the signed window observation, resolves the
+exact window again, enumerates native child controls again, recomputes the semantic
+control token and requires exactly one visible, enabled matching native `ListBox`.
+The adapter reads the native style and fails closed when `LBS_MULTIPLESEL` or
+`LBS_EXTENDEDSEL` is present, because this v1 models only single-selection state.
+
+For a supported single-selection ListBox, The Hands reads the item count with bounded
+`SendMessageTimeoutW(LB_GETCOUNT)` and fails closed when the requested index is outside
+that concrete local range. The current selection is read with `LB_GETCURSEL`. If it
+already equals the approved index, no selection message is dispatched and the action
+reports `effect_dispatched=False` with `postcondition_verified=True`. Otherwise one
+bounded `LB_SETCURSEL` is sent and `LB_GETCURSEL` must read back the exact approved
+index. A dispatched selection whose local postcondition cannot be verified is reported
+as dispatched but unverified rather than as success.
+
+M108 deliberately does not enumerate or return ListBox item text, move the cursor,
+synthesize keyboard input, use the clipboard or expose raw HWND values. `LB_SETCURSEL`
+proves only the local single-selection control state; v1 does not claim that an
+application-level selection-change notification was observed or that the user's
+higher-level goal was achieved. Existing keyboard and coordinate actions remain
+fallbacks when an exact index is not known, selection is multiple, or a usable native
+ListBox is unavailable. M108 adds no Phoenix policy, grant, supervisor, durable
+registry, OCR, general UI Automation framework or cross-process resume.

@@ -52,7 +52,12 @@ enabled=true e o pedido fornecer um índice base-zero exato, prefira
 set_semantic_combo_box_index; não invente índice. A v1 lê CB_GETCOUNT e
 CB_GETCURSEL, evita alteração quando a seleção já corresponde e usa CB_SETCURSEL
 com readback CB_GETCURSEL quando necessário; ela não enumera textos das opções nem
-prova notificação de seleção no aplicativo. Se semantic_window_snapshot retornar
+prova notificação de seleção no aplicativo. Se semantic_window_snapshot retornar um controle list nativo com class_name ListBox,
+enabled=true e o pedido fornecer um índice base-zero exato, prefira
+set_semantic_list_box_index; não invente índice. A v1 aceita somente ListBox de
+seleção única, lê LB_GETCOUNT e LB_GETCURSEL, evita alteração quando a seleção já
+corresponde e usa LB_SETCURSEL com readback LB_GETCURSEL quando necessário; ela não
+enumera textos dos itens nem prova notificação de seleção no aplicativo. Se semantic_window_snapshot retornar
 um text_editor nativo com class_name Edit e
 enabled=true e o pedido exigir substituir todo o valor desse campo, prefira
 set_semantic_text à digitação por foco/coordenadas; encaminhe a linha exata do controle
