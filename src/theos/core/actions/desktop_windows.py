@@ -1452,6 +1452,344 @@ class SetSemanticCheckboxStateAction:
             postcondition_verified=True,
         )
 
+_EXPECTED_SEMANTIC_COMBO_PID = "_theos_expected_semantic_combo_pid"
+_EXPECTED_SEMANTIC_COMBO_TITLE = "_theos_expected_semantic_combo_title"
+_EXPECTED_SEMANTIC_COMBO_TARGET_TOKEN = "_theos_expected_semantic_combo_target_token"
+_EXPECTED_SEMANTIC_COMBO_OBSERVATION_HANDLE = (
+    "_theos_expected_semantic_combo_observation_handle"
+)
+_EXPECTED_SEMANTIC_COMBO_CONTROL_TOKEN = (
+    "_theos_expected_semantic_combo_control_token"
+)
+_EXPECTED_SEMANTIC_COMBO_CONTROL_ID = "_theos_expected_semantic_combo_control_id"
+_EXPECTED_SEMANTIC_COMBO_INDEX = "_theos_expected_semantic_combo_index"
+
+
+class SetSemanticComboBoxIndexAction:
+    name = "set_semantic_combo_box_index"
+    risk = ActionRisk.CONFIRM
+
+    def __init__(self, windows: WindowsDesktopWindowAdapter) -> None:
+        self._windows = windows
+
+    @staticmethod
+    def _validated_arguments(
+        request: ActionRequest,
+    ) -> tuple[
+        int,
+        str,
+        str,
+        dict[str, object],
+        str,
+        int | None,
+        int,
+    ] | None:
+        pid = request.arguments.get("pid")
+        title = request.arguments.get("title")
+        target_token = request.arguments.get("target_token")
+        observation_handle = request.arguments.get("observation_handle")
+        control_token = request.arguments.get("control_token")
+        role = request.arguments.get("role")
+        class_name = request.arguments.get("class_name")
+        control_id = request.arguments.get("control_id")
+        enabled = request.arguments.get("enabled")
+        selected_index = request.arguments.get("selected_index")
+
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(title, str)
+            or not title.strip()
+            or not is_window_target_token(target_token)
+            or observation_handle is None
+            or not is_semantic_control_token(control_token)
+            or role != "combo_box"
+            or class_name != "ComboBox"
+            or (
+                control_id is not None
+                and (
+                    not isinstance(control_id, int)
+                    or isinstance(control_id, bool)
+                    or control_id < 0
+                )
+            )
+            or enabled is not True
+            or not isinstance(selected_index, int)
+            or isinstance(selected_index, bool)
+            or selected_index < 0
+        ):
+            return None
+
+        try:
+            validated_handle = validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError:
+            return None
+
+        return (
+            pid,
+            title.strip(),
+            target_token,
+            validated_handle,
+            control_token,
+            control_id,
+            selected_index,
+        )
+
+    @staticmethod
+    def confirmation_preview(request: ActionRequest) -> ConfirmationPreview:
+        validated = SetSemanticComboBoxIndexAction._validated_arguments(request)
+        if validated is None:
+            return ConfirmationPreview(
+                allowed=False,
+                text=(
+                    "Seleção semântica de ComboBox bloqueada antes da confirmação: "
+                    "alvo, observação, ComboBox ou índice inválidos."
+                ),
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            control_id,
+            selected_index,
+        ) = validated
+        control_id_text = "indisponível" if control_id is None else str(control_id)
+        return ConfirmationPreview(
+            allowed=True,
+            text=(
+                "DEFINIR ÍNDICE DE COMBOBOX SEMÂNTICO NATIVO\n"
+                f"Janela exata: {title} (PID {pid}).\n"
+                f"ID de controle: {control_id_text}\n"
+                f"Índice desejado (base zero): {selected_index}\n"
+                f"Alvo da janela: {target_token[:12]}...\n"
+                f"Token do controle: {control_token[:12]}...\n"
+                "Após a confirmação, o THE HANDS revalidará a observação da janela "
+                "e enumerará novamente seus controles Win32. A v1 aceita somente "
+                "ComboBox nativo exato. A quantidade de itens será lida com "
+                "CB_GETCOUNT e o índice atual com CB_GETCURSEL. Se o índice já "
+                "corresponder, nenhuma alteração será despachada; caso contrário, "
+                "CB_SETCURSEL será enviado com timeout e CB_GETCURSEL verificará a "
+                "pós-condição local. Esta v1 não enumera nem retorna os textos das "
+                "opções e não afirma que o aplicativo processou uma notificação de "
+                "mudança ou que o objetivo geral do usuário foi concluído."
+            ),
+            execution_guard={
+                _EXPECTED_SEMANTIC_COMBO_PID: pid,
+                _EXPECTED_SEMANTIC_COMBO_TITLE: title,
+                _EXPECTED_SEMANTIC_COMBO_TARGET_TOKEN: target_token,
+                _EXPECTED_SEMANTIC_COMBO_OBSERVATION_HANDLE: observation_handle,
+                _EXPECTED_SEMANTIC_COMBO_CONTROL_TOKEN: control_token,
+                _EXPECTED_SEMANTIC_COMBO_CONTROL_ID: control_id,
+                _EXPECTED_SEMANTIC_COMBO_INDEX: selected_index,
+            },
+        )
+
+    def execute(self, request: ActionRequest) -> ActionResult:
+        validated = self._validated_arguments(request)
+        if validated is None:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A seleção semântica de ComboBox não possui argumentos "
+                    "válidos e recentemente observados."
+                ),
+                error_code="SEMANTIC_COMBO_ARGUMENTS_INVALID",
+            )
+
+        (
+            pid,
+            title,
+            target_token,
+            observation_handle,
+            control_token,
+            control_id,
+            selected_index,
+        ) = validated
+
+        if (
+            request.arguments.get(_EXPECTED_SEMANTIC_COMBO_PID) != pid
+            or request.arguments.get(_EXPECTED_SEMANTIC_COMBO_TITLE) != title
+            or request.arguments.get(_EXPECTED_SEMANTIC_COMBO_TARGET_TOKEN)
+            != target_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_COMBO_OBSERVATION_HANDLE)
+            != observation_handle
+            or request.arguments.get(_EXPECTED_SEMANTIC_COMBO_CONTROL_TOKEN)
+            != control_token
+            or request.arguments.get(_EXPECTED_SEMANTIC_COMBO_CONTROL_ID)
+            != control_id
+            or request.arguments.get(_EXPECTED_SEMANTIC_COMBO_INDEX)
+            != selected_index
+        ):
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "O ComboBox semântico não possui uma prévia local aprovada "
+                    "para este controle e índice exatos."
+                ),
+                error_code="SEMANTIC_COMBO_PREVIEW_REQUIRED",
+            )
+
+        try:
+            validate_window_observation_handle(
+                observation_handle,
+                expected_target_token=target_token,
+            )
+        except WindowObservationHandleError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message=(
+                    "A observação da janela não é mais válida; "
+                    "inspecione a janela novamente."
+                ),
+                evidence={"reason": exc.code},
+                error_code=exc.code,
+            )
+
+        try:
+            evidence = self._windows.set_semantic_combo_box_index(
+                pid,
+                title,
+                target_token,
+                control_token,
+                control_id,
+                selected_index,
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            error_map = {
+                "SELF_WINDOW_SEMANTIC_COMBO_BLOCKED": (
+                    "A LYRA bloqueou o ComboBox semântico na própria janela.",
+                    "SELF_WINDOW_SEMANTIC_COMBO_BLOCKED",
+                ),
+                "WINDOW_TARGET_TOKEN_INVALID": (
+                    "O identificador opaco da janela é inválido.",
+                    "WINDOW_TARGET_TOKEN_INVALID",
+                ),
+                "WINDOW_TARGET_NOT_FOUND": (
+                    "Não encontrei essa janela visível exata.",
+                    "WINDOW_TARGET_NOT_FOUND",
+                ),
+                "WINDOW_TARGET_AMBIGUOUS": (
+                    "Mais de uma janela correspondeu ao alvo opaco.",
+                    "WINDOW_TARGET_AMBIGUOUS",
+                ),
+                "WINDOW_VISUAL_FRAME_NOT_FOUND": (
+                    "Não encontrei a moldura visual da janela exata.",
+                    "WINDOW_VISUAL_FRAME_NOT_FOUND",
+                ),
+                "WINDOW_VISUAL_FRAME_AMBIGUOUS": (
+                    "A moldura visual da janela ficou ambígua.",
+                    "WINDOW_VISUAL_FRAME_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_TOKEN_INVALID": (
+                    "O token opaco do controle é inválido.",
+                    "SEMANTIC_CONTROL_TOKEN_INVALID",
+                ),
+                "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE": (
+                    "O ComboBox semântico não existe mais; inspecione novamente.",
+                    "SEMANTIC_CONTROL_NOT_FOUND_OR_STALE",
+                ),
+                "SEMANTIC_CONTROL_AMBIGUOUS": (
+                    "O controle semântico ficou ambíguo e não foi alterado.",
+                    "SEMANTIC_CONTROL_AMBIGUOUS",
+                ),
+                "SEMANTIC_CONTROL_NOT_COMBO_BOX": (
+                    "O controle observado não é mais um ComboBox nativo suportado.",
+                    "SEMANTIC_CONTROL_NOT_COMBO_BOX",
+                ),
+                "SEMANTIC_CONTROL_METADATA_CHANGED": (
+                    "Os metadados do ComboBox mudaram; inspecione novamente.",
+                    "SEMANTIC_CONTROL_METADATA_CHANGED",
+                ),
+                "SEMANTIC_CONTROL_NOT_VISIBLE": (
+                    "O ComboBox semântico não está mais visível.",
+                    "SEMANTIC_CONTROL_NOT_VISIBLE",
+                ),
+                "SEMANTIC_CONTROL_DISABLED": (
+                    "O ComboBox semântico está desabilitado.",
+                    "SEMANTIC_CONTROL_DISABLED",
+                ),
+                "SEMANTIC_COMBO_COUNT_READ_FAILED": (
+                    "Não consegui ler com segurança a quantidade de opções.",
+                    "SEMANTIC_COMBO_COUNT_READ_FAILED",
+                ),
+                "SEMANTIC_COMBO_INDEX_OUT_OF_RANGE": (
+                    "O índice solicitado não existe neste ComboBox.",
+                    "SEMANTIC_COMBO_INDEX_OUT_OF_RANGE",
+                ),
+                "SEMANTIC_COMBO_SELECTION_READ_FAILED": (
+                    "Não consegui ler com segurança a seleção atual do ComboBox.",
+                    "SEMANTIC_COMBO_SELECTION_READ_FAILED",
+                ),
+                "SEMANTIC_COMBO_SET_NOT_ACCEPTED": (
+                    "O Windows não confirmou CB_SETCURSEL para o índice aprovado.",
+                    "SEMANTIC_COMBO_SET_NOT_ACCEPTED",
+                ),
+                "SEMANTIC_COMBO_POSTCONDITION_NOT_VERIFIED": (
+                    (
+                        "A seleção foi despachada, mas CB_GETCURSEL não confirmou "
+                        "o índice aprovado; a operação não será tratada como "
+                        "verificada."
+                    ),
+                    "SEMANTIC_COMBO_POSTCONDITION_NOT_VERIFIED",
+                ),
+            }
+            mapped = error_map.get(reason)
+            if mapped is not None:
+                message, error_code = mapped
+                postcondition_failure = (
+                    reason == "SEMANTIC_COMBO_POSTCONDITION_NOT_VERIFIED"
+                )
+                return ActionResult(
+                    request_id=request.request_id,
+                    success=False,
+                    message=message,
+                    evidence={"reason": reason},
+                    error_code=error_code,
+                    effect_dispatched=True if postcondition_failure else None,
+                    postcondition_verified=False if postcondition_failure else None,
+                )
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui definir o índice do ComboBox semântico.",
+                evidence={"reason": reason},
+                error_code="SEMANTIC_COMBO_SET_FAILED",
+            )
+        except OSError as exc:
+            return ActionResult(
+                request_id=request.request_id,
+                success=False,
+                message="Não consegui definir o índice do ComboBox semântico.",
+                evidence={"exception": type(exc).__name__},
+                error_code="SEMANTIC_COMBO_SET_FAILED",
+            )
+
+        dispatched = bool(evidence["semantic_combo_selection_dispatched"])
+        return ActionResult(
+            request_id=request.request_id,
+            success=True,
+            message=(
+                f"ComboBox semântico em {evidence['title']} (PID {evidence['pid']}) "
+                f"ficou no índice {evidence['desired_index']}; "
+                "pós-condição local verificada."
+            ),
+            evidence=evidence,
+            effect_dispatched=dispatched,
+            postcondition_verified=True,
+        )
+
+
 class ActivateWindowAction:
     name = "activate_window"
     risk = ActionRisk.NORMAL

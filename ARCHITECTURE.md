@@ -214,7 +214,9 @@ clear.
     local postcondition verification before keyboard or coordinate fallback.
 13. M106: Native Semantic Checkbox State v1, setting one exact BS_AUTOCHECKBOX state
     idempotently with native readback verification before coordinate fallback.
-14. Then continue user-facing LYRA capabilities, perception, personality, voice, and
+14. M107: Native Semantic Combo Box Selection v1, setting one exact native ComboBox
+    index idempotently with CB_GETCURSEL readback before coordinate fallback.
+15. Then continue user-facing LYRA capabilities, perception, personality, voice, and
     composed workflows as concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -584,4 +586,36 @@ HWND values or claim that the user's higher-level application goal was achieved.
 Existing `invoke_semantic_button`, keyboard and coordinate actions remain available for
 interfaces outside this narrow native checkbox path. M106 adds no Phoenix policy,
 grant, supervisor, durable registry, OCR, general UI Automation framework or
+cross-process resume.
+
+## M107 - Native Semantic Combo Box Selection v1
+
+M107 extends the M98 semantic desktop path with one narrow idempotent ComboBox
+selection primitive: `set_semantic_combo_box_index`.
+
+Version 1 accepts only the exact native Win32 `ComboBox` row returned by
+`semantic_window_snapshot`. The request carries the recent M97 window observation,
+window target token, M98 semantic control token, exact control id and a zero-based
+desired item index. ComboBoxEx and other combo frameworks remain unsupported in v1.
+
+Before mutation, The Hands revalidates the signed window observation, resolves the
+exact window again, enumerates native child controls again, recomputes the semantic
+control token and requires exactly one visible, enabled matching native `ComboBox`.
+It reads the item count with bounded `SendMessageTimeoutW(CB_GETCOUNT)` and fails
+closed when the requested index is outside that concrete local range.
+
+The current selection is read with `CB_GETCURSEL`. If it already equals the approved
+index, no selection message is dispatched and the action reports
+`effect_dispatched=False` with `postcondition_verified=True`. Otherwise one bounded
+`CB_SETCURSEL` is sent and `CB_GETCURSEL` must read back the exact approved index.
+A dispatched selection whose local postcondition cannot be verified is reported as
+dispatched but unverified rather than as success.
+
+M107 deliberately does not enumerate or return ComboBox item text, move the cursor,
+synthesize keyboard input, use the clipboard or expose raw HWND values. `CB_SETCURSEL`
+proves only the local control selection; v1 does not claim that an application-level
+selection-change notification was observed or that the user's higher-level goal was
+achieved. Existing keyboard and coordinate actions remain fallbacks when an exact
+index is not known or a usable native ComboBox is unavailable. M107 adds no Phoenix
+policy, grant, supervisor, durable registry, OCR, general UI Automation framework or
 cross-process resume.

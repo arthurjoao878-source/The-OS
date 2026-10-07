@@ -47,7 +47,13 @@ Button termine explicitamente marcado ou desmarcado, prefira
 set_semantic_checkbox_state com a linha exata e o booleano desejado; a v1 revalida e
 aceita somente BS_AUTOCHECKBOX, lê o estado com BM_GETCHECK, evita clique quando o
 estado já corresponde e verifica BM_GETCHECK novamente após BM_CLICK quando necessário.
-Se semantic_window_snapshot retornar um text_editor nativo com class_name Edit e
+Se semantic_window_snapshot retornar um combo_box nativo com class_name ComboBox,
+enabled=true e o pedido fornecer um índice base-zero exato, prefira
+set_semantic_combo_box_index; não invente índice. A v1 lê CB_GETCOUNT e
+CB_GETCURSEL, evita alteração quando a seleção já corresponde e usa CB_SETCURSEL
+com readback CB_GETCURSEL quando necessário; ela não enumera textos das opções nem
+prova notificação de seleção no aplicativo. Se semantic_window_snapshot retornar
+um text_editor nativo com class_name Edit e
 enabled=true e o pedido exigir substituir todo o valor desse campo, prefira
 set_semantic_text à digitação por foco/coordenadas; encaminhe a linha exata do controle
 e o texto solicitado. Nunca invente control_token ou metadados do controle; se o
