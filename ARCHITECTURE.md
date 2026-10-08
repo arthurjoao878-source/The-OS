@@ -230,7 +230,9 @@ clear.
     in a fixed finite schema without free-form instructions or authority-bearing fields.
 21. M114: Bounded LYRA Personality Prompt Exposure v1, applying finite presentation
     preferences at provider request entry without granting tool or policy authority.
-22. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+22. M115: Bounded LYRA Personality Host Controls v1, allowing finite process-local
+    presentation settings in the desktop UI without changing authority.
+23. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -814,3 +816,20 @@ M114 applies only to the normal tool-loop AI entry point, not legacy direct plan
 replies or external AI-provider system instructions. It does not add UI controls, durable
 preferences, inference, tools, grants, approval overrides, Phoenix authority, background
 monitoring, or evidence of completion of the user's higher-level goal.
+
+
+## M115 - Bounded LYRA Personality Host Controls v1
+
+M115 adds three finite desktop host selectors and one reset control for the existing
+M113 personality state. Each selector uses enum-backed values only; invalid UI
+payloads are rejected and the controls are restored to the last valid snapshot.
+
+The controls update the same process-local context already consumed by M114 at
+provider request entry. They are disabled during active host work. Reset restores
+the M113 defaults. Neither the controls nor the selected labels become instructions,
+policies, authorization, new tools or verified task-completion evidence.
+
+M115 adds no persistence, external voice calls, new memory behavior, new execution
+primitives, autonomous monitoring, free-form instructions, Phoenix grants or policy,
+or alterations to local request-scoped gates and confirmation. Existing UI and
+The Hands tool-loop flows remain in place.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -30,7 +31,12 @@ from theos.lyra.execution import (
 from theos.lyra.memory.intent import MemoryIntentKind
 from theos.lyra.memory.service import MemoryService
 from theos.lyra.perception import PerceptionContext
-from theos.lyra.personality import PersonalityContext
+from theos.lyra.personality import (
+    PersonalityContext,
+    PersonalityFormality,
+    PersonalityTone,
+    PersonalityVerbosity,
+)
 from theos.lyra.planning import LyraPlanner, PlanKind
 from theos.shell.assistant.workflow_progress import present_run_state
 
@@ -163,6 +169,49 @@ class MainWindow(QMainWindow):
         self.resume_task = QPushButton("Retomar")
         self.cancel_task = QPushButton("Cancelar")
 
+        self.personality_tone = QComboBox()
+        self.personality_tone.setObjectName("lyra_personality_tone")
+        for label, value in (
+            ("Natural", PersonalityTone.NATURAL),
+            ("Acolhedor", PersonalityTone.WARM),
+            ("Calmo", PersonalityTone.CALM),
+            ("Descontraído", PersonalityTone.PLAYFUL),
+        ):
+            self.personality_tone.addItem(label, value.value)
+
+        self.personality_verbosity = QComboBox()
+        self.personality_verbosity.setObjectName("lyra_personality_verbosity")
+        for label, value in (
+            ("Conciso", PersonalityVerbosity.CONCISE),
+            ("Equilibrado", PersonalityVerbosity.BALANCED),
+            ("Detalhado", PersonalityVerbosity.DETAILED),
+        ):
+            self.personality_verbosity.addItem(label, value.value)
+
+        self.personality_formality = QComboBox()
+        self.personality_formality.setObjectName("lyra_personality_formality")
+        for label, value in (
+            ("Casual", PersonalityFormality.CASUAL),
+            ("Equilibrado", PersonalityFormality.BALANCED),
+            ("Formal", PersonalityFormality.FORMAL),
+        ):
+            self.personality_formality.addItem(label, value.value)
+
+        self.personality_reset = QPushButton("Restaurar estilo")
+        self.personality_reset.setObjectName("lyra_personality_reset")
+        self.personality_reset.setToolTip(
+            "Estilo de resposta local; não altera ferramentas nem permissões."
+        )
+        personality_controls = QHBoxLayout()
+        personality_controls.addWidget(QLabel("Tom"))
+        personality_controls.addWidget(self.personality_tone)
+        personality_controls.addWidget(QLabel("Detalhe"))
+        personality_controls.addWidget(self.personality_verbosity)
+        personality_controls.addWidget(QLabel("Formalidade"))
+        personality_controls.addWidget(self.personality_formality)
+        personality_controls.addWidget(self.personality_reset)
+        self._sync_personality_controls()
+
         composer = QHBoxLayout()
         composer.addWidget(self.input, 1)
         composer.addWidget(self.send)
@@ -174,6 +223,7 @@ class MainWindow(QMainWindow):
         controls.addStretch(1)
 
         layout.addWidget(header)
+        layout.addLayout(personality_controls)
         layout.addWidget(self.workflow_status)
         layout.addWidget(self.chat, 1)
         layout.addLayout(composer)
@@ -186,6 +236,16 @@ class MainWindow(QMainWindow):
         self.pause_task.clicked.connect(self._pause_active_task)
         self.resume_task.clicked.connect(self._resume_active_task)
         self.cancel_task.clicked.connect(self._cancel_active_task)
+        self.personality_tone.currentIndexChanged.connect(
+            self._on_personality_controls_changed
+        )
+        self.personality_verbosity.currentIndexChanged.connect(
+            self._on_personality_controls_changed
+        )
+        self.personality_formality.currentIndexChanged.connect(
+            self._on_personality_controls_changed
+        )
+        self.personality_reset.clicked.connect(self._reset_personality_controls)
 
         self._update_task_controls(None)
         self._lyra("Pronta.")
@@ -201,8 +261,46 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.input.setEnabled(not busy)
         self.send.setEnabled(not busy)
+        self.personality_tone.setEnabled(not busy)
+        self.personality_verbosity.setEnabled(not busy)
+        self.personality_formality.setEnabled(not busy)
+        self.personality_reset.setEnabled(not busy)
         if not busy:
             self.input.setFocus()
+
+    def _sync_personality_controls(self) -> None:
+        snapshot = self._personality.snapshot()
+        for control, value in (
+            (self.personality_tone, snapshot.tone.value),
+            (self.personality_verbosity, snapshot.verbosity.value),
+            (self.personality_formality, snapshot.formality.value),
+        ):
+            index = control.findData(value)
+            if index < 0:
+                raise RuntimeError("personality control lacks a required finite value")
+            was_blocked = control.blockSignals(True)
+            try:
+                control.setCurrentIndex(index)
+            finally:
+                control.blockSignals(was_blocked)
+
+    def _on_personality_controls_changed(self, _index: int) -> None:
+        try:
+            tone = PersonalityTone(self.personality_tone.currentData())
+            verbosity = PersonalityVerbosity(self.personality_verbosity.currentData())
+            formality = PersonalityFormality(self.personality_formality.currentData())
+        except (TypeError, ValueError):
+            self._sync_personality_controls()
+            return
+        self._personality.update(
+            tone=tone,
+            verbosity=verbosity,
+            formality=formality,
+        )
+
+    def _reset_personality_controls(self) -> None:
+        self._personality.reset()
+        self._sync_personality_controls()
 
     def _update_task_controls(
         self,
