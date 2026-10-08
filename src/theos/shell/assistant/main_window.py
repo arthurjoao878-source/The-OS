@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -164,6 +165,17 @@ class MainWindow(QMainWindow):
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
         self.chat.setReadOnly(True)
+        self._last_find_query: str | None = None
+        self.transcript_find = QLineEdit()
+        self.transcript_find.setObjectName("lyra_transcript_find")
+        self.transcript_find.setPlaceholderText("Localizar no chat...")
+        self.transcript_find.setMaxLength(120)
+        self.transcript_find_next = QPushButton("Próximo")
+        self.transcript_find_next.setObjectName("lyra_transcript_find_next")
+        self.transcript_find_previous = QPushButton("Anterior")
+        self.transcript_find_previous.setObjectName("lyra_transcript_find_previous")
+        self.transcript_find_status = QLabel("Busca: pronta")
+        self.transcript_find_status.setObjectName("lyra_transcript_find_status")
         self.input = QLineEdit()
         self.input.setPlaceholderText("Diga algo...")
         self.send = QPushButton("Enviar")
@@ -220,6 +232,12 @@ class MainWindow(QMainWindow):
         personality_controls.addWidget(self.personality_reset)
         self._sync_personality_controls()
 
+        find_controls = QHBoxLayout()
+        find_controls.addWidget(self.transcript_find, 1)
+        find_controls.addWidget(self.transcript_find_previous)
+        find_controls.addWidget(self.transcript_find_next)
+        find_controls.addWidget(self.transcript_find_status)
+
         composer = QHBoxLayout()
         composer.addWidget(self.input, 1)
         composer.addWidget(self.send)
@@ -236,6 +254,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.workflow_status)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
+        layout.addLayout(find_controls)
         layout.addLayout(composer)
         layout.addLayout(controls)
 
@@ -247,6 +266,9 @@ class MainWindow(QMainWindow):
         self.resume_task.clicked.connect(self._resume_active_task)
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
+        self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
+        self.transcript_find_next.clicked.connect(self._find_next_in_transcript)
+        self.transcript_find_previous.clicked.connect(self._find_previous_in_transcript)
         self.personality_tone.currentIndexChanged.connect(
             self._on_personality_controls_changed
         )
@@ -267,6 +289,51 @@ class MainWindow(QMainWindow):
             present_context_status(self._context, self._perception)
         )
 
+    def _on_transcript_find_query_changed(self, _text: str) -> None:
+        self._last_find_query = None
+        self.transcript_find_status.setText("Busca: pronta")
+
+    def _find_next_in_transcript(self) -> None:
+        self._find_in_transcript(backward=False)
+
+    def _find_previous_in_transcript(self) -> None:
+        self._find_in_transcript(backward=True)
+
+    def _find_in_transcript(self, *, backward: bool) -> None:
+        if not self.transcript_find.isEnabled():
+            return
+        query = self.transcript_find.text().strip()
+        if not query:
+            self.transcript_find_status.setText("Busca: informe termo")
+            return
+        if len(query) > 120:
+            self.transcript_find_status.setText("Busca: termo acima do limite")
+            return
+        if len(self.chat.toPlainText()) > 65536:
+            self.transcript_find_status.setText("Busca: conversa acima do limite")
+            return
+        direction = (
+            QTextCursor.MoveOperation.End if backward else QTextCursor.MoveOperation.Start
+        )
+        if query != self._last_find_query:
+            self.chat.moveCursor(direction)
+        found = (
+            self.chat.find(query, QTextDocument.FindFlag.FindBackward)
+            if backward
+            else self.chat.find(query)
+        )
+        if not found:
+            self.chat.moveCursor(direction)
+            found = (
+                self.chat.find(query, QTextDocument.FindFlag.FindBackward)
+                if backward
+                else self.chat.find(query)
+            )
+        self._last_find_query = query
+        self.transcript_find_status.setText(
+            "Busca: resultado selecionado" if found else "Busca: nenhum resultado"
+        )
+
     def _you(self, text: str) -> None:
         self.chat.appendPlainText(f"Você\n{text}\n")
 
@@ -280,6 +347,9 @@ class MainWindow(QMainWindow):
         self.input.setEnabled(not busy)
         self.send.setEnabled(not busy)
         self.session_reset.setEnabled(not busy)
+        self.transcript_find.setEnabled(not busy)
+        self.transcript_find_next.setEnabled(not busy)
+        self.transcript_find_previous.setEnabled(not busy)
         self.personality_tone.setEnabled(not busy)
         self.personality_verbosity.setEnabled(not busy)
         self.personality_formality.setEnabled(not busy)
@@ -338,6 +408,8 @@ class MainWindow(QMainWindow):
         self._context.clear()
         self._perception.clear()
         self.chat.clear()
+        self.transcript_find.clear()
+        self._on_transcript_find_query_changed("")
         self.input.clear()
         self.workflow_status.setText("Tarefa: ociosa")
         self._lyra("Nova conversa iniciada.")

@@ -238,7 +238,9 @@ clear.
     user-initiated clear of process-local conversation and perception state.
 25. M118: Bounded LYRA Context Visibility Host v1, displaying only process-local
     counts for M116 provider history and M111 perception, without new authority.
-26. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+26. M119: Bounded LYRA Transcript Find Host v1, explicit literal navigation of
+    the visible conversation without provider calls or new authority.
+27. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -906,3 +908,24 @@ next eligible provider request, not an already in-flight provider request.
 M118 creates no new authority, tools, approval policy, local execution primitive,
 persistent storage, telemetry, periodic polling, background inference, or changes
 to Phoenix. Existing request-scoped gates still use current raw user intent.
+
+
+## M119 - Bounded LYRA Transcript Find Host v1
+
+M119 introduces an explicit, process-local Find bar in the desktop host for the
+currently visible chat transcript. The user can search literal text forward or
+backward with a bounded query (at most 120 characters) and wrapping navigation.
+Search is case-insensitive, read-only, and never invokes the AI provider or
+reads SQLite, previous sessions, tools, process observations, or raw evidence.
+
+The host declines searching a visible transcript larger than 65536 characters.
+Only neutral status strings (ready, selected, no result, above limit) are shown;
+no matched content, query text or sensitive evidence is copied to status labels.
+Find widgets are disabled while host work is active, and the handler independently
+rejects direct invocation while disabled. Confirmed M117 session reset clears
+the search query and status with the visible chat.
+
+M119 does not change M116 history projection, M118 context indicators, provider
+prompts, persistent memory, personality, tool visibility, local confirmations,
+execution semantics, or Phoenix authority. It adds no filesystem export, data
+retention, background inference, telemetry, or autonomous navigation.
