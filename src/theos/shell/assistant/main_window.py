@@ -324,7 +324,7 @@ class MainWindow(QMainWindow):
         if not text:
             return
 
-        history = self._context.snapshot()
+        history = self._context.provider_snapshot()
         self._context.add_user(text)
         self.input.clear()
         self._you(text)

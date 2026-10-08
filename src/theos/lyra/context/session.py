@@ -4,6 +4,10 @@ from collections import deque
 from dataclasses import dataclass
 from enum import StrEnum
 
+MAX_PROVIDER_HISTORY_TURNS = 12
+MAX_PROVIDER_HISTORY_TURN_CHARS = 1024
+MAX_PROVIDER_HISTORY_TOTAL_CHARS = 4096
+
 
 class ConversationRole(StrEnum):
     USER = "user"
@@ -47,6 +51,22 @@ class SessionContext:
 
     def snapshot(self) -> tuple[ConversationTurn, ...]:
         return tuple(self._turns)
+
+    def provider_snapshot(self) -> tuple[ConversationTurn, ...]:
+        """Keep only a bounded contiguous suffix for provider history."""
+        recent = tuple(self._turns)[-MAX_PROVIDER_HISTORY_TURNS:]
+        selected: list[ConversationTurn] = []
+        total = 0
+        for turn in reversed(recent):
+            size = len(turn.text)
+            if (
+                size > MAX_PROVIDER_HISTORY_TURN_CHARS
+                or total + size > MAX_PROVIDER_HISTORY_TOTAL_CHARS
+            ):
+                break
+            selected.append(turn)
+            total += size
+        return tuple(reversed(selected))
 
     def clear(self) -> None:
         self._turns.clear()

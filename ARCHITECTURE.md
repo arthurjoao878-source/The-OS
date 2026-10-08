@@ -232,7 +232,9 @@ clear.
     preferences at provider request entry without granting tool or policy authority.
 22. M115: Bounded LYRA Personality Host Controls v1, allowing finite process-local
     presentation settings in the desktop UI without changing authority.
-23. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+23. M116: Bounded LYRA Conversation History Exposure v1, applying finite limits to prior
+    conversation turns passed to the provider without altering the current user request.
+24. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -833,3 +835,28 @@ M115 adds no persistence, external voice calls, new memory behavior, new executi
 primitives, autonomous monitoring, free-form instructions, Phoenix grants or policy,
 or alterations to local request-scoped gates and confirmation. Existing UI and
 The Hands tool-loop flows remain in place.
+
+
+## M116 - Bounded LYRA Conversation History Exposure v1
+
+M116 adds a bounded, process-local provider-history projection over the existing
+`SessionContext` conversation history. The existing visible/session snapshot remains
+unchanged. The new `provider_snapshot()` emits only a contiguous suffix of complete
+`ConversationTurn` objects, ordered oldest to newest, with three independent caps:
+12 turns, 1024 characters per turn, and 4096 characters of turn text in total.
+
+The history projection scans newest first and stops at the first turn that cannot
+fit either character budget. It never truncates a turn, silently skips a middle
+turn to reintroduce older context, persists history, summarizes with a model, or
+changes the current request text. The desktop host uses this projection only when
+passing prior history into the normal provider tool-loop entry point.
+
+Historical conversation text remains untrusted contextual data, not current user
+intent, executable instruction, policy, grant, approval, or proof of higher-level
+goal completion. Request-scoped `open_application` visibility and local confirmation
+continue to use the raw current request and existing local gates.
+
+M116 does not introduce memory persistence, provider-interface changes, automatic
+conversation summaries, background inference, a supervisor, Phoenix authorization,
+new execution primitives or expanded tool visibility. Direct planner routes retain
+their existing behavior. A separate Windows dogfood is required before publication.
