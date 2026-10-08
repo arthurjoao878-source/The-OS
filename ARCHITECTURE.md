@@ -228,8 +228,10 @@ clear.
     summaries to the provider while preserving raw user intent for local authority gates.
 20. M113: Bounded LYRA Personality Context v1, keeping process-local presentation style
     in a fixed finite schema without free-form instructions or authority-bearing fields.
-21. Then continue user-facing LYRA capabilities, personality prompt exposure, voice,
-    and composed workflows as concrete needs justify them.
+21. M114: Bounded LYRA Personality Prompt Exposure v1, applying finite presentation
+    preferences at provider request entry without granting tool or policy authority.
+22. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+    concrete needs justify them.
 
 The project must remain usable throughout the migration.
 
@@ -792,3 +794,23 @@ M113 does not yet expose personality state to the AI provider, add UI controls f
 it, infer personality from conversation, persist preferences, alter memory, change tool
 visibility, authorize actions, bypass local confirmation, or create Phoenix policy/grants.
 The Hands execution and perception boundaries remain unchanged.
+
+
+## M114 - Bounded LYRA Personality Prompt Exposure v1
+
+M114 exposes the current M113 finite personality snapshot to the provider at the start of
+one tool-loop request. The presentation-only envelope contains exactly fixed LYRA identity,
+locale, and enum-backed tone, verbosity and formality values. Its JSON is deterministic,
+contains no arbitrary prompt/instruction fields, and is bounded to 512 characters.
+
+The assistant host passes its process-local personality context to the tool loop. The
+provider sees the most recent snapshot at request entry. The existing M112 perception
+prompt remains separately bounded and marked as untrusted observed data; both envelopes
+are composed before the provider call without changing the original request used by local
+tool-visibility and confirmation gates. No personality context means the old provider text
+is preserved byte for byte. Provider continuation after local actions remains structured.
+
+M114 applies only to the normal tool-loop AI entry point, not legacy direct planner
+replies or external AI-provider system instructions. It does not add UI controls, durable
+preferences, inference, tools, grants, approval overrides, Phoenix authority, background
+monitoring, or evidence of completion of the user's higher-level goal.

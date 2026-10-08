@@ -140,6 +140,7 @@ class MainWindow(QMainWindow):
             action_registry,
             tool_catalog,
             perception=self._perception,
+            personality=self._personality,
         )
         self._pool = QThreadPool.globalInstance()
         self._active_control: ExecutionControl | None = None

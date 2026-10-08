@@ -35,6 +35,10 @@ from theos.lyra.perception import (
     PerceptionContext,
     compose_perception_provider_text,
 )
+from theos.lyra.personality import (
+    PersonalityContext,
+    compose_personality_provider_text,
+)
 
 MAX_TOOL_LOOP_STEPS = 4
 ProgressCallback = Callable[[str], None]
@@ -173,6 +177,7 @@ class ToolLoopExecutor:
         *,
         max_steps: int = MAX_TOOL_LOOP_STEPS,
         perception: PerceptionContext | None = None,
+        personality: PersonalityContext | None = None,
     ) -> None:
         if max_steps < 1 or max_steps > MAX_TOOL_LOOP_STEPS:
             raise ValueError(f"max_steps must be between 1 and {MAX_TOOL_LOOP_STEPS}")
@@ -181,6 +186,7 @@ class ToolLoopExecutor:
         self._tools = tools
         self._max_steps = max_steps
         self._perception = perception
+        self._personality = personality
 
     def execute(
         self,
@@ -218,6 +224,10 @@ class ToolLoopExecutor:
             text,
             () if self._perception is None else self._perception.snapshot(),
         )
+        if self._personality is not None:
+            provider_text = compose_personality_provider_text(
+                provider_text, self._personality.snapshot()
+            )
 
         try:
             response = self._provider.respond(

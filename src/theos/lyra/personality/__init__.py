@@ -10,6 +10,11 @@ from theos.lyra.personality.context import (
     PersonalityTone,
     PersonalityVerbosity,
 )
+from theos.lyra.personality.prompt import (
+    MAX_PERSONALITY_PROMPT_CHARS,
+    compose_personality_provider_text,
+    render_personality_prompt,
+)
 
 __all__ = [
     "DEFAULT_PERSONALITY_FORMALITY",
@@ -17,9 +22,12 @@ __all__ = [
     "DEFAULT_PERSONALITY_NAME",
     "DEFAULT_PERSONALITY_TONE",
     "DEFAULT_PERSONALITY_VERBOSITY",
+    "MAX_PERSONALITY_PROMPT_CHARS",
     "PersonalityContext",
     "PersonalityFormality",
     "PersonalitySnapshot",
     "PersonalityTone",
     "PersonalityVerbosity",
+    "compose_personality_provider_text",
+    "render_personality_prompt",
 ]
