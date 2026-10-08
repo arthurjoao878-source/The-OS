@@ -168,6 +168,11 @@ class MainWindow(QMainWindow):
         self.pause_task = QPushButton("Pausar")
         self.resume_task = QPushButton("Retomar")
         self.cancel_task = QPushButton("Cancelar")
+        self.session_reset = QPushButton("Nova conversa")
+        self.session_reset.setObjectName("lyra_session_reset")
+        self.session_reset.setToolTip(
+            "Limpa somente o histórico temporário da sessão e percepção."
+        )
 
         self.personality_tone = QComboBox()
         self.personality_tone.setObjectName("lyra_personality_tone")
@@ -220,6 +225,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.pause_task)
         controls.addWidget(self.resume_task)
         controls.addWidget(self.cancel_task)
+        controls.addWidget(self.session_reset)
         controls.addStretch(1)
 
         layout.addWidget(header)
@@ -236,6 +242,7 @@ class MainWindow(QMainWindow):
         self.pause_task.clicked.connect(self._pause_active_task)
         self.resume_task.clicked.connect(self._resume_active_task)
         self.cancel_task.clicked.connect(self._cancel_active_task)
+        self.session_reset.clicked.connect(self._reset_session_context)
         self.personality_tone.currentIndexChanged.connect(
             self._on_personality_controls_changed
         )
@@ -261,6 +268,7 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.input.setEnabled(not busy)
         self.send.setEnabled(not busy)
+        self.session_reset.setEnabled(not busy)
         self.personality_tone.setEnabled(not busy)
         self.personality_verbosity.setEnabled(not busy)
         self.personality_formality.setEnabled(not busy)
@@ -301,6 +309,27 @@ class MainWindow(QMainWindow):
     def _reset_personality_controls(self) -> None:
         self._personality.reset()
         self._sync_personality_controls()
+
+    def _reset_session_context(self) -> None:
+        if not self.session_reset.isEnabled():
+            return
+        choice = QMessageBox.question(
+            self,
+            "LYRA — nova conversa",
+            "Iniciar uma nova conversa?\n\n"
+            "Isso limpa o chat e o contexto temporário da sessão e percepção. "
+            "Memórias salvas e preferências de estilo serão preservadas.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+        self._context.clear()
+        self._perception.clear()
+        self.chat.clear()
+        self.input.clear()
+        self.workflow_status.setText("Tarefa: ociosa")
+        self._lyra("Nova conversa iniciada.")
 
     def _update_task_controls(
         self,

@@ -234,7 +234,9 @@ clear.
     presentation settings in the desktop UI without changing authority.
 23. M116: Bounded LYRA Conversation History Exposure v1, applying finite limits to prior
     conversation turns passed to the provider without altering the current user request.
-24. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+24. M117: Explicit LYRA Session Reset Host Control v1, allowing a confirmed
+    user-initiated clear of process-local conversation and perception state.
+25. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -860,3 +862,26 @@ M116 does not introduce memory persistence, provider-interface changes, automati
 conversation summaries, background inference, a supervisor, Phoenix authorization,
 new execution primitives or expanded tool visibility. Direct planner routes retain
 their existing behavior. A separate Windows dogfood is required before publication.
+
+
+## M117 - Explicit LYRA Session Reset Host Control v1
+
+M117 adds one user-initiated "Nova conversa" action in the desktop host. The control
+requests explicit confirmation, with No as the default, before clearing only the
+current process-local visible chat transcript, draft input, M116 SessionContext and
+M111 PerceptionContext observations. The UI returns to an idle workflow label and
+shows one non-persisted acknowledgement after the clear. It does not infer a reset
+from a model reply or an old conversation turn.
+
+The reset button is disabled while the host is busy, and its handler independently
+rejects programmatic attempts while disabled. The existing context and perception
+objects stay attached to the host/tool loop; their process-local contents are cleared
+in place. Previous context cannot reappear in the next provider-history projection or
+perception prompt. A rejected confirmation changes nothing.
+
+Personality style and its provider prompt remain unchanged. SQLite saved memory and
+any other persistent storage are not deleted, and this feature is not a secure data
+erasure facility. The reset neither cancels nor authorizes a task; it is unavailable
+during active work. There is no Phoenix policy/grant, persistence migration, new
+execution capability, background inference, tool-visibility expansion, or external AI
+request in the reset operation.
