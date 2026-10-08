@@ -236,7 +236,9 @@ clear.
     conversation turns passed to the provider without altering the current user request.
 24. M117: Explicit LYRA Session Reset Host Control v1, allowing a confirmed
     user-initiated clear of process-local conversation and perception state.
-25. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+25. M118: Bounded LYRA Context Visibility Host v1, displaying only process-local
+    counts for M116 provider history and M111 perception, without new authority.
+26. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -885,3 +887,22 @@ erasure facility. The reset neither cancels nor authorizes a task; it is unavail
 during active work. There is no Phoenix policy/grant, persistence migration, new
 execution capability, background inference, tool-visibility expansion, or external AI
 request in the reset operation.
+
+
+## M118 - Bounded LYRA Context Visibility Host v1
+
+M118 adds a passive host label showing bounded process-local metadata for the next
+provider request: the count and total characters of the existing M116 contiguous
+provider-history suffix, and the count of existing M111 perception observations.
+It uses the current M116 projection and M111 snapshot directly. The label contains
+no raw conversation text, action arguments, evidence mappings, provider replies,
+or instructions, and makes no assertion that a higher-level task was completed.
+
+The label updates after new session turns, normal task completion (including
+perception captured by the tool loop), and a confirmed M117 session reset. It
+never changes the snapshots it observes. The displayed history describes the
+next eligible provider request, not an already in-flight provider request.
+
+M118 creates no new authority, tools, approval policy, local execution primitive,
+persistent storage, telemetry, periodic polling, background inference, or changes
+to Phoenix. Existing request-scoped gates still use current raw user intent.

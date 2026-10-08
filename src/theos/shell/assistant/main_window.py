@@ -38,6 +38,7 @@ from theos.lyra.personality import (
     PersonalityVerbosity,
 )
 from theos.lyra.planning import LyraPlanner, PlanKind
+from theos.shell.assistant.context_status import present_context_status
 from theos.shell.assistant.workflow_progress import present_run_state
 
 
@@ -159,6 +160,8 @@ class MainWindow(QMainWindow):
 
         header = QLabel("LYRA  ● ON")
         self.workflow_status = QLabel("Tarefa: ociosa")
+        self.context_status = QLabel()
+        self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
         self.chat.setReadOnly(True)
         self.input = QLineEdit()
@@ -231,6 +234,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(header)
         layout.addLayout(personality_controls)
         layout.addWidget(self.workflow_status)
+        layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
         layout.addLayout(composer)
         layout.addLayout(controls)
@@ -255,7 +259,13 @@ class MainWindow(QMainWindow):
         self.personality_reset.clicked.connect(self._reset_personality_controls)
 
         self._update_task_controls(None)
+        self._refresh_context_status()
         self._lyra("Pronta.")
+
+    def _refresh_context_status(self) -> None:
+        self.context_status.setText(
+            present_context_status(self._context, self._perception)
+        )
 
     def _you(self, text: str) -> None:
         self.chat.appendPlainText(f"Você\n{text}\n")
@@ -264,6 +274,7 @@ class MainWindow(QMainWindow):
         self.chat.appendPlainText(f"LYRA\n{text}\n")
         if remember_in_session:
             self._context.add_assistant(text)
+            self._refresh_context_status()
 
     def _set_busy(self, busy: bool) -> None:
         self.input.setEnabled(not busy)
@@ -330,6 +341,7 @@ class MainWindow(QMainWindow):
         self.input.clear()
         self.workflow_status.setText("Tarefa: ociosa")
         self._lyra("Nova conversa iniciada.")
+        self._refresh_context_status()
 
     def _update_task_controls(
         self,
@@ -355,6 +367,7 @@ class MainWindow(QMainWindow):
 
         history = self._context.provider_snapshot()
         self._context.add_user(text)
+        self._refresh_context_status()
         self.input.clear()
         self._you(text)
 
@@ -447,6 +460,7 @@ class MainWindow(QMainWindow):
         self._active_control = None
         self._update_task_controls(None)
         self._set_busy(False)
+        self._refresh_context_status()
 
     def _handle_direct_action(self, request: ActionRequest) -> None:
         risk = self._actions.risk_for(request)
