@@ -254,7 +254,9 @@ clear.
     occurrence counts displayed only after an explicit transcript find action.
 33. M126: Bounded LYRA Transcript Find Match Position Host v1, showing
     the selected result rank within the already bounded literal find operation.
-34. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+34. M127: Explicit LYRA Transcript Case-Sensitive Find Host v1, finite
+    user-selected literal matching mode without any new authority.
+35. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1097,3 +1099,28 @@ This change affects process-local presentation only: no new provider requests,
 tools, authority, memory, persistence, filesystem, clipboard, microphone,
 background inference or bypass of confirmations. Full pytest/Ruff and Windows
 real Qt dogfood are mandatory before publishing the local commit.
+
+
+## M127 - Explicit LYRA Transcript Case-Sensitive Find Host v1
+
+M127 adds one explicit host-only checkbox below transcript search to toggle
+case-sensitive literal matching. It starts unchecked, preserving the prior
+case-insensitive M119/M125/M126 behavior. When checked, Next and Previous use
+QTextDocument.FindCaseSensitively combined with optional FindBackward; the bounded
+M125 count and M126 selected rank use exactly the same case-sensitivity flags.
+All searches stay literal (not regex). Mode changes clear count/rank and search
+status without starting a scan, changing the text query or visible selection,
+or calling the provider. The next explicit Next/Previous request performs the
+search using the chosen mode.
+
+The 120-character query ceiling, 65536-character transcript ceiling and
+257-match scan bound remain unchanged. Busy tasks disable this checkbox alongside
+search, and the existing direct-handler guard still rejects search while busy.
+A rejected new-conversation reset preserves the mode and results; an accepted
+reset restores the insensitive default and clears search state. Different host
+windows have independent settings. The change does not alter transcript content,
+follow/navigation, draft, provider history, memory, personality, tool catalog,
+authority gates, execution control, persistence or filesystem state. It performs
+no background scanning, AI provider requests, microphone access, clipboard
+access or approval bypass. Full pytest/Ruff and separate real Windows Qt
+dogfood are required before remote publication.

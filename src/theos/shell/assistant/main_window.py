@@ -197,6 +197,13 @@ class MainWindow(QMainWindow):
         self.transcript_find.setObjectName("lyra_transcript_find")
         self.transcript_find.setPlaceholderText("Localizar no chat...")
         self.transcript_find.setMaxLength(120)
+        self.transcript_find_case_sensitive = QCheckBox("Diferenciar maiúsculas")
+        self.transcript_find_case_sensitive.setObjectName(
+            "lyra_transcript_find_case_sensitive"
+        )
+        self.transcript_find_case_sensitive.setToolTip(
+            "Busca literal sensível a maiúsculas; padrão desativado."
+        )
         self.transcript_find_next = QPushButton("Próximo")
         self.transcript_find_next.setObjectName("lyra_transcript_find_next")
         self.transcript_find_previous = QPushButton("Anterior")
@@ -319,6 +326,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.chat, 1)
         layout.addLayout(chat_presentation_controls)
         layout.addLayout(find_controls)
+        layout.addWidget(self.transcript_find_case_sensitive)
         layout.addLayout(composer)
         layout.addLayout(controls)
 
@@ -339,6 +347,9 @@ class MainWindow(QMainWindow):
         self.chat_jump_end.clicked.connect(self._jump_to_chat_end)
         self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
+        self.transcript_find_case_sensitive.toggled.connect(
+            self._on_transcript_find_mode_changed
+        )
         self.transcript_find_next.clicked.connect(self._find_next_in_transcript)
         self.transcript_find_previous.clicked.connect(self._find_previous_in_transcript)
         self.personality_tone.currentIndexChanged.connect(
@@ -381,6 +392,9 @@ class MainWindow(QMainWindow):
         self._last_find_query = None
         self.transcript_find_status.setText("Busca: pronta")
 
+    def _on_transcript_find_mode_changed(self, _checked: bool) -> None:
+        self._on_transcript_find_query_changed("")
+
     def _find_next_in_transcript(self) -> None:
         self._find_in_transcript(backward=False)
 
@@ -411,18 +425,15 @@ class MainWindow(QMainWindow):
         )
         if query != self._last_find_query:
             self.chat.moveCursor(direction)
-        found = (
-            self.chat.find(query, QTextDocument.FindFlag.FindBackward)
-            if backward
-            else self.chat.find(query)
-        )
+        flags = QTextDocument.FindFlag(0)
+        if self.transcript_find_case_sensitive.isChecked():
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        if backward:
+            flags |= QTextDocument.FindFlag.FindBackward
+        found = self.chat.find(query, flags)
         if not found:
             self.chat.moveCursor(direction)
-            found = (
-                self.chat.find(query, QTextDocument.FindFlag.FindBackward)
-                if backward
-                else self.chat.find(query)
-            )
+            found = self.chat.find(query, flags)
         self._last_find_query = query
         self._update_transcript_match_count(
             query,
@@ -440,8 +451,11 @@ class MainWindow(QMainWindow):
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         matches = 0
         rank: int | None = None
+        flags = QTextDocument.FindFlag(0)
+        if self.transcript_find_case_sensitive.isChecked():
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
         while matches <= 256:
-            cursor = document.find(query, cursor)
+            cursor = document.find(query, cursor, flags)
             if cursor.isNull():
                 self.transcript_match_count.setText(f"Ocorrências: {matches}")
                 if rank is None:
@@ -541,6 +555,7 @@ class MainWindow(QMainWindow):
         self.send.setEnabled(not busy)
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)
+        self.transcript_find_case_sensitive.setEnabled(not busy)
         self.transcript_find_next.setEnabled(not busy)
         self.transcript_find_previous.setEnabled(not busy)
         self.draft_previous.setEnabled(not busy)
@@ -606,6 +621,7 @@ class MainWindow(QMainWindow):
         self.chat_follow.setChecked(True)
         self.chat_text_size.setCurrentIndex(0)
         self._clear_draft_recall_navigation()
+        self.transcript_find_case_sensitive.setChecked(False)
         self.transcript_find.clear()
         self._on_transcript_find_query_changed("")
         self.input.clear()
