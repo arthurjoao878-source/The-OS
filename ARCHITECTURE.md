@@ -262,7 +262,9 @@ clear.
     bounded Ctrl+F/F3/Shift+F3 search navigation without new authority.
 37. M130: Explicit LYRA Transcript Clear Find Host v1, clearing only the
     search query and labels on user request without new authority.
-38. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+38. M131: LYRA Escape Search Focus Shortcut Host v1, explicit Escape only
+    while the query has focus to restore the composer without new authority.
+39. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1205,3 +1207,25 @@ authority, background inference or approval bypass. Existing 120-character
 query and 65536-character visible transcript ceilings, 256+ result bound,
 provider history caps, and Phoenix authority are unchanged. Full pytest,
 Ruff and separate real Windows Qt dogfood must pass before publication.
+
+
+## M131 - LYRA Escape Search Focus Shortcut Host v1
+
+M131 adds a widget-scoped Escape shortcut to the existing LYRA transcript
+find field. The QShortcut is parented to the find QLineEdit and explicitly
+uses WidgetShortcut scope, so Escape only redirects focus while that exact
+field has focus. The direct handler checks both the find and composer input
+are enabled and that the find field has focus; busy tasks disable the shortcut
+and both inputs. Escape moves focus to the unsent-message composer only. It
+does not remove or modify the query, labels, selection, scroll position,
+follow state, case sensitivity, whole-word mode, search bounds or keyboard
+find shortcuts. The existing explicit M130 clear button remains the sole
+find-clear command and still resets the query and labels.
+
+The shortcut is process-local, per-window, and not global or persisted.
+Neither ordinary Escape in the composer nor Escape inside a modal dialog
+initiates a find or alters conversation state. Denied and accepted session
+reset continue their previous behaviors; the shortcut survives reset. No
+AI provider calls, tools, memory or personality effects, clipboard access,
+filesystem or network side effects, actions or approval bypass are added.
+Full pytest/Ruff and real Windows Qt dogfood remain required before push.

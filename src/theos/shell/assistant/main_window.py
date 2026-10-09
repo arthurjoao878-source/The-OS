@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QFont, QKeySequence, QShortcut, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -230,6 +230,15 @@ class MainWindow(QMainWindow):
         self.transcript_find_clear.setToolTip(
             "Limpa somente a consulta e os indicadores, sem alterar os modos."
         )
+        self.transcript_find_escape_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_Escape), self.transcript_find
+        )
+        self.transcript_find_escape_shortcut.setObjectName(
+            "lyra_transcript_find_escape_shortcut"
+        )
+        self.transcript_find_escape_shortcut.setContext(
+            Qt.ShortcutContext.WidgetShortcut
+        )
         self.transcript_find_next = QPushButton("Próximo")
         self.transcript_find_next.setObjectName("lyra_transcript_find_next")
         self.transcript_find_previous = QPushButton("Anterior")
@@ -376,6 +385,9 @@ class MainWindow(QMainWindow):
         self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
         self.transcript_find_clear.clicked.connect(self._clear_transcript_find)
+        self.transcript_find_escape_shortcut.activated.connect(
+            self._leave_transcript_find
+        )
         self.transcript_find_case_sensitive.toggled.connect(
             self._on_transcript_find_mode_changed
         )
@@ -446,6 +458,15 @@ class MainWindow(QMainWindow):
             self.transcript_find.clear()
         else:
             self._on_transcript_find_query_changed("")
+
+    def _leave_transcript_find(self) -> None:
+        if (
+            not self.transcript_find.isEnabled()
+            or not self.input.isEnabled()
+            or not self.transcript_find.hasFocus()
+        ):
+            return
+        self.input.setFocus()
 
     def _focus_transcript_find(self) -> None:
         if not self.transcript_find.isEnabled():
@@ -617,6 +638,7 @@ class MainWindow(QMainWindow):
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)
         self.transcript_find_clear.setEnabled(not busy)
+        self.transcript_find_escape_shortcut.setEnabled(not busy)
         self.transcript_find_case_sensitive.setEnabled(not busy)
         self.transcript_find_whole_word.setEnabled(not busy)
         self.transcript_find_focus_shortcut.setEnabled(not busy)
