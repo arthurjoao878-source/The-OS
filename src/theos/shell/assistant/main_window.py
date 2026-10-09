@@ -239,6 +239,42 @@ class MainWindow(QMainWindow):
         self.transcript_find_escape_shortcut.setContext(
             Qt.ShortcutContext.WidgetShortcut
         )
+        self.transcript_find_enter_next_shortcut = QShortcut(
+            QKeySequence("Return"), self.transcript_find
+        )
+        self.transcript_find_enter_next_shortcut.setObjectName(
+            "lyra_transcript_find_enter_next_shortcut"
+        )
+        self.transcript_find_enter_next_shortcut.setContext(
+            Qt.ShortcutContext.WidgetShortcut
+        )
+        self.transcript_find_enter_previous_shortcut = QShortcut(
+            QKeySequence("Shift+Return"), self.transcript_find
+        )
+        self.transcript_find_enter_previous_shortcut.setObjectName(
+            "lyra_transcript_find_enter_previous_shortcut"
+        )
+        self.transcript_find_enter_previous_shortcut.setContext(
+            Qt.ShortcutContext.WidgetShortcut
+        )
+        self.transcript_find_keypad_enter_next_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_Enter), self.transcript_find
+        )
+        self.transcript_find_keypad_enter_next_shortcut.setObjectName(
+            "lyra_transcript_find_keypad_enter_next_shortcut"
+        )
+        self.transcript_find_keypad_enter_next_shortcut.setContext(
+            Qt.ShortcutContext.WidgetShortcut
+        )
+        self.transcript_find_keypad_enter_previous_shortcut = QShortcut(
+            QKeySequence("Shift+Enter"), self.transcript_find
+        )
+        self.transcript_find_keypad_enter_previous_shortcut.setObjectName(
+            "lyra_transcript_find_keypad_enter_previous_shortcut"
+        )
+        self.transcript_find_keypad_enter_previous_shortcut.setContext(
+            Qt.ShortcutContext.WidgetShortcut
+        )
         self.transcript_find_next = QPushButton("Próximo")
         self.transcript_find_next.setObjectName("lyra_transcript_find_next")
         self.transcript_find_previous = QPushButton("Anterior")
@@ -387,6 +423,18 @@ class MainWindow(QMainWindow):
         self.transcript_find_clear.clicked.connect(self._clear_transcript_find)
         self.transcript_find_escape_shortcut.activated.connect(
             self._leave_transcript_find
+        )
+        self.transcript_find_enter_next_shortcut.activated.connect(
+            self._find_next_in_transcript
+        )
+        self.transcript_find_enter_previous_shortcut.activated.connect(
+            self._find_previous_in_transcript
+        )
+        self.transcript_find_keypad_enter_next_shortcut.activated.connect(
+            self._find_next_in_transcript
+        )
+        self.transcript_find_keypad_enter_previous_shortcut.activated.connect(
+            self._find_previous_in_transcript
         )
         self.transcript_find_case_sensitive.toggled.connect(
             self._on_transcript_find_mode_changed
@@ -639,6 +687,10 @@ class MainWindow(QMainWindow):
         self.transcript_find.setEnabled(not busy)
         self.transcript_find_clear.setEnabled(not busy)
         self.transcript_find_escape_shortcut.setEnabled(not busy)
+        self.transcript_find_enter_next_shortcut.setEnabled(not busy)
+        self.transcript_find_enter_previous_shortcut.setEnabled(not busy)
+        self.transcript_find_keypad_enter_next_shortcut.setEnabled(not busy)
+        self.transcript_find_keypad_enter_previous_shortcut.setEnabled(not busy)
         self.transcript_find_case_sensitive.setEnabled(not busy)
         self.transcript_find_whole_word.setEnabled(not busy)
         self.transcript_find_focus_shortcut.setEnabled(not busy)

@@ -264,7 +264,9 @@ clear.
     search query and labels on user request without new authority.
 38. M131: LYRA Escape Search Focus Shortcut Host v1, explicit Escape only
     while the query has focus to restore the composer without new authority.
-39. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+39. M132: LYRA Enter Search Navigation Shortcuts Host v1, widget-scoped
+    Return/Shift+Return navigation through existing find handlers.
+40. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1229,3 +1231,39 @@ reset continue their previous behaviors; the shortcut survives reset. No
 AI provider calls, tools, memory or personality effects, clipboard access,
 filesystem or network side effects, actions or approval bypass are added.
 Full pytest/Ruff and real Windows Qt dogfood remain required before push.
+
+
+## M132 - LYRA Enter Search Navigation Shortcuts Host v1
+
+M132 adds two explicit widget-scoped QShortcuts to the existing transcript
+find QLineEdit: Return navigates to the next match and Shift+Return navigates
+to the previous match. Both are parented to the query input, use WidgetShortcut
+context and delegate directly to the existing M125-M129 Next and Previous
+handlers, so the same literal matching, case/whole-word modes, count and
+selection rank, wrapping and 120/65536-character bounds remain authoritative.
+There is no second search implementation, automatic search-on-keystroke,
+background scanning or message submission. Pressing Return in the composer
+has no new handler from this feature; its established behavior is unchanged.
+
+When the host is busy both shortcuts and the query input are disabled, while
+the shared find handlers retain their direct busy guards. These objects are
+window-local, process-local and not persisted. M131 Escape returns focus to
+the composer without clearing the query; M130 Clear Find remains explicit.
+Denied and accepted new-conversation reset preserve the shortcut objects,
+while a confirmed reset clears query and indicators as before. No new provider
+request, tool, memory/personality mutation, permission, clipboard, filesystem,
+network or Phoenix authority is introduced. Full pytest/Ruff plus independent
+real Windows Qt offscreen dogfood are required before remote publication.
+
+
+### M132 numeric Enter recovery
+
+M132 real Windows Qt dogfood TOS475 exposed the distinction between Qt Key_Return
+and Key_Enter: a numeric-keypad Enter event was not mapped by the original
+Return-only shortcuts. The local M132 commit now has two additional shortcuts,
+Key_Enter and Shift+Enter, parented to the query QLineEdit and restricted to
+WidgetShortcut context. They reuse the existing next/previous handlers and
+are disabled during busy tasks. This is a strictly local keyboard behavior
+recovery: no provider call, message submission, new task execution,
+persistent-memory access, authority or approval change is added. M132 remains
+unpublished pending full pytest/Ruff and independent Windows real Qt dogfood.
