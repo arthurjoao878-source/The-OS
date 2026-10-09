@@ -240,7 +240,9 @@ clear.
     counts for M116 provider history and M111 perception, without new authority.
 26. M119: Bounded LYRA Transcript Find Host v1, explicit literal navigation of
     the visible conversation without provider calls or new authority.
-27. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+27. M120: Bounded LYRA Draft Recall Host v1, reusing recent local user
+    submissions in the unsent composer without provider calls or new authority.
+28. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -929,3 +931,26 @@ M119 does not change M116 history projection, M118 context indicators, provider
 prompts, persistent memory, personality, tool visibility, local confirmations,
 execution semantics, or Phoenix authority. It adds no filesystem export, data
 retention, background inference, telemetry, or autonomous navigation.
+
+
+## M120 - Bounded LYRA Draft Recall Host v1
+
+M120 adds two explicit desktop composer controls to navigate previously submitted
+user turns in the current process-local session. Navigation is read-only over the
+existing M116 SessionContext snapshot, and only injects a chosen, complete string
+into the unsent QLineEdit draft. Nothing is sent to the provider or routed to
+The Hands until the user explicitly submits the composer using the existing path.
+
+The projection retains at most eight most recent user submissions, at most 1024
+characters each. Oversized or multiline turns are omitted rather than truncated.
+Assistant replies, perception, persistent memory and earlier process sessions are
+not sources. The first backward navigation saves the user's unsent draft, and
+forward navigation past the newest submission restores it. Editing the composer
+manually, submitting, or a confirmed M117 reset discards navigation state.
+Each host instance owns its own temporary navigation state.
+
+Navigation is disabled during busy host work, and handlers reject direct attempts
+while disabled. The original request-scoped tool visibility and confirmation
+gates still apply if the user explicitly resubmits a recalled request. This
+feature neither adds new tools, voice, persistence, background inference nor
+Phoenix grants. It does not change model prompts or the authority boundary.

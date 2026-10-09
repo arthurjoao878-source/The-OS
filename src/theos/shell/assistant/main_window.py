@@ -40,6 +40,7 @@ from theos.lyra.personality import (
 )
 from theos.lyra.planning import LyraPlanner, PlanKind
 from theos.shell.assistant.context_status import present_context_status
+from theos.shell.assistant.draft_recall import recallable_user_drafts
 from theos.shell.assistant.workflow_progress import present_run_state
 
 
@@ -178,6 +179,13 @@ class MainWindow(QMainWindow):
         self.transcript_find_status.setObjectName("lyra_transcript_find_status")
         self.input = QLineEdit()
         self.input.setPlaceholderText("Diga algo...")
+        self._draft_recall_index: int | None = None
+        self._draft_recall_original = ""
+        self._draft_recall_items: tuple[str, ...] = ()
+        self.draft_previous = QPushButton("Pedido anterior")
+        self.draft_previous.setObjectName("lyra_draft_previous")
+        self.draft_next = QPushButton("Pedido seguinte")
+        self.draft_next.setObjectName("lyra_draft_next")
         self.send = QPushButton("Enviar")
 
         self.pause_task = QPushButton("Pausar")
@@ -239,6 +247,8 @@ class MainWindow(QMainWindow):
         find_controls.addWidget(self.transcript_find_status)
 
         composer = QHBoxLayout()
+        composer.addWidget(self.draft_previous)
+        composer.addWidget(self.draft_next)
         composer.addWidget(self.input, 1)
         composer.addWidget(self.send)
 
@@ -262,6 +272,9 @@ class MainWindow(QMainWindow):
 
         self.send.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)
+        self.input.textEdited.connect(self._clear_draft_recall_navigation)
+        self.draft_previous.clicked.connect(self._recall_previous_draft)
+        self.draft_next.clicked.connect(self._recall_next_draft)
         self.pause_task.clicked.connect(self._pause_active_task)
         self.resume_task.clicked.connect(self._resume_active_task)
         self.cancel_task.clicked.connect(self._cancel_active_task)
@@ -334,6 +347,47 @@ class MainWindow(QMainWindow):
             "Busca: resultado selecionado" if found else "Busca: nenhum resultado"
         )
 
+    def _clear_draft_recall_navigation(self, _text: str = "") -> None:
+        self._draft_recall_index = None
+        self._draft_recall_original = ""
+        self._draft_recall_items = ()
+
+    def _recall_previous_draft(self) -> None:
+        self._browse_draft_history(older=True)
+
+    def _recall_next_draft(self) -> None:
+        self._browse_draft_history(older=False)
+
+    def _browse_draft_history(self, *, older: bool) -> None:
+        if not self.input.isEnabled():
+            return
+        current = self._draft_recall_index
+        if older:
+            if current is None:
+                items = recallable_user_drafts(self._context)
+                if not items:
+                    return
+                self._draft_recall_items = items
+                self._draft_recall_original = self.input.text()
+                current = len(items) - 1
+            elif current > 0:
+                current -= 1
+            else:
+                return
+            self._draft_recall_index = current
+            self.input.setText(self._draft_recall_items[current])
+            return
+        if current is None:
+            return
+        if current < len(self._draft_recall_items) - 1:
+            current += 1
+            self._draft_recall_index = current
+            self.input.setText(self._draft_recall_items[current])
+            return
+        original = self._draft_recall_original
+        self._clear_draft_recall_navigation()
+        self.input.setText(original)
+
     def _you(self, text: str) -> None:
         self.chat.appendPlainText(f"Você\n{text}\n")
 
@@ -350,6 +404,8 @@ class MainWindow(QMainWindow):
         self.transcript_find.setEnabled(not busy)
         self.transcript_find_next.setEnabled(not busy)
         self.transcript_find_previous.setEnabled(not busy)
+        self.draft_previous.setEnabled(not busy)
+        self.draft_next.setEnabled(not busy)
         self.personality_tone.setEnabled(not busy)
         self.personality_verbosity.setEnabled(not busy)
         self.personality_formality.setEnabled(not busy)
@@ -408,6 +464,7 @@ class MainWindow(QMainWindow):
         self._context.clear()
         self._perception.clear()
         self.chat.clear()
+        self._clear_draft_recall_navigation()
         self.transcript_find.clear()
         self._on_transcript_find_query_changed("")
         self.input.clear()
@@ -439,6 +496,7 @@ class MainWindow(QMainWindow):
 
         history = self._context.provider_snapshot()
         self._context.add_user(text)
+        self._clear_draft_recall_navigation()
         self._refresh_context_status()
         self.input.clear()
         self._you(text)
