@@ -179,6 +179,15 @@ class MainWindow(QMainWindow):
             "Desmarque para manter a posicao de leitura durante novas respostas."
         )
         self.chat_follow.setChecked(True)
+        self.chat_follow_toggle_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+A"), self
+        )
+        self.chat_follow_toggle_shortcut.setObjectName(
+            "lyra_chat_follow_toggle_shortcut"
+        )
+        self.chat_follow_toggle_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.chat_text_size = QComboBox()
         self.chat_text_size.setObjectName("lyra_chat_text_size")
         self.chat_text_size.setToolTip(
@@ -426,6 +435,9 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.chat_follow.toggled.connect(self._on_chat_follow_toggled)
+        self.chat_follow_toggle_shortcut.activated.connect(
+            self._toggle_chat_follow_shortcut
+        )
         self.chat_jump_start.clicked.connect(self._jump_to_chat_start)
         self.chat_jump_end.clicked.connect(self._jump_to_chat_end)
         self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
@@ -675,6 +687,14 @@ class MainWindow(QMainWindow):
         scrollbar = self.chat.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
+    def _toggle_chat_follow_shortcut(self) -> None:
+        if (
+            not self.chat_follow.isEnabled()
+            or not self.chat_follow_toggle_shortcut.isEnabled()
+        ):
+            return
+        self.chat_follow.setChecked(not self.chat_follow.isChecked())
+
     def _on_chat_follow_toggled(self, enabled: bool) -> None:
         if enabled:
             scrollbar = self.chat.verticalScrollBar()
@@ -704,6 +724,7 @@ class MainWindow(QMainWindow):
         self.input.setEnabled(not busy)
         self.composer_focus_shortcut.setEnabled(not busy)
         self.transcript_focus_shortcut.setEnabled(not busy)
+        self.chat_follow_toggle_shortcut.setEnabled(not busy)
         self.send.setEnabled(not busy)
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)

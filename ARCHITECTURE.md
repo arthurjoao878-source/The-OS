@@ -270,7 +270,9 @@ clear.
     to focus the unsent-message composer without sending or new authority.
 41. M134: Explicit LYRA Transcript Focus Shortcut Host v1, window-scoped
     Ctrl+Shift+M to focus the read-only transcript without new authority.
-42. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+42. M135: Explicit LYRA Transcript Follow Toggle Shortcut Host v1, window-scoped
+    Ctrl+Shift+A to toggle the existing follow-new-messages control.
+43. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1302,3 +1304,20 @@ shortcut, Escape and Enter find navigation remain separate. No new tools,
 provider calls, approvals, filesystem/network/clipboard permissions or
 Phoenix authority are introduced. Full pytest/Ruff and independent real
 Windows Qt key-event dogfood are required before publication.
+
+
+## M135 - LYRA Transcript Follow Toggle Shortcut Host v1
+
+M135 adds a window-scoped Ctrl+Shift+A shortcut that explicitly toggles
+the existing process-local Acompanhar novas mensagens checkbox through its
+normal checked state and previously implemented Qt signal handler. The
+default remains on. Toggling off preserves the reader position on new
+messages; toggling on retains the existing scroll-to-end behavior. The
+shortcut does not change text, search query/count/rank, draft, context,
+perception, personality, memory or any Phoenix authority. Busy task state
+disables the shortcut and directly calling its handler fails closed. The
+checkbox itself remains independently usable under its existing policy.
+Window-local isolation, old keyboard shortcuts, user confirmation gates,
+and both reset outcomes must remain unchanged. No provider calls, actions,
+filesystem/network access or new capability is added. Independent real
+Windows Qt key-event dogfood, full pytest and Ruff are required before push.
