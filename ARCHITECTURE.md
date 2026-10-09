@@ -256,7 +256,9 @@ clear.
     the selected result rank within the already bounded literal find operation.
 34. M127: Explicit LYRA Transcript Case-Sensitive Find Host v1, finite
     user-selected literal matching mode without any new authority.
-35. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+35. M128: Explicit LYRA Transcript Whole-Word Find Host v1, opt-in
+    complete-word matching without additional authority.
+36. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1124,3 +1126,31 @@ authority gates, execution control, persistence or filesystem state. It performs
 no background scanning, AI provider requests, microphone access, clipboard
 access or approval bypass. Full pytest/Ruff and separate real Windows Qt
 dogfood are required before remote publication.
+
+
+## M128 - Explicit LYRA Transcript Whole-Word Find Host v1
+
+M128 adds one opt-in whole-word checkbox to the existing literal transcript
+search. It is unchecked by default, retaining the M119 substring semantics.
+When enabled, Next/Previous use Qt QTextDocument.FindWholeWords, combined with
+M127 FindCaseSensitively when separately checked and FindBackward for Previous.
+The bounded M125 occurrence count and M126 selected rank use exactly the same
+matching flags. This is the Qt definition of whole-word boundaries, not a
+regular expression or arbitrary linguistic tokenization.
+
+Either search mode checkbox invalidates count, rank and status without scanning,
+changing the query, or replacing the active text selection. A scan runs only
+after explicit Next/Previous. The query remains limited to 120 characters,
+the transcript to 65536 characters, and the scan to at most 257 matches;
+counts and ranks past 256 remain imprecise by design. Busy work disables
+both search options and the existing direct-handler guard remains in force.
+Denied new-conversation reset preserves these settings; a confirmed reset
+returns both to unchecked. Settings are per-window, process-local and not
+persisted.
+
+The feature does not affect transcript contents, scroll follow, conversation
+context, perception, personality, unsent draft, memory, tools, approval gates,
+execution, provider requests or Phoenix authority. It adds no clipboard,
+filesystem effects, network activity, microphone use or background inference.
+Full pytest/Ruff and separate real Windows Qt dogfood are required before any
+remote publication of the local commit.

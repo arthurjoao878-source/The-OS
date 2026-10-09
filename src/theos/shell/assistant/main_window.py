@@ -204,6 +204,13 @@ class MainWindow(QMainWindow):
         self.transcript_find_case_sensitive.setToolTip(
             "Busca literal sensível a maiúsculas; padrão desativado."
         )
+        self.transcript_find_whole_word = QCheckBox("Palavra inteira")
+        self.transcript_find_whole_word.setObjectName(
+            "lyra_transcript_find_whole_word"
+        )
+        self.transcript_find_whole_word.setToolTip(
+            "Busca palavras completas; padrao desativado."
+        )
         self.transcript_find_next = QPushButton("Próximo")
         self.transcript_find_next.setObjectName("lyra_transcript_find_next")
         self.transcript_find_previous = QPushButton("Anterior")
@@ -327,6 +334,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(chat_presentation_controls)
         layout.addLayout(find_controls)
         layout.addWidget(self.transcript_find_case_sensitive)
+        layout.addWidget(self.transcript_find_whole_word)
         layout.addLayout(composer)
         layout.addLayout(controls)
 
@@ -348,6 +356,9 @@ class MainWindow(QMainWindow):
         self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
         self.transcript_find_case_sensitive.toggled.connect(
+            self._on_transcript_find_mode_changed
+        )
+        self.transcript_find_whole_word.toggled.connect(
             self._on_transcript_find_mode_changed
         )
         self.transcript_find_next.clicked.connect(self._find_next_in_transcript)
@@ -428,6 +439,8 @@ class MainWindow(QMainWindow):
         flags = QTextDocument.FindFlag(0)
         if self.transcript_find_case_sensitive.isChecked():
             flags |= QTextDocument.FindFlag.FindCaseSensitively
+        if self.transcript_find_whole_word.isChecked():
+            flags |= QTextDocument.FindFlag.FindWholeWords
         if backward:
             flags |= QTextDocument.FindFlag.FindBackward
         found = self.chat.find(query, flags)
@@ -454,6 +467,8 @@ class MainWindow(QMainWindow):
         flags = QTextDocument.FindFlag(0)
         if self.transcript_find_case_sensitive.isChecked():
             flags |= QTextDocument.FindFlag.FindCaseSensitively
+        if self.transcript_find_whole_word.isChecked():
+            flags |= QTextDocument.FindFlag.FindWholeWords
         while matches <= 256:
             cursor = document.find(query, cursor, flags)
             if cursor.isNull():
@@ -556,6 +571,7 @@ class MainWindow(QMainWindow):
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)
         self.transcript_find_case_sensitive.setEnabled(not busy)
+        self.transcript_find_whole_word.setEnabled(not busy)
         self.transcript_find_next.setEnabled(not busy)
         self.transcript_find_previous.setEnabled(not busy)
         self.draft_previous.setEnabled(not busy)
@@ -622,6 +638,7 @@ class MainWindow(QMainWindow):
         self.chat_text_size.setCurrentIndex(0)
         self._clear_draft_recall_navigation()
         self.transcript_find_case_sensitive.setChecked(False)
+        self.transcript_find_whole_word.setChecked(False)
         self.transcript_find.clear()
         self._on_transcript_find_query_changed("")
         self.input.clear()
