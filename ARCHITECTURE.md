@@ -248,7 +248,9 @@ clear.
     presentation choices with the original system font as the default.
 30. M123: Bounded LYRA Composer Length Host v1, explicit 4096-character text
     entry ceiling and passive length-only counter without changing authority.
-31. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+31. M124: Explicit LYRA Transcript Viewport Navigation Host v1, user-initiated
+    jump to the beginning or end of the visible chat without new authority.
+32. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1020,3 +1022,25 @@ rejected reset preserves both. Each host window has its own counter.
 
 Separate full pytest/Ruff and real Windows Qt dogfood gates are required before
 remote publication.
+
+
+## M124 - Explicit LYRA Transcript Viewport Navigation Host v1
+
+M124 adds two explicit controls, Inicio and Final, beside the current chat follow
+checkbox. A click moves only the existing read-only transcript's vertical Qt
+scrollbar to its minimum or maximum. The controls do not read transcript content,
+change find selections, modify message text, switch follow on or off, or edit an
+unsent request. Existing M121 follow semantics remain unchanged: if follow is
+on, later append operations scroll to the end; if it is off, later appends
+preserve the position, even after an explicit navigation click.
+
+Both controls remain available during a busy task so the user can read earlier
+or newer progress. Each window owns its own viewport state. A confirmed M117
+reset clears the visible transcript as before, after which navigation remains
+available; a rejected reset changes nothing. M119 find, M120 draft recall,
+M122 font size, and M123 composer length remain unchanged.
+
+This is synchronous process-local presentation only: no provider request,
+tool invocation, clipboard access, filesystem write, persistence, background
+inference, microphone, approval bypass, or Phoenix authority. Separate full
+pytest/Ruff and real Windows Qt dogfood gates are required before publication.

@@ -186,6 +186,12 @@ class MainWindow(QMainWindow):
             ("Grande", 16),
         ):
             self.chat_text_size.addItem(label, size)
+        self.chat_jump_start = QPushButton("Início")
+        self.chat_jump_start.setObjectName("lyra_chat_jump_start")
+        self.chat_jump_start.setToolTip("Ir ao início do chat sem alterar o acompanhamento.")
+        self.chat_jump_end = QPushButton("Final")
+        self.chat_jump_end.setObjectName("lyra_chat_jump_end")
+        self.chat_jump_end.setToolTip("Ir ao final do chat sem alterar o acompanhamento.")
         self._last_find_query: str | None = None
         self.transcript_find = QLineEdit()
         self.transcript_find.setObjectName("lyra_transcript_find")
@@ -274,6 +280,8 @@ class MainWindow(QMainWindow):
 
         chat_presentation_controls = QHBoxLayout()
         chat_presentation_controls.addWidget(self.chat_follow)
+        chat_presentation_controls.addWidget(self.chat_jump_start)
+        chat_presentation_controls.addWidget(self.chat_jump_end)
         chat_presentation_controls.addStretch(1)
         chat_presentation_controls.addWidget(QLabel("Tamanho do texto"))
         chat_presentation_controls.addWidget(self.chat_text_size)
@@ -315,6 +323,8 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.chat_follow.toggled.connect(self._on_chat_follow_toggled)
+        self.chat_jump_start.clicked.connect(self._jump_to_chat_start)
+        self.chat_jump_end.clicked.connect(self._jump_to_chat_end)
         self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
         self.transcript_find_next.clicked.connect(self._find_next_in_transcript)
@@ -438,6 +448,14 @@ class MainWindow(QMainWindow):
         original = self._draft_recall_original
         self._clear_draft_recall_navigation()
         self.input.setText(original)
+
+    def _jump_to_chat_start(self) -> None:
+        scrollbar = self.chat.verticalScrollBar()
+        scrollbar.setValue(scrollbar.minimum())
+
+    def _jump_to_chat_end(self) -> None:
+        scrollbar = self.chat.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def _on_chat_follow_toggled(self, enabled: bool) -> None:
         if enabled:
