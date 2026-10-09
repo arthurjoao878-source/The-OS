@@ -268,7 +268,9 @@ clear.
     Return/Shift+Return navigation through existing find handlers.
 40. M133: Explicit LYRA Composer Focus Shortcut Host v1, window-scoped Ctrl+M
     to focus the unsent-message composer without sending or new authority.
-41. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+41. M134: Explicit LYRA Transcript Focus Shortcut Host v1, window-scoped
+    Ctrl+Shift+M to focus the read-only transcript without new authority.
+42. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1285,3 +1287,18 @@ Session reset retains the shortcut, while existing confirmation and guards
 remain unchanged. No new clipboard, filesystem, networking, action authority,
 or Phoenix policy is introduced. Full pytest and Ruff plus independent real
 Windows Qt keyboard dogfood are required before remote publication.
+
+
+## M134 - LYRA Transcript Focus Shortcut Host v1
+
+M134 adds an explicit window-scoped Ctrl+Shift+M shortcut to focus the
+existing read-only conversation transcript from the composer or find field.
+It does not select, edit, copy, send or export transcript content, nor does
+it change scroll, following, query, match count/rank, draft, context,
+perception, personality or persistent memory. The shortcut has no effects
+outside its LYRA window. Busy task state disables activation and direct
+invocation fails closed. The M133 Ctrl+M composer shortcut, M129 Ctrl+F find
+shortcut, Escape and Enter find navigation remain separate. No new tools,
+provider calls, approvals, filesystem/network/clipboard permissions or
+Phoenix authority are introduced. Full pytest/Ruff and independent real
+Windows Qt key-event dogfood are required before publication.

@@ -167,6 +167,11 @@ class MainWindow(QMainWindow):
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
         self.chat.setReadOnly(True)
+        self.transcript_focus_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+M"), self
+        )
+        self.transcript_focus_shortcut.setObjectName("lyra_transcript_focus_shortcut")
+        self.transcript_focus_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         self._chat_base_font = QFont(self.chat.font())
         self.chat_follow = QCheckBox("Acompanhar novas mensagens")
         self.chat_follow.setObjectName("lyra_chat_follow")
@@ -411,6 +416,7 @@ class MainWindow(QMainWindow):
         self.send.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)
         self.composer_focus_shortcut.activated.connect(self._focus_composer)
+        self.transcript_focus_shortcut.activated.connect(self._focus_transcript)
         self.input.textChanged.connect(self._on_composer_text_changed)
         self.input.textEdited.connect(self._clear_draft_recall_navigation)
         self.draft_previous.clicked.connect(self._recall_previous_draft)
@@ -519,6 +525,11 @@ class MainWindow(QMainWindow):
         ):
             return
         self.input.setFocus()
+
+    def _focus_transcript(self) -> None:
+        if not self.chat.isEnabled() or not self.transcript_focus_shortcut.isEnabled():
+            return
+        self.chat.setFocus()
 
     def _focus_composer(self) -> None:
         if not self.input.isEnabled():
@@ -692,6 +703,7 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.input.setEnabled(not busy)
         self.composer_focus_shortcut.setEnabled(not busy)
+        self.transcript_focus_shortcut.setEnabled(not busy)
         self.send.setEnabled(not busy)
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)
