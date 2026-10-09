@@ -190,6 +190,15 @@ class MainWindow(QMainWindow):
         )
         self.chat_text_size = QComboBox()
         self.chat_text_size.setObjectName("lyra_chat_text_size")
+        self.chat_text_size_cycle_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+T"), self
+        )
+        self.chat_text_size_cycle_shortcut.setObjectName(
+            "lyra_chat_text_size_cycle_shortcut"
+        )
+        self.chat_text_size_cycle_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.chat_text_size.setToolTip(
             "Altera somente a fonte do chat; nao altera o pedido enviado."
         )
@@ -441,6 +450,9 @@ class MainWindow(QMainWindow):
         self.chat_jump_start.clicked.connect(self._jump_to_chat_start)
         self.chat_jump_end.clicked.connect(self._jump_to_chat_end)
         self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
+        self.chat_text_size_cycle_shortcut.activated.connect(
+            self._cycle_chat_text_size_shortcut
+        )
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
         self.transcript_find_clear.clicked.connect(self._clear_transcript_find)
         self.transcript_find_escape_shortcut.activated.connect(
@@ -494,6 +506,20 @@ class MainWindow(QMainWindow):
         self.context_status.setText(
             present_context_status(self._context, self._perception)
         )
+
+    def _cycle_chat_text_size_shortcut(self) -> None:
+        if (
+            not self.chat_text_size.isEnabled()
+            or not self.chat_text_size_cycle_shortcut.isEnabled()
+            or self.chat_text_size.count() != 4
+            or tuple(self.chat_text_size.itemData(i) for i in range(4))
+            != (None, 10, 12, 16)
+        ):
+            return
+        index = self.chat_text_size.currentIndex()
+        if index not in (0, 1, 2, 3):
+            return
+        self.chat_text_size.setCurrentIndex((index + 1) % 4)
 
     def _apply_chat_text_size(self, _index: int) -> None:
         size = self.chat_text_size.currentData()
@@ -725,6 +751,7 @@ class MainWindow(QMainWindow):
         self.composer_focus_shortcut.setEnabled(not busy)
         self.transcript_focus_shortcut.setEnabled(not busy)
         self.chat_follow_toggle_shortcut.setEnabled(not busy)
+        self.chat_text_size_cycle_shortcut.setEnabled(not busy)
         self.send.setEnabled(not busy)
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)

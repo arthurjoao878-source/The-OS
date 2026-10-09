@@ -272,7 +272,9 @@ clear.
     Ctrl+Shift+M to focus the read-only transcript without new authority.
 42. M135: Explicit LYRA Transcript Follow Toggle Shortcut Host v1, window-scoped
     Ctrl+Shift+A to toggle the existing follow-new-messages control.
-43. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+43. M136: Explicit LYRA Chat Font Size Cycle Shortcut Host v1, window-scoped
+    Ctrl+Shift+T to cycle the four existing chat-only font sizes.
+44. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1321,3 +1323,20 @@ Window-local isolation, old keyboard shortcuts, user confirmation gates,
 and both reset outcomes must remain unchanged. No provider calls, actions,
 filesystem/network access or new capability is added. Independent real
 Windows Qt key-event dogfood, full pytest and Ruff are required before push.
+
+
+## M136 - LYRA Chat Font Size Cycle Shortcut Host v1
+
+M136 adds a window-scoped Ctrl+Shift+T shortcut to cycle the existing
+four chat-only QComboBox font selections in order: Sistema, Pequeno (10),
+Normal (12), Grande (16), then Sistema. The QComboBox remains the only
+state source, and its existing currentIndexChanged handler applies the font.
+The shortcut fails closed if the combo model is not the expected four-option
+finite model or if the shortcut or combo is disabled. Busy tasks disable the
+shortcut without expanding the previous combo policy. This purely local
+presentation change does not edit messages, query, match counters, drafts,
+conversation history, perception, personality or persistent memory. It does
+not call a provider, run actions, add permissions or change Phoenix authority.
+Manual size choices and reset-to-Sistema behavior remain unchanged.
+Real Windows Qt keyboard dogfood, the full pytest suite and Ruff must pass
+before separate publication of the exact existing local commit.
