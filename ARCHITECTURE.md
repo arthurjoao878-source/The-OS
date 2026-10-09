@@ -266,7 +266,9 @@ clear.
     while the query has focus to restore the composer without new authority.
 39. M132: LYRA Enter Search Navigation Shortcuts Host v1, widget-scoped
     Return/Shift+Return navigation through existing find handlers.
-40. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+40. M133: Explicit LYRA Composer Focus Shortcut Host v1, window-scoped Ctrl+M
+    to focus the unsent-message composer without sending or new authority.
+41. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1267,3 +1269,19 @@ are disabled during busy tasks. This is a strictly local keyboard behavior
 recovery: no provider call, message submission, new task execution,
 persistent-memory access, authority or approval change is added. M132 remains
 unpublished pending full pytest/Ruff and independent Windows real Qt dogfood.
+
+
+## M133 - LYRA Composer Focus Shortcut Host v1
+
+M133 adds an explicit Ctrl+M shortcut to focus the existing unsent-message
+composer from the transcript or find widgets. The QShortcut is owned by the
+LYRA MainWindow, with WindowShortcut context (never application-global).
+Its handler only calls input.setFocus when the composer is enabled; busy task
+state disables the shortcut and direct invocation returns without effect.
+Ctrl+M never calls submit or the provider, sends any message, starts a task,
+changes a draft, query, find selection, match rank, viewport, follow setting,
+conversation history, perception, persistent memory, or personality.
+Session reset retains the shortcut, while existing confirmation and guards
+remain unchanged. No new clipboard, filesystem, networking, action authority,
+or Phoenix policy is introduced. Full pytest and Ruff plus independent real
+Windows Qt keyboard dogfood are required before remote publication.

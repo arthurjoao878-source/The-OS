@@ -294,6 +294,9 @@ class MainWindow(QMainWindow):
         self.input = QLineEdit()
         self.input.setPlaceholderText("Diga algo...")
         self.input.setMaxLength(4096)
+        self.composer_focus_shortcut = QShortcut(QKeySequence("Ctrl+M"), self)
+        self.composer_focus_shortcut.setObjectName("lyra_composer_focus_shortcut")
+        self.composer_focus_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         self.composer_length_status = QLabel("Mensagem: 0/4096")
         self.composer_length_status.setObjectName("lyra_composer_length_status")
         self.composer_length_status.setToolTip(
@@ -407,6 +410,7 @@ class MainWindow(QMainWindow):
 
         self.send.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)
+        self.composer_focus_shortcut.activated.connect(self._focus_composer)
         self.input.textChanged.connect(self._on_composer_text_changed)
         self.input.textEdited.connect(self._clear_draft_recall_navigation)
         self.draft_previous.clicked.connect(self._recall_previous_draft)
@@ -513,6 +517,11 @@ class MainWindow(QMainWindow):
             or not self.input.isEnabled()
             or not self.transcript_find.hasFocus()
         ):
+            return
+        self.input.setFocus()
+
+    def _focus_composer(self) -> None:
+        if not self.input.isEnabled():
             return
         self.input.setFocus()
 
@@ -682,6 +691,7 @@ class MainWindow(QMainWindow):
 
     def _set_busy(self, busy: bool) -> None:
         self.input.setEnabled(not busy)
+        self.composer_focus_shortcut.setEnabled(not busy)
         self.send.setEnabled(not busy)
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)
