@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtGui import QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -166,6 +167,12 @@ class MainWindow(QMainWindow):
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
         self.chat.setReadOnly(True)
+        self.chat_follow = QCheckBox("Acompanhar novas mensagens")
+        self.chat_follow.setObjectName("lyra_chat_follow")
+        self.chat_follow.setToolTip(
+            "Desmarque para manter a posicao de leitura durante novas respostas."
+        )
+        self.chat_follow.setChecked(True)
         self._last_find_query: str | None = None
         self.transcript_find = QLineEdit()
         self.transcript_find.setObjectName("lyra_transcript_find")
@@ -264,6 +271,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.workflow_status)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
+        layout.addWidget(self.chat_follow)
         layout.addLayout(find_controls)
         layout.addLayout(composer)
         layout.addLayout(controls)
@@ -279,6 +287,7 @@ class MainWindow(QMainWindow):
         self.resume_task.clicked.connect(self._resume_active_task)
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
+        self.chat_follow.toggled.connect(self._on_chat_follow_toggled)
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
         self.transcript_find_next.clicked.connect(self._find_next_in_transcript)
         self.transcript_find_previous.clicked.connect(self._find_previous_in_transcript)
@@ -388,11 +397,27 @@ class MainWindow(QMainWindow):
         self._clear_draft_recall_navigation()
         self.input.setText(original)
 
+    def _on_chat_follow_toggled(self, enabled: bool) -> None:
+        if enabled:
+            scrollbar = self.chat.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+
+    def _append_chat(self, speaker: str, text: str) -> None:
+        scrollbar = self.chat.verticalScrollBar()
+        frozen_position = (
+            None if self.chat_follow.isChecked() else scrollbar.value()
+        )
+        self.chat.appendPlainText(f"{speaker}\n{text}\n")
+        if frozen_position is None:
+            scrollbar.setValue(scrollbar.maximum())
+        else:
+            scrollbar.setValue(min(frozen_position, scrollbar.maximum()))
+
     def _you(self, text: str) -> None:
-        self.chat.appendPlainText(f"Você\n{text}\n")
+        self._append_chat("Você", text)
 
     def _lyra(self, text: str, *, remember_in_session: bool = False) -> None:
-        self.chat.appendPlainText(f"LYRA\n{text}\n")
+        self._append_chat("LYRA", text)
         if remember_in_session:
             self._context.add_assistant(text)
             self._refresh_context_status()
@@ -464,6 +489,7 @@ class MainWindow(QMainWindow):
         self._context.clear()
         self._perception.clear()
         self.chat.clear()
+        self.chat_follow.setChecked(True)
         self._clear_draft_recall_navigation()
         self.transcript_find.clear()
         self._on_transcript_find_query_changed("")

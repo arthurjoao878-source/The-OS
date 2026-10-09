@@ -242,7 +242,9 @@ clear.
     the visible conversation without provider calls or new authority.
 27. M120: Bounded LYRA Draft Recall Host v1, reusing recent local user
     submissions in the unsent composer without provider calls or new authority.
-28. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+28. M121: Explicit LYRA Transcript Follow Host v1, letting the user choose
+    whether new text auto-scrolls the visible chat without new authority.
+29. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -954,3 +956,21 @@ while disabled. The original request-scoped tool visibility and confirmation
 gates still apply if the user explicitly resubmits a recalled request. This
 feature neither adds new tools, voice, persistence, background inference nor
 Phoenix grants. It does not change model prompts or the authority boundary.
+
+
+## M121 - Explicit LYRA Transcript Follow Host v1
+
+M121 adds a checked-by-default "Acompanhar novas mensagens" option adjacent to the
+read-only chat transcript. When enabled, newly appended user and LYRA messages
+scroll to the end; when disabled, append operations preserve the user's current
+vertical scroll position. Enabling it again scrolls to the latest text. This
+choice remains operable during a busy host task, including tool-loop progress.
+
+Only the viewport is affected. The option never reads or copies raw chat content,
+changes the original current user request, invokes the provider, alters SessionContext
+or PerceptionContext, reads persistent memory, creates tools, expands confirmation
+policy, or introduces Phoenix authority. It has no storage or external effects.
+A confirmed M117 session reset returns follow to its on-by-default state; a
+denied reset leaves it unchanged. Each host instance has isolated toggle state.
+Existing M119 find, M120 draft recall, and normal send and approval paths remain
+unchanged. A separate Windows Qt runtime dogfood remains required before delivery.
