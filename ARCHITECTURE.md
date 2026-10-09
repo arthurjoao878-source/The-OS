@@ -258,7 +258,9 @@ clear.
     user-selected literal matching mode without any new authority.
 35. M128: Explicit LYRA Transcript Whole-Word Find Host v1, opt-in
     complete-word matching without additional authority.
-36. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+36. M129: Explicit LYRA Transcript Keyboard Find Shortcuts Host v1,
+    bounded Ctrl+F/F3/Shift+F3 search navigation without new authority.
+37. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1154,3 +1156,24 @@ execution, provider requests or Phoenix authority. It adds no clipboard,
 filesystem effects, network activity, microphone use or background inference.
 Full pytest/Ruff and separate real Windows Qt dogfood are required before any
 remote publication of the local commit.
+
+
+## M129 - Explicit LYRA Transcript Keyboard Find Shortcuts Host v1
+
+M129 adds three explicit, process-local shortcuts to the existing read-only
+transcript search: Ctrl+F focuses the existing query field, F3 uses the same
+Next handler, and Shift+F3 uses the same Previous handler. They are QShortcut
+objects with WindowShortcut context and no independent search implementation.
+No key submits a chat message, invokes a provider or action, changes permissions,
+or reads persistent memory. All navigation uses the current 120-character query,
+65536-character visible transcript and existing at-most-257 match traversal.
+M127 case-sensitivity and M128 whole-word matching remain effective, including
+the M125 count and M126 rank. Empty query and no-match behavior are unchanged.
+
+While the host is busy, all three shortcuts and the search controls are disabled;
+directly invoked handlers also reject busy operation. Confirmed new conversation
+clears search as before; rejected reset keeps the search untouched. Each window
+has independent shortcut objects and query state, without global hotkeys or
+persistent preferences. The feature has no filesystem, network, clipboard,
+microphone, background inference or Phoenix authority. Separate full pytest
+and Ruff plus a real Windows Qt-host dogfood gate are required before any push.

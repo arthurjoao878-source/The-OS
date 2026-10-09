@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
-from PySide6.QtGui import QFont, QTextCursor, QTextDocument
+from PySide6.QtGui import QFont, QKeySequence, QShortcut, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -211,6 +211,20 @@ class MainWindow(QMainWindow):
         self.transcript_find_whole_word.setToolTip(
             "Busca palavras completas; padrao desativado."
         )
+        self.transcript_find_focus_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self.transcript_find_focus_shortcut.setObjectName(
+            "lyra_transcript_find_focus_shortcut"
+        )
+        self.transcript_find_next_shortcut = QShortcut(QKeySequence("F3"), self)
+        self.transcript_find_next_shortcut.setObjectName(
+            "lyra_transcript_find_next_shortcut"
+        )
+        self.transcript_find_previous_shortcut = QShortcut(
+            QKeySequence("Shift+F3"), self
+        )
+        self.transcript_find_previous_shortcut.setObjectName(
+            "lyra_transcript_find_previous_shortcut"
+        )
         self.transcript_find_next = QPushButton("Próximo")
         self.transcript_find_next.setObjectName("lyra_transcript_find_next")
         self.transcript_find_previous = QPushButton("Anterior")
@@ -361,6 +375,15 @@ class MainWindow(QMainWindow):
         self.transcript_find_whole_word.toggled.connect(
             self._on_transcript_find_mode_changed
         )
+        self.transcript_find_focus_shortcut.activated.connect(
+            self._focus_transcript_find
+        )
+        self.transcript_find_next_shortcut.activated.connect(
+            self._find_next_in_transcript
+        )
+        self.transcript_find_previous_shortcut.activated.connect(
+            self._find_previous_in_transcript
+        )
         self.transcript_find_next.clicked.connect(self._find_next_in_transcript)
         self.transcript_find_previous.clicked.connect(self._find_previous_in_transcript)
         self.personality_tone.currentIndexChanged.connect(
@@ -405,6 +428,11 @@ class MainWindow(QMainWindow):
 
     def _on_transcript_find_mode_changed(self, _checked: bool) -> None:
         self._on_transcript_find_query_changed("")
+
+    def _focus_transcript_find(self) -> None:
+        if not self.transcript_find.isEnabled():
+            return
+        self.transcript_find.setFocus()
 
     def _find_next_in_transcript(self) -> None:
         self._find_in_transcript(backward=False)
@@ -572,6 +600,9 @@ class MainWindow(QMainWindow):
         self.transcript_find.setEnabled(not busy)
         self.transcript_find_case_sensitive.setEnabled(not busy)
         self.transcript_find_whole_word.setEnabled(not busy)
+        self.transcript_find_focus_shortcut.setEnabled(not busy)
+        self.transcript_find_next_shortcut.setEnabled(not busy)
+        self.transcript_find_previous_shortcut.setEnabled(not busy)
         self.transcript_find_next.setEnabled(not busy)
         self.transcript_find_previous.setEnabled(not busy)
         self.draft_previous.setEnabled(not busy)
