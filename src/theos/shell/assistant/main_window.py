@@ -199,6 +199,12 @@ class MainWindow(QMainWindow):
         self.transcript_find_status.setObjectName("lyra_transcript_find_status")
         self.input = QLineEdit()
         self.input.setPlaceholderText("Diga algo...")
+        self.input.setMaxLength(4096)
+        self.composer_length_status = QLabel("Mensagem: 0/4096")
+        self.composer_length_status.setObjectName("lyra_composer_length_status")
+        self.composer_length_status.setToolTip(
+            "O campo aceita ate 4096 caracteres; mostra apenas a contagem."
+        )
         self._draft_recall_index: int | None = None
         self._draft_recall_original = ""
         self._draft_recall_items: tuple[str, ...] = ()
@@ -276,6 +282,7 @@ class MainWindow(QMainWindow):
         composer.addWidget(self.draft_previous)
         composer.addWidget(self.draft_next)
         composer.addWidget(self.input, 1)
+        composer.addWidget(self.composer_length_status)
         composer.addWidget(self.send)
 
         controls = QHBoxLayout()
@@ -299,6 +306,7 @@ class MainWindow(QMainWindow):
 
         self.send.clicked.connect(self._submit)
         self.input.returnPressed.connect(self._submit)
+        self.input.textChanged.connect(self._on_composer_text_changed)
         self.input.textEdited.connect(self._clear_draft_recall_navigation)
         self.draft_previous.clicked.connect(self._recall_previous_draft)
         self.draft_next.clicked.connect(self._recall_next_draft)
@@ -339,6 +347,11 @@ class MainWindow(QMainWindow):
         if size is not None:
             font.setPointSize(size)
         self.chat.setFont(font)
+
+    def _on_composer_text_changed(self, _text: str) -> None:
+        self.composer_length_status.setText(
+            f"Mensagem: {len(self.input.text())}/4096"
+        )
 
     def _on_transcript_find_query_changed(self, _text: str) -> None:
         self._last_find_query = None
@@ -546,8 +559,10 @@ class MainWindow(QMainWindow):
         )
 
     def _submit(self) -> None:
+        if not self.input.isEnabled():
+            return
         text = self.input.text().strip()
-        if not text:
+        if not text or len(text) > 4096:
             return
 
         history = self._context.provider_snapshot()

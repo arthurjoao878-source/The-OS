@@ -246,7 +246,9 @@ clear.
     whether new text auto-scrolls the visible chat without new authority.
 29. M122: Bounded LYRA Chat Font Size Host v1, finite explicit chat-only
     presentation choices with the original system font as the default.
-30. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+30. M123: Bounded LYRA Composer Length Host v1, explicit 4096-character text
+    entry ceiling and passive length-only counter without changing authority.
+31. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -997,3 +999,24 @@ A confirmed M117 New Conversation resets this setting to System; a rejected rese
 preserves the chosen size. Independent host windows keep separate settings. The
 M119 find and M120 draft recall controls remain available and unchanged. A distinct
 real Windows Qt-host dogfood is needed before publishing the local commit.
+
+
+## M123 - Bounded LYRA Composer Length Host v1
+
+M123 makes the existing LYRA QLineEdit input limit explicit at 4096 characters and
+shows a passive, length-only counter beside Send. The counter reflects the
+currently displayed, unsent text, including restored drafts, and never displays
+its contents. QLineEdit applies its normal truncation to overlong pasted input;
+users are informed of the ceiling in the UI. The host also independently rejects
+overlong or disabled direct submissions instead of invoking the planner.
+
+The change introduces no new submissions, hidden provider requests, history
+exposure, memory persistence, filesystem exports, mic access, or Phoenix
+authority. It does not change existing action confirmation or tool visibility.
+It preserves the M120 bounded draft recall, M119 find, M121 follow, M122 font,
+and the existing normal explicit Send route. Busy work disables the composer,
+and a confirmed M117 session reset clears the draft and resets its counter; a
+rejected reset preserves both. Each host window has its own counter.
+
+Separate full pytest/Ruff and real Windows Qt dogfood gates are required before
+remote publication.
