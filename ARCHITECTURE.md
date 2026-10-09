@@ -260,7 +260,9 @@ clear.
     complete-word matching without additional authority.
 36. M129: Explicit LYRA Transcript Keyboard Find Shortcuts Host v1,
     bounded Ctrl+F/F3/Shift+F3 search navigation without new authority.
-37. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+37. M130: Explicit LYRA Transcript Clear Find Host v1, clearing only the
+    search query and labels on user request without new authority.
+38. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1177,3 +1179,29 @@ has independent shortcut objects and query state, without global hotkeys or
 persistent preferences. The feature has no filesystem, network, clipboard,
 microphone, background inference or Phoenix authority. Separate full pytest
 and Ruff plus a real Windows Qt-host dogfood gate are required before any push.
+
+
+## M130 - Explicit LYRA Transcript Clear Find Host v1
+
+M130 introduces one explicitly clicked "Limpar busca" button next to the
+existing LYRA transcript query. It clears only the local find query and resets
+the previous M119 find status, M125 bounded occurrence count, M126 selected
+rank, and last-query navigation marker to neutral. It does not invoke a find,
+scan the document, deselect the current text, move the viewport, alter the
+follow preference, change the unsent composer draft, or submit a request.
+Clicking when the query is already empty still restores neutral labels.
+
+M127 case sensitivity and M128 whole-word settings are preserved so the user
+can clear and reenter terms without losing the search modes. M129 Ctrl+F,
+F3 and Shift+F3 shortcuts remain unchanged. The button and the input are
+disabled during a busy task, with a direct-handler guard against bypass.
+Denied new-conversation reset does not clear the search; accepted reset keeps
+the button available and clears the query through the existing path. Each
+host window keeps its own query, status and search settings.
+
+This is process-local presentation only and adds no provider calls, tools,
+clipboard access, file/network effects, persistent memory access, new task
+authority, background inference or approval bypass. Existing 120-character
+query and 65536-character visible transcript ceilings, 256+ result bound,
+provider history caps, and Phoenix authority are unchanged. Full pytest,
+Ruff and separate real Windows Qt dogfood must pass before publication.
