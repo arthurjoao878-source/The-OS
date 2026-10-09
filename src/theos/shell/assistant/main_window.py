@@ -205,6 +205,11 @@ class MainWindow(QMainWindow):
         self.transcript_find_status.setObjectName("lyra_transcript_find_status")
         self.transcript_match_count = QLabel("Ocorrências: —")
         self.transcript_match_count.setObjectName("lyra_transcript_match_count")
+        self.transcript_match_position = QLabel("Posição: —")
+        self.transcript_match_position.setObjectName("lyra_transcript_match_position")
+        self.transcript_match_position.setToolTip(
+            "Posicao da correspondencia selecionada; no maximo 256 resultados exatos."
+        )
         self.transcript_match_count.setToolTip(
             "Contagem literal limitada a 256 correspondencias no chat visivel."
         )
@@ -283,6 +288,7 @@ class MainWindow(QMainWindow):
         find_controls.addWidget(self.transcript_find_next)
         find_controls.addWidget(self.transcript_find_status)
         find_controls.addWidget(self.transcript_match_count)
+        find_controls.addWidget(self.transcript_match_position)
 
         chat_presentation_controls = QHBoxLayout()
         chat_presentation_controls.addWidget(self.chat_follow)
@@ -371,6 +377,7 @@ class MainWindow(QMainWindow):
 
     def _on_transcript_find_query_changed(self, _text: str) -> None:
         self.transcript_match_count.setText("Ocorrências: —")
+        self.transcript_match_position.setText("Posição: —")
         self._last_find_query = None
         self.transcript_find_status.setText("Busca: pronta")
 
@@ -386,17 +393,19 @@ class MainWindow(QMainWindow):
         query = self.transcript_find.text().strip()
         if not query:
             self.transcript_match_count.setText("Ocorrências: —")
+            self.transcript_match_position.setText("Posição: —")
             self.transcript_find_status.setText("Busca: informe termo")
             return
         if len(query) > 120:
             self.transcript_match_count.setText("Ocorrências: indisponível")
+            self.transcript_match_position.setText("Posição: indisponível")
             self.transcript_find_status.setText("Busca: termo acima do limite")
             return
         if len(self.chat.toPlainText()) > 65536:
             self.transcript_match_count.setText("Ocorrências: indisponível")
+            self.transcript_match_position.setText("Posição: indisponível")
             self.transcript_find_status.setText("Busca: conversa acima do limite")
             return
-        self._update_transcript_match_count(query)
         direction = (
             QTextCursor.MoveOperation.End if backward else QTextCursor.MoveOperation.Start
         )
@@ -415,22 +424,43 @@ class MainWindow(QMainWindow):
                 else self.chat.find(query)
             )
         self._last_find_query = query
+        self._update_transcript_match_count(
+            query,
+            self.chat.textCursor().selectionStart() if found else None,
+        )
         self.transcript_find_status.setText(
             "Busca: resultado selecionado" if found else "Busca: nenhum resultado"
         )
 
-    def _update_transcript_match_count(self, query: str) -> None:
+    def _update_transcript_match_count(
+        self, query: str, selected_start: int | None = None
+    ) -> None:
         document = self.chat.document()
         cursor = QTextCursor(document)
         cursor.movePosition(QTextCursor.MoveOperation.Start)
         matches = 0
+        rank: int | None = None
         while matches <= 256:
             cursor = document.find(query, cursor)
             if cursor.isNull():
                 self.transcript_match_count.setText(f"Ocorrências: {matches}")
+                if rank is None:
+                    self.transcript_match_position.setText("Posição: —")
+                else:
+                    self.transcript_match_position.setText(
+                        f"Posição: {rank} de {matches}"
+                    )
                 return
             matches += 1
+            if selected_start is not None and cursor.selectionStart() == selected_start:
+                rank = matches
         self.transcript_match_count.setText("Ocorrências: 256+")
+        if rank is not None and rank <= 256:
+            self.transcript_match_position.setText(f"Posição: {rank} de 256+")
+        elif selected_start is not None:
+            self.transcript_match_position.setText("Posição: >256 de 256+")
+        else:
+            self.transcript_match_position.setText("Posição: —")
 
     def _clear_draft_recall_navigation(self, _text: str = "") -> None:
         self._draft_recall_index = None

@@ -252,7 +252,9 @@ clear.
     jump to the beginning or end of the visible chat without new authority.
 32. M125: Bounded LYRA Transcript Find Match Count Host v1, finite literal
     occurrence counts displayed only after an explicit transcript find action.
-33. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+33. M126: Bounded LYRA Transcript Find Match Position Host v1, showing
+    the selected result rank within the already bounded literal find operation.
+34. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1070,3 +1072,28 @@ This is process-local presentation only: no provider request, tool invocation,
 clipboard, persistence, filesystem effects, microphone, approval bypass, or
 Phoenix authority. Full pytest/Ruff and a separate real Windows Qt dogfood
 remain required before publication.
+
+
+## M126 - Bounded LYRA Transcript Find Match Position Host v1
+
+M126 extends the M125 finite, explicit transcript find count by presenting which
+literal match is currently selected. After an explicit Next or Previous request,
+its read-only position label shows rank and total, such as "Posição: 2 de 4".
+No scanning occurs while the user types. The same Qt document cursor, case-
+insensitive literal search, 120-character query ceiling, 65536-character visible
+transcript ceiling, and at-most-257 match traversal are retained. For a selected
+result beyond the exact first 256, the position is reported as ">256" against
+"256+" total, never as an invented precise rank. No matches show a neutral rank;
+rejected oversized queries or transcripts show an unavailable rank.
+
+The rank is computed using a separate QTextCursor after the normal find has
+selected a result, so it never overwrites the selected text or scroll behavior.
+The M125 count and M119 search status retain their existing semantics. Typing a
+new query resets both labels without scanning. Busy direct-handler guards still
+reject search; denied session reset preserves both labels and confirmed reset
+clears them. Separate host windows have isolated status.
+
+This change affects process-local presentation only: no new provider requests,
+tools, authority, memory, persistence, filesystem, clipboard, microphone,
+background inference or bypass of confirmations. Full pytest/Ruff and Windows
+real Qt dogfood are mandatory before publishing the local commit.
