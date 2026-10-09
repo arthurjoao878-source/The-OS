@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
-from PySide6.QtGui import QTextCursor, QTextDocument
+from PySide6.QtGui import QFont, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -167,12 +167,25 @@ class MainWindow(QMainWindow):
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
         self.chat.setReadOnly(True)
+        self._chat_base_font = QFont(self.chat.font())
         self.chat_follow = QCheckBox("Acompanhar novas mensagens")
         self.chat_follow.setObjectName("lyra_chat_follow")
         self.chat_follow.setToolTip(
             "Desmarque para manter a posicao de leitura durante novas respostas."
         )
         self.chat_follow.setChecked(True)
+        self.chat_text_size = QComboBox()
+        self.chat_text_size.setObjectName("lyra_chat_text_size")
+        self.chat_text_size.setToolTip(
+            "Altera somente a fonte do chat; nao altera o pedido enviado."
+        )
+        for label, size in (
+            ("Sistema", None),
+            ("Pequeno", 10),
+            ("Normal", 12),
+            ("Grande", 16),
+        ):
+            self.chat_text_size.addItem(label, size)
         self._last_find_query: str | None = None
         self.transcript_find = QLineEdit()
         self.transcript_find.setObjectName("lyra_transcript_find")
@@ -253,6 +266,12 @@ class MainWindow(QMainWindow):
         find_controls.addWidget(self.transcript_find_next)
         find_controls.addWidget(self.transcript_find_status)
 
+        chat_presentation_controls = QHBoxLayout()
+        chat_presentation_controls.addWidget(self.chat_follow)
+        chat_presentation_controls.addStretch(1)
+        chat_presentation_controls.addWidget(QLabel("Tamanho do texto"))
+        chat_presentation_controls.addWidget(self.chat_text_size)
+
         composer = QHBoxLayout()
         composer.addWidget(self.draft_previous)
         composer.addWidget(self.draft_next)
@@ -271,7 +290,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.workflow_status)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
-        layout.addWidget(self.chat_follow)
+        layout.addLayout(chat_presentation_controls)
         layout.addLayout(find_controls)
         layout.addLayout(composer)
         layout.addLayout(controls)
@@ -288,6 +307,7 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.chat_follow.toggled.connect(self._on_chat_follow_toggled)
+        self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
         self.transcript_find_next.clicked.connect(self._find_next_in_transcript)
         self.transcript_find_previous.clicked.connect(self._find_previous_in_transcript)
@@ -310,6 +330,15 @@ class MainWindow(QMainWindow):
         self.context_status.setText(
             present_context_status(self._context, self._perception)
         )
+
+    def _apply_chat_text_size(self, _index: int) -> None:
+        size = self.chat_text_size.currentData()
+        if size is not None and (type(size) is not int or size not in (10, 12, 16)):
+            return
+        font = QFont(self._chat_base_font)
+        if size is not None:
+            font.setPointSize(size)
+        self.chat.setFont(font)
 
     def _on_transcript_find_query_changed(self, _text: str) -> None:
         self._last_find_query = None
@@ -490,6 +519,7 @@ class MainWindow(QMainWindow):
         self._perception.clear()
         self.chat.clear()
         self.chat_follow.setChecked(True)
+        self.chat_text_size.setCurrentIndex(0)
         self._clear_draft_recall_navigation()
         self.transcript_find.clear()
         self._on_transcript_find_query_changed("")

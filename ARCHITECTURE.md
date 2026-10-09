@@ -244,7 +244,9 @@ clear.
     submissions in the unsent composer without provider calls or new authority.
 28. M121: Explicit LYRA Transcript Follow Host v1, letting the user choose
     whether new text auto-scrolls the visible chat without new authority.
-29. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+29. M122: Bounded LYRA Chat Font Size Host v1, finite explicit chat-only
+    presentation choices with the original system font as the default.
+30. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -974,3 +976,24 @@ A confirmed M117 session reset returns follow to its on-by-default state; a
 denied reset leaves it unchanged. Each host instance has isolated toggle state.
 Existing M119 find, M120 draft recall, and normal send and approval paths remain
 unchanged. A separate Windows Qt runtime dogfood remains required before delivery.
+
+
+## M122 - Bounded LYRA Chat Font Size Host v1
+
+M122 introduces one finite explicit desktop option controlling only the font of the
+existing read-only LYRA chat. The user can select System (unchanged original host
+font), Small (10 pt), Normal (12 pt), or Large (16 pt). System is the default and
+restores the original QFont, including non-size font properties. Unsupported combo
+data fail closed without applying an unexpected font size.
+
+Font-size changes are synchronous, process-local and available while the host is
+busy. They do not change transcript text, scroll-follow preference, search or
+composer widgets, previously submitted requests, provider prompt, local action
+intent, task execution, or available tools. This control does not read or mutate
+SessionContext, PerceptionContext, personality, SQLite memory, or Phoenix authority,
+and never calls an AI provider. There is no persistent preference or telemetry.
+
+A confirmed M117 New Conversation resets this setting to System; a rejected reset
+preserves the chosen size. Independent host windows keep separate settings. The
+M119 find and M120 draft recall controls remain available and unchanged. A distinct
+real Windows Qt-host dogfood is needed before publishing the local commit.
