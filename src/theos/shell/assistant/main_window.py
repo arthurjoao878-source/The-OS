@@ -203,6 +203,11 @@ class MainWindow(QMainWindow):
         self.transcript_find_previous.setObjectName("lyra_transcript_find_previous")
         self.transcript_find_status = QLabel("Busca: pronta")
         self.transcript_find_status.setObjectName("lyra_transcript_find_status")
+        self.transcript_match_count = QLabel("Ocorrências: —")
+        self.transcript_match_count.setObjectName("lyra_transcript_match_count")
+        self.transcript_match_count.setToolTip(
+            "Contagem literal limitada a 256 correspondencias no chat visivel."
+        )
         self.input = QLineEdit()
         self.input.setPlaceholderText("Diga algo...")
         self.input.setMaxLength(4096)
@@ -277,6 +282,7 @@ class MainWindow(QMainWindow):
         find_controls.addWidget(self.transcript_find_previous)
         find_controls.addWidget(self.transcript_find_next)
         find_controls.addWidget(self.transcript_find_status)
+        find_controls.addWidget(self.transcript_match_count)
 
         chat_presentation_controls = QHBoxLayout()
         chat_presentation_controls.addWidget(self.chat_follow)
@@ -364,6 +370,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_transcript_find_query_changed(self, _text: str) -> None:
+        self.transcript_match_count.setText("Ocorrências: —")
         self._last_find_query = None
         self.transcript_find_status.setText("Busca: pronta")
 
@@ -378,14 +385,18 @@ class MainWindow(QMainWindow):
             return
         query = self.transcript_find.text().strip()
         if not query:
+            self.transcript_match_count.setText("Ocorrências: —")
             self.transcript_find_status.setText("Busca: informe termo")
             return
         if len(query) > 120:
+            self.transcript_match_count.setText("Ocorrências: indisponível")
             self.transcript_find_status.setText("Busca: termo acima do limite")
             return
         if len(self.chat.toPlainText()) > 65536:
+            self.transcript_match_count.setText("Ocorrências: indisponível")
             self.transcript_find_status.setText("Busca: conversa acima do limite")
             return
+        self._update_transcript_match_count(query)
         direction = (
             QTextCursor.MoveOperation.End if backward else QTextCursor.MoveOperation.Start
         )
@@ -407,6 +418,19 @@ class MainWindow(QMainWindow):
         self.transcript_find_status.setText(
             "Busca: resultado selecionado" if found else "Busca: nenhum resultado"
         )
+
+    def _update_transcript_match_count(self, query: str) -> None:
+        document = self.chat.document()
+        cursor = QTextCursor(document)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        matches = 0
+        while matches <= 256:
+            cursor = document.find(query, cursor)
+            if cursor.isNull():
+                self.transcript_match_count.setText(f"Ocorrências: {matches}")
+                return
+            matches += 1
+        self.transcript_match_count.setText("Ocorrências: 256+")
 
     def _clear_draft_recall_navigation(self, _text: str = "") -> None:
         self._draft_recall_index = None

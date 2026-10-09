@@ -250,7 +250,9 @@ clear.
     entry ceiling and passive length-only counter without changing authority.
 31. M124: Explicit LYRA Transcript Viewport Navigation Host v1, user-initiated
     jump to the beginning or end of the visible chat without new authority.
-32. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+32. M125: Bounded LYRA Transcript Find Match Count Host v1, finite literal
+    occurrence counts displayed only after an explicit transcript find action.
+33. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1044,3 +1046,27 @@ This is synchronous process-local presentation only: no provider request,
 tool invocation, clipboard access, filesystem write, persistence, background
 inference, microphone, approval bypass, or Phoenix authority. Separate full
 pytest/Ruff and real Windows Qt dogfood gates are required before publication.
+
+
+## M125 - Bounded LYRA Transcript Find Match Count Host v1
+
+M125 extends the existing M119 user-initiated literal transcript search with a
+passive number-only count label. Counts are computed only when the user activates
+Next or Previous on a valid query, using the Qt document's case-insensitive
+literal find semantics. At most 257 matches are examined: 0 through 256 are
+reported exactly and additional matches are shown as "256+". The existing
+120-character query limit and 65536-character conversation limit apply before
+counting. Empty queries reset the label to neutral; rejected oversized inputs
+show an unavailable count. Editing the query resets the label without scanning.
+
+The scan uses a separate QTextCursor and never changes the visible selection,
+search direction, transcript text, follow preference, draft, session context,
+perception context, personality, or memory. The existing busy-task search
+disablement remains in force and direct handler invocation is rejected while
+busy. A rejected new-conversation reset preserves the label and query; an
+accepted reset clears both. Different host instances remain isolated.
+
+This is process-local presentation only: no provider request, tool invocation,
+clipboard, persistence, filesystem effects, microphone, approval bypass, or
+Phoenix authority. Full pytest/Ruff and a separate real Windows Qt dogfood
+remain required before publication.
