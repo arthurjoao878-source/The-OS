@@ -317,7 +317,9 @@ clear.
     presentation-only button restoring the full recent-event history view.
 63. M156: Explicit LYRA Timeline Clear Filters Shortcut Host v1, a
     window-scoped Ctrl+Shift+U keyboard route to the existing safe clear action.
-64. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+64. M157: Explicit LYRA Timeline Jump Latest Button Host v1, an opt-in
+    read-only viewport navigation control for the current bounded timeline view.
+65. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1638,3 +1640,27 @@ available during a controlled dry busy task without executing it. Existing
 Ctrl+Shift+E/I/Y and Ctrl+M or transcript find shortcuts remain unchanged.
 No persistent data or task history is erased. Denied/accepted session reset
 semantics and the fixed read-only view-count/scope labels are preserved.
+
+
+## M157 - Explicit LYRA Timeline Jump Latest Button Host v1
+
+M157 adds a small "Último evento" button beside the existing "Etapas da tarefa"
+button. This is an explicit, presentation-only viewport operation: when the
+12-event read-only timeline panel is hidden, reveal that panel, then move its
+vertical scrollbar to the end of the currently selected safe visible view.
+It does not change the selected M151 category or M146 interruption-only mode,
+the M153 visible count, the M154 scope label, or M155/M156 clear filters.
+The underlying bounded TaskTimeline entries and their classifications remain
+unchanged. A repeated click is idempotent at the latest visible position.
+
+Disabled button or disabled timeline view refuses both Qt-click and direct
+handler paths. The button does not infer verified outcomes, dispatch tasks,
+execute tool calls, access providers, alter memory, or grant Phoenix authority.
+Invalid category selection continues to use the existing fixed safe empty
+presentation; navigation cannot unfilter or reveal raw event arguments.
+Each window owns an independent timeline and scrollbar. The control remains
+available during a controlled dry busy task without causing a dispatch.
+The prior keyboard shortcuts, transcript/composer, session reset semantics,
+read-only timeline, and bounded 12-event model remain intact.
+Full pytest, Ruff, and a separate real Windows Qt dogfood are required before
+any controlled remote publication. No new external side-effect authority.

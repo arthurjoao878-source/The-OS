@@ -202,6 +202,14 @@ class MainWindow(QMainWindow):
         self.task_timeline_toggle.setToolTip(
             "Mostra até 12 resumos recentes, sem pedidos ou evidências brutas."
         )
+        self.task_timeline_jump_latest = QPushButton("Último evento")
+        self.task_timeline_jump_latest.setObjectName(
+            "lyra_task_timeline_jump_latest"
+        )
+        self.task_timeline_jump_latest.setToolTip(
+            "Mostra o painel de etapas e navega ao fim da lista visível, "
+            "sem alterar eventos, filtros ou tarefas."
+        )
         self.task_timeline_toggle_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+E"), self
         )
@@ -594,6 +602,7 @@ class MainWindow(QMainWindow):
         task_progress_controls = QHBoxLayout()
         task_progress_controls.addWidget(self.workflow_status, 1)
         task_progress_controls.addWidget(self.task_timeline_toggle)
+        task_progress_controls.addWidget(self.task_timeline_jump_latest)
         layout.addLayout(task_progress_controls)
         layout.addWidget(self.task_summary)
         layout.addWidget(self.task_interruption_count)
@@ -632,6 +641,9 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.task_timeline_toggle.clicked.connect(self._toggle_task_timeline)
+        self.task_timeline_jump_latest.clicked.connect(
+            self._jump_to_latest_task_timeline_event
+        )
         self.task_timeline_toggle_shortcut.activated.connect(
             self._toggle_task_timeline_shortcut
         )
@@ -754,6 +766,18 @@ class MainWindow(QMainWindow):
                 category=self.task_timeline_interruption_category.currentData(),
             )
         )
+
+    def _jump_to_latest_task_timeline_event(self) -> None:
+        """Explicit viewport navigation in the bounded read-only task timeline."""
+        if (
+            not self.task_timeline_jump_latest.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        if self.task_timeline_view.isHidden():
+            self.task_timeline_view.show()
+        scrollbar = self.task_timeline_view.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def _toggle_task_timeline(self) -> None:
         if not self.task_timeline_toggle.isEnabled():
