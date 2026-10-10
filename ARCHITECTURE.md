@@ -307,7 +307,9 @@ clear.
 58. M151: Bounded LYRA Interruption Category Filter Host v1, an explicit
     finite read-only selector that narrows the existing 12-event interruption
     timeline to pending requests, confirmed cancellations or failures.
-59. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+59. M152: Explicit LYRA Interruption Category Cycle Shortcut Host v1, a
+    window-scoped Ctrl+Shift+Y shortcut that cycles the existing safe selector.
+60. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1502,3 +1504,31 @@ local view. There are no new tools, actions, provider calls, permission grants,
 automatic task execution, persistent memory writes, or Phoenix policy changes.
 Full pytest, Ruff and independent real Windows Qt dogfood must pass before an
 exact-commit publication on main.
+
+
+## M152 - Explicit LYRA Interruption Category Cycle Shortcut Host v1
+
+M152 introduces the window-scoped Ctrl+Shift+Y shortcut to cycle only the
+existing M151 interruption-category QComboBox: Todas, Pendentes, Canceladas,
+Falhas, then wrap to Todas. It invokes QComboBox.setCurrentIndex so the existing
+M151 currentIndexChanged refresh remains the sole presentation path; there is
+no second filtering implementation. When Somente interrupções is unchecked,
+changing the selector does not narrow the visible full task history. The
+selection remains local and available during busy tasks because both the
+M151 selector and M146 read-only timeline are already available then.
+
+The direct handler fails closed when the shortcut or selector is disabled,
+when the current index is invalid, or when the finite four-option text/data
+model differs from the expected order. It does not repair a corrupted model,
+infer a category, or fall back to revealing extra events. The existing safe
+M151 category view handles invalid selector data. A denied reset retains
+the selection; an approved reset clears events but retains the selection and
+shortcut. Different LYRA windows have independent selector state.
+
+M147 Ctrl+Shift+E and M148 Ctrl+Shift+I remain unchanged. The shortcut does not
+submit conversation input, start tasks or actions, call an AI provider, mutate
+conversation context, personality, unsent drafts or persistent memory, or
+change The Hands execution or Phoenix authority. The same 12-event bound,
+M149/M150 counts and evidence qualifications remain intact. Full pytest,
+Ruff and a separate Windows Qt keyboard dogfood are required before an
+exact-commit finalizer may publish M152.

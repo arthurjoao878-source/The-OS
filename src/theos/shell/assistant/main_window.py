@@ -248,6 +248,15 @@ class MainWindow(QMainWindow):
             ("Falhas", "failed"),
         ):
             self.task_timeline_interruption_category.addItem(label, category)
+        self.task_timeline_interruption_category_cycle_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+Y"), self
+        )
+        self.task_timeline_interruption_category_cycle_shortcut.setObjectName(
+            "lyra_task_timeline_interruption_category_cycle_shortcut"
+        )
+        self.task_timeline_interruption_category_cycle_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.context_status = QLabel()
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
@@ -596,6 +605,9 @@ class MainWindow(QMainWindow):
         self.task_timeline_interruption_category.currentIndexChanged.connect(
             self._refresh_task_timeline
         )
+        self.task_timeline_interruption_category_cycle_shortcut.activated.connect(
+            self._cycle_task_timeline_interruption_category_shortcut
+        )
         self.task_timeline_interruptions_shortcut.activated.connect(
             self._toggle_task_timeline_interruptions_shortcut
         )
@@ -713,6 +725,30 @@ class MainWindow(QMainWindow):
         self.task_timeline_interruptions_only.setChecked(
             not self.task_timeline_interruptions_only.isChecked()
         )
+
+    def _cycle_task_timeline_interruption_category_shortcut(self) -> None:
+        selector = self.task_timeline_interruption_category
+        shortcut = self.task_timeline_interruption_category_cycle_shortcut
+        if (
+            not selector.isEnabled()
+            or not shortcut.isEnabled()
+            or selector.count() != 4
+            or tuple(
+                (selector.itemText(index), selector.itemData(index))
+                for index in range(4)
+            )
+            != (
+                ("Todas", "all"),
+                ("Pendentes", "pending"),
+                ("Canceladas", "cancelled"),
+                ("Falhas", "failed"),
+            )
+        ):
+            return
+        index = selector.currentIndex()
+        if index not in (0, 1, 2, 3):
+            return
+        selector.setCurrentIndex((index + 1) % 4)
 
     def _refresh_context_status(self) -> None:
         self.context_status.setText(
