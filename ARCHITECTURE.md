@@ -294,7 +294,9 @@ clear.
     and a fixed, evidence-qualified classification of the latest presentation state.
 53. M146: Bounded LYRA Interruption Timeline Filter Host v1, explicitly filtering
     only recognized failure and cancellation presentations within 12 events.
-54. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+54. M147: Explicit LYRA Task Timeline Toggle Shortcut Host v1, window-scoped
+    Ctrl+Shift+E for the existing read-only task history panel, with no dispatch.
+55. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.

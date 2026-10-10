@@ -184,6 +184,15 @@ class MainWindow(QMainWindow):
         self.task_timeline_toggle.setToolTip(
             "Mostra até 12 resumos recentes, sem pedidos ou evidências brutas."
         )
+        self.task_timeline_toggle_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+E"), self
+        )
+        self.task_timeline_toggle_shortcut.setObjectName(
+            "lyra_task_timeline_toggle_shortcut"
+        )
+        self.task_timeline_toggle_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.task_timeline_view = QPlainTextEdit()
         self.task_timeline_view.setObjectName("lyra_task_timeline_view")
         self.task_timeline_view.setReadOnly(True)
@@ -529,6 +538,9 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.task_timeline_toggle.clicked.connect(self._toggle_task_timeline)
+        self.task_timeline_toggle_shortcut.activated.connect(
+            self._toggle_task_timeline_shortcut
+        )
         self.task_timeline_interruptions_only.toggled.connect(
             self._refresh_task_timeline
         )
@@ -620,6 +632,14 @@ class MainWindow(QMainWindow):
         self.task_timeline_view.setHidden(
             not self.task_timeline_view.isHidden()
         )
+
+    def _toggle_task_timeline_shortcut(self) -> None:
+        if (
+            not self.task_timeline_toggle.isEnabled()
+            or not self.task_timeline_toggle_shortcut.isEnabled()
+        ):
+            return
+        self._toggle_task_timeline()
 
     def _refresh_context_status(self) -> None:
         self.context_status.setText(
