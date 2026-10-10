@@ -268,6 +268,15 @@ class MainWindow(QMainWindow):
         )
         self.transcript_find_clear = QPushButton("Limpar busca")
         self.transcript_find_clear.setObjectName("lyra_transcript_find_clear")
+        self.transcript_find_clear_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+L"), self
+        )
+        self.transcript_find_clear_shortcut.setObjectName(
+            "lyra_transcript_find_clear_shortcut"
+        )
+        self.transcript_find_clear_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.transcript_find_clear.setToolTip(
             "Limpa somente a consulta e os indicadores, sem alterar os modos."
         )
@@ -473,6 +482,9 @@ class MainWindow(QMainWindow):
         )
         self.transcript_find.textChanged.connect(self._on_transcript_find_query_changed)
         self.transcript_find_clear.clicked.connect(self._clear_transcript_find)
+        self.transcript_find_clear_shortcut.activated.connect(
+            self._clear_transcript_find_shortcut
+        )
         self.transcript_find_escape_shortcut.activated.connect(
             self._leave_transcript_find
         )
@@ -589,6 +601,15 @@ class MainWindow(QMainWindow):
 
     def _on_transcript_find_mode_changed(self, _checked: bool) -> None:
         self._on_transcript_find_query_changed("")
+
+    def _clear_transcript_find_shortcut(self) -> None:
+        if (
+            not self.transcript_find.isEnabled()
+            or not self.transcript_find_clear.isEnabled()
+            or not self.transcript_find_clear_shortcut.isEnabled()
+        ):
+            return
+        self._clear_transcript_find()
 
     def _clear_transcript_find(self) -> None:
         if (
@@ -802,6 +823,7 @@ class MainWindow(QMainWindow):
         self.session_reset.setEnabled(not busy)
         self.transcript_find.setEnabled(not busy)
         self.transcript_find_clear.setEnabled(not busy)
+        self.transcript_find_clear_shortcut.setEnabled(not busy)
         self.transcript_find_escape_shortcut.setEnabled(not busy)
         self.transcript_find_enter_next_shortcut.setEnabled(not busy)
         self.transcript_find_enter_previous_shortcut.setEnabled(not busy)

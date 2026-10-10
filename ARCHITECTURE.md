@@ -278,7 +278,9 @@ clear.
     Ctrl+Shift+W to toggle the existing literal whole-word search mode.
 45. M138: Explicit LYRA Case-Sensitive Find Toggle Shortcut Host v1, window-scoped
     Ctrl+Shift+C to toggle existing literal case-sensitive search mode.
-46. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+46. M139: Explicit LYRA Clear Find Shortcut Host v1, window-scoped
+    Ctrl+Shift+L to clear only the current transcript search query and labels.
+47. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1374,5 +1376,19 @@ the search input, case-sensitive checkbox and shortcut to be enabled, and
 is disabled while tasks are busy. Existing 120-character search, 65536
 transcript and 256-result bounds remain unchanged. No new Phoenix authority,
 provider calls, task execution, memory writes or conversation mutation.
+Separate real Windows Qt dogfood and exact existing-commit finalization
+are required before closure.
+
+
+## M139 - LYRA Clear Find Shortcut Host v1
+
+M139 adds window-scoped Ctrl+Shift+L to invoke only the existing
+clear-search handler. The shortcut clears the query and match count/rank
+indicators without scanning the transcript, changing whole-word or case
+mode, removing transcript text, changing selection, or changing the draft.
+It is disabled while tasks are busy; its direct handler is fail-closed
+when the search input, clear button or shortcut are disabled. Search
+bounds remain intact and no new Phoenix authority, provider calls, task
+execution, memory writes or conversation mutation are introduced.
 Separate real Windows Qt dogfood and exact existing-commit finalization
 are required before closure.
