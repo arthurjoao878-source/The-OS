@@ -95,6 +95,13 @@ class TaskTimeline:
         ]
         return "\n".join(matches) if matches else TASK_TIMELINE_INTERRUPTIONS_EMPTY
 
+    def interruption_count_label(self) -> str:
+        """Read-only count of already-classified presentations in the last 12."""
+        return (
+            f"Interrupções: {sum(self._interruption_flags)}/"
+            f"{TASK_TIMELINE_LIMIT} eventos recentes"
+        )
+
     def summary(self) -> str:
         """Fixed labels about bounded visible events; never proof of unseen effects."""
         if not self._entries:

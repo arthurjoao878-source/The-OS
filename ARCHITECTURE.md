@@ -298,7 +298,10 @@ clear.
     Ctrl+Shift+E for the existing read-only task history panel, with no dispatch.
 55. M148: Explicit LYRA Interruption Filter Shortcut Host v1, window-scoped
     Ctrl+Shift+I to toggle the existing bounded read-only interruption filter.
-56. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+56. M149: Bounded LYRA Interruption Count Host v1, read-only count of
+    recognized interruption presentations in the retained 12 recent events,
+    including requested cancellations, not a count of verified effects.
+57. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
