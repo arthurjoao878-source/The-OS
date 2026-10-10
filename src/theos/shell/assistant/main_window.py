@@ -43,8 +43,10 @@ from theos.lyra.planning import LyraPlanner, PlanKind
 from theos.shell.assistant.context_status import present_context_status
 from theos.shell.assistant.draft_recall import recallable_user_drafts
 from theos.shell.assistant.task_timeline import (
+    TaskInterruptionKind,
     TaskTimeline,
     present_direct_action_progress,
+    present_task_interruption,
 )
 from theos.shell.assistant.workflow_progress import (
     HostWorkflowProgressView,
@@ -1107,6 +1109,7 @@ class MainWindow(QMainWindow):
         control = self._active_control
         if control is not None and control.cancel():
             self._update_task_controls(control.status)
+            self._record_task_interruption(TaskInterruptionKind.CANCEL_REQUESTED)
             self._lyra("Cancelamento solicitado.")
 
     def _finish_tool_task(self) -> None:
@@ -1188,6 +1191,16 @@ class MainWindow(QMainWindow):
             request.arguments.update(preview.execution_guard)
         return approved
 
+    def _record_task_interruption(self, kind: TaskInterruptionKind) -> None:
+        if self._active_control is None:
+            return
+        view = present_task_interruption(kind)
+        if view is None:
+            return
+        self.workflow_status.setText(view.text)
+        if self._task_timeline.record(view):
+            self._refresh_task_timeline()
+
     def _record_direct_action_progress(self, view: HostWorkflowProgressView | None) -> None:
         if view is None:
             return
@@ -1236,6 +1249,7 @@ class MainWindow(QMainWindow):
 
     def _on_tool_loop_result(self, result: object) -> None:
         if not isinstance(result, ToolLoopResult):
+            self._record_task_interruption(TaskInterruptionKind.INVALID_RESULT)
             self._lyra("O loop de ferramentas retornou um resultado inválido.")
             self._finish_tool_task()
             return
@@ -1285,5 +1299,6 @@ class MainWindow(QMainWindow):
         self._pool.start(worker)
 
     def _on_ai_failure(self, message: str) -> None:
+        self._record_task_interruption(TaskInterruptionKind.PROCESSING_FAILED)
         self._lyra(message)
         self._finish_tool_task()

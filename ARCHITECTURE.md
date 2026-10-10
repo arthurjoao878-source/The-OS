@@ -288,7 +288,9 @@ clear.
     presenting up to 12 recent M102/M103 summary events for the current task.
 50. M143: Bounded LYRA Direct Action Timeline Host v1, presenting only
     approved direct-action lifecycle IDs and evidence-qualified outcomes.
-51. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+51. M144: Bounded LYRA Failure and Cancellation Visibility Host v1, presenting
+    cancel requests as nonterminal and processing failures as fixed safe labels.
+52. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
