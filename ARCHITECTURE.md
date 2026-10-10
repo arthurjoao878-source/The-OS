@@ -315,7 +315,9 @@ clear.
     indication of whether the current list shows full history or one safe filter.
 62. M155: Explicit LYRA Timeline Clear Filters Button Host v1, an opt-in
     presentation-only button restoring the full recent-event history view.
-63. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+63. M156: Explicit LYRA Timeline Clear Filters Shortcut Host v1, a
+    window-scoped Ctrl+Shift+U keyboard route to the existing safe clear action.
+64. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1615,3 +1617,24 @@ No new local authority, provider call, AI inference, persistent memory
 mutation, approval bypass, external effect or Phoenix authority is added.
 Full pytest, Ruff and a separate real Windows Qt dogfood must precede any
 controlled publication.
+
+
+## M156 - Explicit LYRA Timeline Clear Filters Shortcut Host v1
+
+M156 adds a window-scoped Ctrl+Shift+U shortcut to the existing M155
+"Limpar filtros" control. It reuses the same fail-closed presentation-only
+handler: return the 12-event read-only timeline to full history, uncheck
+"Somente interrupções", and select "Todas". The underlying timeline,
+interruption totals, session state, draft, memory, and Phoenix authority
+remain unchanged. No workflow dispatch, new model output or provider call.
+
+The keyboard handler requires both the shortcut and button enabled, while
+the shared M155 handler verifies the checkbox, selector, selected index and
+exact fixed four-item label/data model before changing any state. Invalid
+or corrupt controls fail closed. No filter clear happens automatically on
+shortcut installation, and a repeated explicit key press is idempotent.
+Qt window-scoped context prevents cross-window control; the handler remains
+available during a controlled dry busy task without executing it. Existing
+Ctrl+Shift+E/I/Y and Ctrl+M or transcript find shortcuts remain unchanged.
+No persistent data or task history is erased. Denied/accepted session reset
+semantics and the fixed read-only view-count/scope labels are preserved.

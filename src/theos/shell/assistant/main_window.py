@@ -260,7 +260,17 @@ class MainWindow(QMainWindow):
         self.task_timeline_filter_clear = QPushButton("Limpar filtros")
         self.task_timeline_filter_clear.setObjectName("lyra_task_timeline_filter_clear")
         self.task_timeline_filter_clear.setToolTip(
-            "Volta ao histórico completo sem apagar eventos ou alterar tarefas."
+            "Volta ao histórico completo sem apagar eventos ou alterar tarefas "
+            "(Ctrl+Shift+U)."
+        )
+        self.task_timeline_filter_clear_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+U"), self
+        )
+        self.task_timeline_filter_clear_shortcut.setObjectName(
+            "lyra_task_timeline_filter_clear_shortcut"
+        )
+        self.task_timeline_filter_clear_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
         )
         self.task_timeline_visible_count = QLabel(
             self._task_timeline.visible_entry_count_label(
@@ -637,6 +647,9 @@ class MainWindow(QMainWindow):
         self.task_timeline_filter_clear.clicked.connect(
             self._clear_task_timeline_filters
         )
+        self.task_timeline_filter_clear_shortcut.activated.connect(
+            self._clear_task_timeline_filters_shortcut
+        )
         self.task_timeline_interruptions_shortcut.activated.connect(
             self._toggle_task_timeline_interruptions_shortcut
         )
@@ -790,6 +803,15 @@ class MainWindow(QMainWindow):
         if index not in (0, 1, 2, 3):
             return
         selector.setCurrentIndex((index + 1) % 4)
+
+    def _clear_task_timeline_filters_shortcut(self) -> None:
+        """Window-local keyboard route to the existing fail-closed button action."""
+        if (
+            not self.task_timeline_filter_clear_shortcut.isEnabled()
+            or not self.task_timeline_filter_clear.isEnabled()
+        ):
+            return
+        self._clear_task_timeline_filters()
 
     def _clear_task_timeline_filters(self) -> None:
         """Explicit presentation-only reset; never delete timeline entries."""
