@@ -17,6 +17,7 @@ class TaskTimeline:
     """Recent presentation-only task states, never arguments or raw evidence."""
 
     _entries: list[str] = field(default_factory=list)
+    _latest_terminal: bool | None = None
 
     def record(self, view: HostWorkflowProgressView) -> bool:
         if not isinstance(view, HostWorkflowProgressView):
@@ -31,12 +32,14 @@ class TaskTimeline:
         if self._entries and self._entries[-1] == text:
             return False
         self._entries.append(text)
+        self._latest_terminal = view.terminal if type(view.terminal) is bool else None
         if len(self._entries) > TASK_TIMELINE_LIMIT:
             del self._entries[:-TASK_TIMELINE_LIMIT]
         return True
 
     def clear(self) -> None:
         self._entries.clear()
+        self._latest_terminal = None
 
     def snapshot(self) -> tuple[str, ...]:
         return tuple(self._entries)
@@ -47,6 +50,42 @@ class TaskTimeline:
         return "\n".join(
             f"{index}. {entry}" for index, entry in enumerate(self._entries, 1)
         )
+
+    def summary(self) -> str:
+        """Fixed labels about bounded visible events; never proof of unseen effects."""
+        if not self._entries:
+            return "Resumo: 0/12 eventos · sem registros"
+        last = self._entries[-1]
+        status = "estado não classificado"
+        if self._latest_terminal is True:
+            if last.startswith("Ação direta: pós-condição verificada · "):
+                status = "pós-condição verificada"
+            elif last.startswith("Ação direta: efeito despachado, pós-condição não comprovada · "):
+                status = "despachado, não verificado"
+            elif last.startswith("Ação direta: resultado recebido, efeito não comprovado · "):
+                status = "resultado recebido, não comprovado"
+            elif last.startswith("Ação direta: falha reportada · "):
+                status = "falha reportada"
+            elif last.startswith("Tarefa: concluída · "):
+                status = "tarefa concluída, sem atestar efeitos"
+            elif last.startswith("Tarefa: cancelada · "):
+                status = "cancelada"
+            elif last.startswith("Tarefa: falhou · "):
+                status = "falha sinalizada"
+            elif last == "Tarefa: falha no processamento · efeito não comprovado":
+                status = "falha de processamento"
+            elif last == "Tarefa: resultado inválido · efeito não comprovado":
+                status = "resultado inválido"
+        elif self._latest_terminal is False:
+            if last == "Tarefa: cancelamento solicitado · aguardando confirmação":
+                status = "cancelamento pendente"
+            elif last.startswith("Tarefa: aguardando confirmação · "):
+                status = "aguardando confirmação"
+            elif last.startswith("Ação direta: solicitada · "):
+                status = "ação solicitada, sem resultado"
+            else:
+                status = "em acompanhamento"
+        return f"Resumo: {len(self._entries)}/{TASK_TIMELINE_LIMIT} eventos · {status}"
 
 
 def present_direct_action_progress(

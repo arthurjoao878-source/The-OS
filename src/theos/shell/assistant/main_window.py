@@ -174,6 +174,11 @@ class MainWindow(QMainWindow):
 
         header = QLabel("LYRA  ● ON")
         self.workflow_status = QLabel("Tarefa: ociosa")
+        self.task_summary = QLabel(self._task_timeline.summary())
+        self.task_summary.setObjectName("lyra_task_summary")
+        self.task_summary.setToolTip(
+            "Contagem e classificação segura do último evento, sem evidências brutas."
+        )
         self.task_timeline_toggle = QPushButton("Etapas da tarefa")
         self.task_timeline_toggle.setObjectName("lyra_task_timeline_toggle")
         self.task_timeline_toggle.setToolTip(
@@ -490,6 +495,7 @@ class MainWindow(QMainWindow):
         task_progress_controls.addWidget(self.workflow_status, 1)
         task_progress_controls.addWidget(self.task_timeline_toggle)
         layout.addLayout(task_progress_controls)
+        layout.addWidget(self.task_summary)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
@@ -591,6 +597,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_task_timeline(self) -> None:
         self.task_timeline_view.setPlainText(self._task_timeline.display())
+        self.task_summary.setText(self._task_timeline.summary())
 
     def _toggle_task_timeline(self) -> None:
         if not self.task_timeline_toggle.isEnabled():

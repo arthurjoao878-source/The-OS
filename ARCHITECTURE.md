@@ -290,7 +290,9 @@ clear.
     approved direct-action lifecycle IDs and evidence-qualified outcomes.
 51. M144: Bounded LYRA Failure and Cancellation Visibility Host v1, presenting
     cancel requests as nonterminal and processing failures as fixed safe labels.
-52. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+52. M145: Bounded LYRA Task Summary Host v1, showing only rolling event count
+    and a fixed, evidence-qualified classification of the latest presentation state.
+53. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
