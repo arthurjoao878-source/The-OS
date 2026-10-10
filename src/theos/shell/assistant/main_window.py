@@ -257,6 +257,11 @@ class MainWindow(QMainWindow):
         self.task_timeline_interruption_category_cycle_shortcut.setContext(
             Qt.ShortcutContext.WindowShortcut
         )
+        self.task_timeline_filter_clear = QPushButton("Limpar filtros")
+        self.task_timeline_filter_clear.setObjectName("lyra_task_timeline_filter_clear")
+        self.task_timeline_filter_clear.setToolTip(
+            "Volta ao histórico completo sem apagar eventos ou alterar tarefas."
+        )
         self.task_timeline_visible_count = QLabel(
             self._task_timeline.visible_entry_count_label(
                 interruptions_only=False, category="all"
@@ -589,6 +594,7 @@ class MainWindow(QMainWindow):
         interruption_filters.addWidget(self.task_timeline_interruptions_only)
         interruption_filters.addWidget(QLabel("Tipo"))
         interruption_filters.addWidget(self.task_timeline_interruption_category)
+        interruption_filters.addWidget(self.task_timeline_filter_clear)
         interruption_filters.addStretch(1)
         layout.addLayout(interruption_filters)
         layout.addWidget(self.task_timeline_view)
@@ -627,6 +633,9 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_interruption_category_cycle_shortcut.activated.connect(
             self._cycle_task_timeline_interruption_category_shortcut
+        )
+        self.task_timeline_filter_clear.clicked.connect(
+            self._clear_task_timeline_filters
         )
         self.task_timeline_interruptions_shortcut.activated.connect(
             self._toggle_task_timeline_interruptions_shortcut
@@ -781,6 +790,32 @@ class MainWindow(QMainWindow):
         if index not in (0, 1, 2, 3):
             return
         selector.setCurrentIndex((index + 1) % 4)
+
+    def _clear_task_timeline_filters(self) -> None:
+        """Explicit presentation-only reset; never delete timeline entries."""
+        selector = self.task_timeline_interruption_category
+        only = self.task_timeline_interruptions_only
+        if (
+            not self.task_timeline_filter_clear.isEnabled()
+            or not selector.isEnabled()
+            or not only.isEnabled()
+            or selector.count() != 4
+            or tuple(
+                (selector.itemText(index), selector.itemData(index))
+                for index in range(4)
+            )
+            != (
+                ("Todas", "all"),
+                ("Pendentes", "pending"),
+                ("Canceladas", "cancelled"),
+                ("Falhas", "failed"),
+            )
+            or selector.currentIndex() not in (0, 1, 2, 3)
+        ):
+            return
+        # Reuse existing widget signals and _refresh_task_timeline.
+        selector.setCurrentIndex(0)
+        only.setChecked(False)
 
     def _refresh_context_status(self) -> None:
         self.context_status.setText(

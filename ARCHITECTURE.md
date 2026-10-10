@@ -313,7 +313,9 @@ clear.
     counting entries in the currently selected safe 12-event timeline view.
 61. M154: Bounded LYRA Timeline View Scope Label Host v1, a fixed read-only
     indication of whether the current list shows full history or one safe filter.
-62. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+62. M155: Explicit LYRA Timeline Clear Filters Button Host v1, an opt-in
+    presentation-only button restoring the full recent-event history view.
+63. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1587,3 +1589,29 @@ There is no new tool, provider call, request dispatch, memory mutation,
 permission, approval bypass, external operation or Phoenix authority. Full
 pytest, Ruff and separate real Windows Qt dogfood must pass before gated
 remote publication.
+
+
+## M155 - Explicit LYRA Timeline Clear Filters Button Host v1
+
+M155 adds an explicit "Limpar filtros" button beside the existing
+interruption-only checkbox and finite category selector. A successful click
+returns the presentation to full history (interruptions-only unchecked,
+category Todas). It does not clear the underlying 12-entry timeline, erase
+events, change interruption classifications, discard drafts, modify memory,
+run tools or dispatch any action. The button uses the existing Qt widget
+signals and the shared presentation refresh; it is not a session reset.
+
+Before changing either control, the handler requires the button, checkbox
+and selector to be enabled, the exact finite four-item label+data model,
+and a valid selected index. Corrupted model and disabled-control cases fail
+closed without partial state updates. An already-clear filter is idempotent.
+Each window owns independent controls and history. The button remains a
+presentation-only convenience during a simulated busy task and does not
+introduce a shortcut or override any existing shortcut. Denied/accepted
+session reset semantics are unchanged. The 12-event limit, fixed scope
+label and visible count reuse the earlier implementation unmodified.
+
+No new local authority, provider call, AI inference, persistent memory
+mutation, approval bypass, external effect or Phoenix authority is added.
+Full pytest, Ruff and a separate real Windows Qt dogfood must precede any
+controlled publication.
