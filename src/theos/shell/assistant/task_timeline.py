@@ -10,6 +10,27 @@ from theos.shell.assistant.workflow_progress import HostWorkflowProgressView
 TASK_TIMELINE_LIMIT = 12
 TASK_TIMELINE_MAX_ENTRY_CHARS = 180
 TASK_TIMELINE_EMPTY = "Sem etapas de tarefa nesta sessão."
+TASK_TIMELINE_INTERRUPTIONS_EMPTY = "Sem interrupções nos eventos recentes."
+
+
+def _is_interruption(text: str, terminal: bool | None) -> bool:
+    """Accept only fixed, presentation-only interruption labels."""
+    if terminal is False:
+        return text == "Tarefa: cancelamento solicitado · aguardando confirmação"
+    if terminal is not True:
+        return False
+    if text in (
+        "Tarefa: falha no processamento · efeito não comprovado",
+        "Tarefa: resultado inválido · efeito não comprovado",
+    ):
+        return True
+    if re.fullmatch(r"Ação direta: falha reportada · [a-z][a-z0-9_]{0,47}", text):
+        return True
+    step = r"[0-9]{1,4}/[1-9][0-9]{0,3} etapas"
+    if re.fullmatch(rf"Tarefa: cancelada · {step}", text):
+        return True
+    domain = r"(?:aplicativo|desenvolvimento|arquivo|outro|processo|sistema|janela)"
+    return re.fullmatch(rf"Tarefa: falhou · {step}(?: · {domain})?", text) is not None
 
 
 @dataclass(slots=True)
@@ -18,6 +39,7 @@ class TaskTimeline:
 
     _entries: list[str] = field(default_factory=list)
     _latest_terminal: bool | None = None
+    _interruption_flags: list[bool] = field(default_factory=list)
 
     def record(self, view: HostWorkflowProgressView) -> bool:
         if not isinstance(view, HostWorkflowProgressView):
@@ -29,17 +51,28 @@ class TaskTimeline:
             or any(ord(char) < 32 or ord(char) == 127 for char in text)
         ):
             return False
+        terminal = view.terminal if type(view.terminal) is bool else None
         if self._entries and self._entries[-1] == text:
+            # A later terminal signal for an identical label is a real state
+            # transition; update the current event instead of losing it.
+            # Never downgrade an already terminal event or inflate the count.
+            if self._latest_terminal is False and terminal is True:
+                self._latest_terminal = True
+                self._interruption_flags[-1] = _is_interruption(text, True)
+                return True
             return False
         self._entries.append(text)
-        self._latest_terminal = view.terminal if type(view.terminal) is bool else None
+        self._latest_terminal = terminal
+        self._interruption_flags.append(_is_interruption(text, terminal))
         if len(self._entries) > TASK_TIMELINE_LIMIT:
             del self._entries[:-TASK_TIMELINE_LIMIT]
+            del self._interruption_flags[:-TASK_TIMELINE_LIMIT]
         return True
 
     def clear(self) -> None:
         self._entries.clear()
         self._latest_terminal = None
+        self._interruption_flags.clear()
 
     def snapshot(self) -> tuple[str, ...]:
         return tuple(self._entries)
@@ -50,6 +83,17 @@ class TaskTimeline:
         return "\n".join(
             f"{index}. {entry}" for index, entry in enumerate(self._entries, 1)
         )
+
+    def display_interruptions(self) -> str:
+        """A read-only, bounded filtered view; never mutates the event history."""
+        matches = [
+            f"{index}. {text}"
+            for index, (text, flagged) in enumerate(
+                zip(self._entries, self._interruption_flags, strict=True), 1
+            )
+            if flagged
+        ]
+        return "\n".join(matches) if matches else TASK_TIMELINE_INTERRUPTIONS_EMPTY
 
     def summary(self) -> str:
         """Fixed labels about bounded visible events; never proof of unseen effects."""

@@ -292,7 +292,9 @@ clear.
     cancel requests as nonterminal and processing failures as fixed safe labels.
 52. M145: Bounded LYRA Task Summary Host v1, showing only rolling event count
     and a fixed, evidence-qualified classification of the latest presentation state.
-53. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+53. M146: Bounded LYRA Interruption Timeline Filter Host v1, explicitly filtering
+    only recognized failure and cancellation presentations within 12 events.
+54. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.

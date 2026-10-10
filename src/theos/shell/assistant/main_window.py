@@ -190,6 +190,13 @@ class MainWindow(QMainWindow):
         self.task_timeline_view.setMaximumHeight(144)
         self.task_timeline_view.setPlainText(self._task_timeline.display())
         self.task_timeline_view.hide()
+        self.task_timeline_interruptions_only = QCheckBox("Somente interrupções")
+        self.task_timeline_interruptions_only.setObjectName(
+            "lyra_task_timeline_interruptions_only"
+        )
+        self.task_timeline_interruptions_only.setToolTip(
+            "Filtra somente os últimos 12 eventos apresentados; não apaga o histórico."
+        )
         self.context_status = QLabel()
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
@@ -496,6 +503,7 @@ class MainWindow(QMainWindow):
         task_progress_controls.addWidget(self.task_timeline_toggle)
         layout.addLayout(task_progress_controls)
         layout.addWidget(self.task_summary)
+        layout.addWidget(self.task_timeline_interruptions_only)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
@@ -521,6 +529,9 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.task_timeline_toggle.clicked.connect(self._toggle_task_timeline)
+        self.task_timeline_interruptions_only.toggled.connect(
+            self._refresh_task_timeline
+        )
         self.chat_follow.toggled.connect(self._on_chat_follow_toggled)
         self.chat_follow_toggle_shortcut.activated.connect(
             self._toggle_chat_follow_shortcut
@@ -596,7 +607,11 @@ class MainWindow(QMainWindow):
         self._lyra("Pronta.")
 
     def _refresh_task_timeline(self) -> None:
-        self.task_timeline_view.setPlainText(self._task_timeline.display())
+        if self.task_timeline_interruptions_only.isChecked():
+            text = self._task_timeline.display_interruptions()
+        else:
+            text = self._task_timeline.display()
+        self.task_timeline_view.setPlainText(text)
         self.task_summary.setText(self._task_timeline.summary())
 
     def _toggle_task_timeline(self) -> None:
