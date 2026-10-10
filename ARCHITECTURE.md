@@ -274,7 +274,9 @@ clear.
     Ctrl+Shift+A to toggle the existing follow-new-messages control.
 43. M136: Explicit LYRA Chat Font Size Cycle Shortcut Host v1, window-scoped
     Ctrl+Shift+T to cycle the four existing chat-only font sizes.
-44. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+44. M137: Explicit LYRA Whole-Word Find Toggle Shortcut Host v1, window-scoped
+    Ctrl+Shift+W to toggle the existing literal whole-word search mode.
+45. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1340,3 +1342,20 @@ not call a provider, run actions, add permissions or change Phoenix authority.
 Manual size choices and reset-to-Sistema behavior remain unchanged.
 Real Windows Qt keyboard dogfood, the full pytest suite and Ruff must pass
 before separate publication of the exact existing local commit.
+
+
+## M137 - LYRA Whole-Word Find Toggle Shortcut Host v1
+
+M137 adds a window-scoped Ctrl+Shift+W shortcut that toggles only the existing
+whole-word literal search QCheckBox. The current checked-state and existing
+toggled signal remain the source of truth. As with manually clicking this
+checkbox, the query remains unchanged, current count and rank labels are
+invalidated without running a search, and the transcript's selected text
+and reading position are not changed by the shortcut handler. The new
+shortcut requires the search input, whole-word checkbox and shortcut itself
+to be enabled, and is disabled while work is busy. Case sensitivity is
+independent. The find limit remains 120 characters for the query, 65536
+for the transcript and 256 for counted matches. This feature has no new
+Phoenix authority, task execution, provider calls, memory writes, or
+conversation mutations. A separate real Windows Qt keyboard dogfood and a
+separate exact existing-commit finalizer are required before closure.
