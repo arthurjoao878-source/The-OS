@@ -309,7 +309,9 @@ clear.
     timeline to pending requests, confirmed cancellations or failures.
 59. M152: Explicit LYRA Interruption Category Cycle Shortcut Host v1, a
     window-scoped Ctrl+Shift+Y shortcut that cycles the existing safe selector.
-60. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+60. M153: Bounded LYRA Visible Timeline Count Host v1, a read-only label
+    counting entries in the currently selected safe 12-event timeline view.
+61. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1532,3 +1534,28 @@ change The Hands execution or Phoenix authority. The same 12-event bound,
 M149/M150 counts and evidence qualifications remain intact. Full pytest,
 Ruff and a separate Windows Qt keyboard dogfood are required before an
 exact-commit finalizer may publish M152.
+
+
+## M153 - Bounded LYRA Visible Timeline Count Host v1
+
+M153 adds a single read-only Na lista counter showing how many entries are in
+the current process-local task timeline view, out of the existing fixed 12
+event retention bound. When Somente interrupções is unchecked, the count uses
+the full recent event list. When checked, it uses the same validated category
+display as M151: Todas, Pendentes, Canceladas or Falhas. This does not claim
+that the counted events are verified outcomes or completed tasks.
+
+Invalid selector category data fails closed to zero when interruption filtering
+is active. Invalid boolean inputs to the model counter fail closed. Counting
+uses already validated, bounded presentation strings, not raw action evidence
+or provider content, and does not mutate the model or its existing M149/M150
+counts. An empty list reports zero; the counter updates on record refresh,
+category changes and existing Ctrl+Shift+I and Ctrl+Shift+Y shortcuts.
+
+The label is visible even when the timeline panel is closed, but Na lista
+refers to the list's current selected view, not to the panel visibility state.
+An accepted reset or new task clears the count, while a denied reset preserves
+it. Category preferences remain unchanged. Different windows are isolated.
+The feature adds no new tool, action, AI call, execution, memory write, approval
+rule, Phoenix authority, durable tracking or network operation. Full pytest,
+Ruff and separate real Windows Qt dogfood are required before publication.

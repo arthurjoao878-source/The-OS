@@ -257,6 +257,15 @@ class MainWindow(QMainWindow):
         self.task_timeline_interruption_category_cycle_shortcut.setContext(
             Qt.ShortcutContext.WindowShortcut
         )
+        self.task_timeline_visible_count = QLabel(
+            self._task_timeline.visible_entry_count_label(
+                interruptions_only=False, category="all"
+            )
+        )
+        self.task_timeline_visible_count.setObjectName("lyra_task_timeline_visible_count")
+        self.task_timeline_visible_count.setToolTip(
+            "Quantidade na lista atual de até 12 eventos; não comprova efeitos."
+        )
         self.context_status = QLabel()
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
@@ -565,6 +574,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.task_summary)
         layout.addWidget(self.task_interruption_count)
         layout.addWidget(self.task_interruption_breakdown)
+        layout.addWidget(self.task_timeline_visible_count)
         interruption_filters = QHBoxLayout()
         interruption_filters.addWidget(self.task_timeline_interruptions_only)
         interruption_filters.addWidget(QLabel("Tipo"))
@@ -699,6 +709,12 @@ class MainWindow(QMainWindow):
         )
         self.task_interruption_breakdown.setText(
             self._task_timeline.interruption_breakdown_label()
+        )
+        self.task_timeline_visible_count.setText(
+            self._task_timeline.visible_entry_count_label(
+                interruptions_only=self.task_timeline_interruptions_only.isChecked(),
+                category=self.task_timeline_interruption_category.currentData(),
+            )
         )
 
     def _toggle_task_timeline(self) -> None:

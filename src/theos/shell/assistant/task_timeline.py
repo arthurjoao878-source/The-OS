@@ -119,6 +119,21 @@ class TaskTimeline:
         ]
         return "\n".join(matches) if matches else TASK_TIMELINE_INTERRUPTIONS_EMPTY
 
+    def visible_entry_count_label(self, *, interruptions_only: bool, category: str) -> str:
+        """Count only entries in the current safe, bounded presentation view."""
+        if type(interruptions_only) is not bool:
+            count = 0
+        elif not interruptions_only:
+            count = len(self._entries)
+        else:
+            display = self.display_interruption_category(category)
+            count = (
+                0
+                if display == TASK_TIMELINE_INTERRUPTIONS_EMPTY
+                else len(display.splitlines())
+            )
+        return f"Na lista: {count}/{TASK_TIMELINE_LIMIT} eventos recentes"
+
     def interruption_count_label(self) -> str:
         """Read-only count of already-classified presentations in the last 12."""
         return (
