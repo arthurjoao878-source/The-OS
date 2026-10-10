@@ -282,7 +282,9 @@ clear.
     Ctrl+Shift+L to clear only the current transcript search query and labels.
 47. M140: Explicit LYRA Jump End Shortcut Host v1, window-scoped
     Ctrl+Shift+J to jump to transcript end, even while tasks are busy.
-48. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+48. M141: Explicit LYRA Jump Start Shortcut Host v1, window-scoped
+    Ctrl+Shift+K to jump to transcript start, even while tasks are busy.
+49. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1407,3 +1409,16 @@ Its direct handler checks the existing transcript widget, end button, and
 shortcut enabled states before navigating. No new Phoenix authority or
 execution effects are introduced. Separate real Windows Qt dogfood and
 exact commit publication are required to close M140.
+
+
+## M141 - LYRA Jump Start Shortcut Host v1
+
+M141 introduces a window-scoped Ctrl+Shift+K shortcut reusing the
+existing passive chat jump-to-start action. Navigation remains available
+while tasks are busy, as with the existing navigation buttons. It never
+changes follow-new-messages, search state, draft, conversation content,
+selection, personality, persistent memory, task context, or provider.
+The direct handler checks the existing transcript widget, start button,
+and shortcut enabled states before navigating. No new Phoenix authority
+or execution effects are introduced. Separate real Windows Qt dogfood
+and exact commit publication are required to close M141.

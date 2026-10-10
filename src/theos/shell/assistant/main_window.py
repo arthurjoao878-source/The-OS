@@ -211,6 +211,15 @@ class MainWindow(QMainWindow):
             self.chat_text_size.addItem(label, size)
         self.chat_jump_start = QPushButton("Início")
         self.chat_jump_start.setObjectName("lyra_chat_jump_start")
+        self.chat_jump_start_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+K"), self
+        )
+        self.chat_jump_start_shortcut.setObjectName(
+            "lyra_chat_jump_start_shortcut"
+        )
+        self.chat_jump_start_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.chat_jump_start.setToolTip("Ir ao início do chat sem alterar o acompanhamento.")
         self.chat_jump_end = QPushButton("Final")
         self.chat_jump_end.setObjectName("lyra_chat_jump_end")
@@ -484,6 +493,9 @@ class MainWindow(QMainWindow):
             self._toggle_chat_follow_shortcut
         )
         self.chat_jump_start.clicked.connect(self._jump_to_chat_start)
+        self.chat_jump_start_shortcut.activated.connect(
+            self._jump_to_chat_start_shortcut
+        )
         self.chat_jump_end.clicked.connect(self._jump_to_chat_end)
         self.chat_jump_end_shortcut.activated.connect(
             self._jump_to_chat_end_shortcut
@@ -783,6 +795,15 @@ class MainWindow(QMainWindow):
         original = self._draft_recall_original
         self._clear_draft_recall_navigation()
         self.input.setText(original)
+
+    def _jump_to_chat_start_shortcut(self) -> None:
+        if (
+            not self.chat.isEnabled()
+            or not self.chat_jump_start.isEnabled()
+            or not self.chat_jump_start_shortcut.isEnabled()
+        ):
+            return
+        self._jump_to_chat_start()
 
     def _jump_to_chat_start(self) -> None:
         scrollbar = self.chat.verticalScrollBar()
