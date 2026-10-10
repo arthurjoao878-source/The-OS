@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from theos.core.actions.contracts import ActionRequest, ActionRisk
+from theos.core.actions.contracts import ActionRequest, ActionResult, ActionRisk
 from theos.core.actions.policy import requires_confirmation
 from theos.core.actions.registry import ActionRegistry
 from theos.core.tools import ToolCatalog, ToolDefinition
@@ -42,8 +42,14 @@ from theos.lyra.personality import (
 from theos.lyra.planning import LyraPlanner, PlanKind
 from theos.shell.assistant.context_status import present_context_status
 from theos.shell.assistant.draft_recall import recallable_user_drafts
-from theos.shell.assistant.task_timeline import TaskTimeline
-from theos.shell.assistant.workflow_progress import present_run_state
+from theos.shell.assistant.task_timeline import (
+    TaskTimeline,
+    present_direct_action_progress,
+)
+from theos.shell.assistant.workflow_progress import (
+    HostWorkflowProgressView,
+    present_run_state,
+)
 
 
 class WorkerSignals(QObject):
@@ -156,6 +162,7 @@ class MainWindow(QMainWindow):
         self._pool = QThreadPool.globalInstance()
         self._active_control: ExecutionControl | None = None
         self._task_timeline = TaskTimeline()
+        self._active_direct_action: tuple[str, object] | None = None
 
         self.setWindowTitle("LYRA — executor local: THE HANDS")
         self.resize(760, 600)
@@ -977,6 +984,7 @@ class MainWindow(QMainWindow):
         self._on_transcript_find_query_changed("")
         self.input.clear()
         self.workflow_status.setText("Tarefa: ociosa")
+        self._active_direct_action = None
         self._task_timeline.clear()
         self._refresh_task_timeline()
         self._lyra("Nova conversa iniciada.")
@@ -1060,6 +1068,7 @@ class MainWindow(QMainWindow):
         text: str,
         history: tuple[ConversationTurn, ...],
     ) -> None:
+        self._active_direct_action = None
         self._task_timeline.clear()
         self._refresh_task_timeline()
         self._lyra("Pensando...")
@@ -1179,13 +1188,38 @@ class MainWindow(QMainWindow):
             request.arguments.update(preview.execution_guard)
         return approved
 
+    def _record_direct_action_progress(self, view: HostWorkflowProgressView | None) -> None:
+        if view is None:
+            return
+        self.workflow_status.setText(view.text)
+        if self._task_timeline.record(view):
+            self._refresh_task_timeline()
+
     def _start_action(self, request: ActionRequest) -> None:
+        self._active_direct_action = (request.action, request.request_id)
+        self._task_timeline.clear()
+        self._refresh_task_timeline()
+        self._record_direct_action_progress(
+            present_direct_action_progress(request.action)
+        )
         self._set_busy(True)
         worker = ActionWorker(self._actions, request)
         worker.signals.finished.connect(self._on_action_result)
         self._pool.start(worker)
 
     def _on_action_result(self, result: object) -> None:
+        active = self._active_direct_action
+        if not isinstance(result, ActionResult):
+            return
+        if active is None and self._active_control is not None:
+            return
+        if active is not None and result.request_id != active[1]:
+            return
+        self._active_direct_action = None
+        if active is not None:
+            self._record_direct_action_progress(
+                present_direct_action_progress(active[0], result=result)
+            )
         self._lyra(result.message, remember_in_session=True)
         self._set_busy(False)
 

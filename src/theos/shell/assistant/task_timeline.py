@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
+from theos.core.actions.contracts import ActionResult
 from theos.shell.assistant.workflow_progress import HostWorkflowProgressView
 
 TASK_TIMELINE_LIMIT = 12
@@ -44,3 +46,30 @@ class TaskTimeline:
         return "\n".join(
             f"{index}. {entry}" for index, entry in enumerate(self._entries, 1)
         )
+
+
+def present_direct_action_progress(
+    action: str,
+    *,
+    result: ActionResult | None = None,
+) -> HostWorkflowProgressView | None:
+    """Present fixed, bounded action IDs; never render arguments or evidence."""
+    if not isinstance(action, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,47}", action) is None:
+        return None
+    if result is None:
+        return HostWorkflowProgressView(
+            text=f"Ação direta: solicitada · {action}", terminal=False
+        )
+    if not isinstance(result, ActionResult):
+        return None
+    if not result.success:
+        status = "falha reportada"
+    elif result.postcondition_verified is True:
+        status = "pós-condição verificada"
+    elif result.effect_dispatched is True:
+        status = "efeito despachado, pós-condição não comprovada"
+    else:
+        status = "resultado recebido, efeito não comprovado"
+    return HostWorkflowProgressView(
+        text=f"Ação direta: {status} · {action}", terminal=True
+    )

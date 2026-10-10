@@ -286,7 +286,9 @@ clear.
     Ctrl+Shift+K to jump to transcript start, even while tasks are busy.
 49. M142: Bounded LYRA Task Timeline Host v1, explicit read-only panel
     presenting up to 12 recent M102/M103 summary events for the current task.
-50. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+50. M143: Bounded LYRA Direct Action Timeline Host v1, presenting only
+    approved direct-action lifecycle IDs and evidence-qualified outcomes.
+51. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1440,3 +1442,21 @@ provider prompts, file contents, or execution evidence. No persistent
 write, external AI call, new tool, action, supervision, or Phoenix
 authority is introduced. Separate Windows Qt dogfood and controlled
 publication are required before M142 can be closed.
+
+## M143 - Bounded LYRA Direct Action Timeline Host v1
+
+M143 extends the closed M142 read-only, process-local, 12-entry timeline
+for direct actions that have passed existing local authority gates.
+The direct-action path shows a fixed bounded action identifier at worker
+submission, then a result status associated only with its exact request ID.
+ActionResult.success alone never asserts that an effect was dispatched or a
+postcondition verified. Only explicit effect_dispatched and
+postcondition_verified evidence fields permit those respective labels.
+Failure is always reported as a failure, even if fields conflict.
+No action arguments, result.message, raw evidence, secret strings,
+file contents, or provider prompts are retained in the panel. Denied
+actions never enter it; starting a new task or approved session reset
+clears prior entries. This adds no new registry actions, execution
+permissions, confirmation bypass, model call, provider access, memory
+mutation or Phoenix authority. Run real Windows Qt dogfood and gated
+remote publication separately before closing M143.
