@@ -187,6 +187,16 @@ class MainWindow(QMainWindow):
             "Conta as interrupções apresentadas nos últimos 12 eventos, "
             "incluindo cancelamentos solicitados; não comprova efeitos."
         )
+        self.task_interruption_breakdown = QLabel(
+            self._task_timeline.interruption_breakdown_label()
+        )
+        self.task_interruption_breakdown.setObjectName(
+            "lyra_task_interruption_breakdown"
+        )
+        self.task_interruption_breakdown.setToolTip(
+            "Classificação dos últimos 12 eventos já reconhecidos, "
+            "sem comprovar resultados ou efeitos."
+        )
         self.task_timeline_toggle = QPushButton("Etapas da tarefa")
         self.task_timeline_toggle.setObjectName("lyra_task_timeline_toggle")
         self.task_timeline_toggle.setToolTip(
@@ -530,6 +540,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(task_progress_controls)
         layout.addWidget(self.task_summary)
         layout.addWidget(self.task_interruption_count)
+        layout.addWidget(self.task_interruption_breakdown)
         layout.addWidget(self.task_timeline_interruptions_only)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
@@ -648,6 +659,9 @@ class MainWindow(QMainWindow):
         self.task_summary.setText(self._task_timeline.summary())
         self.task_interruption_count.setText(
             self._task_timeline.interruption_count_label()
+        )
+        self.task_interruption_breakdown.setText(
+            self._task_timeline.interruption_breakdown_label()
         )
 
     def _toggle_task_timeline(self) -> None:

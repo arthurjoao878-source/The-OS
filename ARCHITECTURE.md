@@ -301,7 +301,10 @@ clear.
 56. M149: Bounded LYRA Interruption Count Host v1, read-only count of
     recognized interruption presentations in the retained 12 recent events,
     including requested cancellations, not a count of verified effects.
-57. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+57. M150: Bounded LYRA Interruption Breakdown Host v1, read-only counts
+    separating pending cancellation requests, confirmed cancellations and
+    failures within the same retained 12 classified presentation events.
+58. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.

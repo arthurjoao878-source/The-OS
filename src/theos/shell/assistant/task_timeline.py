@@ -102,6 +102,24 @@ class TaskTimeline:
             f"{TASK_TIMELINE_LIMIT} eventos recentes"
         )
 
+    def interruption_breakdown_label(self) -> str:
+        """Counts only previously validated presentation flags in the last 12."""
+        pending = cancelled = failed = 0
+        for text, flagged in zip(
+            self._entries, self._interruption_flags, strict=True
+        ):
+            if not flagged:
+                continue
+            if text == "Tarefa: cancelamento solicitado · aguardando confirmação":
+                pending += 1
+            elif text.startswith("Tarefa: cancelada · "):
+                cancelled += 1
+            else:
+                failed += 1
+        return (
+            f"Tipos: pendentes {pending} · canceladas {cancelled} · falhas {failed}"
+        )
+
     def summary(self) -> str:
         """Fixed labels about bounded visible events; never proof of unseen effects."""
         if not self._entries:
