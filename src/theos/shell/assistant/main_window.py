@@ -206,6 +206,15 @@ class MainWindow(QMainWindow):
         self.task_timeline_interruptions_only.setToolTip(
             "Filtra somente os últimos 12 eventos apresentados; não apaga o histórico."
         )
+        self.task_timeline_interruptions_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+I"), self
+        )
+        self.task_timeline_interruptions_shortcut.setObjectName(
+            "lyra_task_timeline_interruptions_shortcut"
+        )
+        self.task_timeline_interruptions_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.context_status = QLabel()
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
@@ -544,6 +553,9 @@ class MainWindow(QMainWindow):
         self.task_timeline_interruptions_only.toggled.connect(
             self._refresh_task_timeline
         )
+        self.task_timeline_interruptions_shortcut.activated.connect(
+            self._toggle_task_timeline_interruptions_shortcut
+        )
         self.chat_follow.toggled.connect(self._on_chat_follow_toggled)
         self.chat_follow_toggle_shortcut.activated.connect(
             self._toggle_chat_follow_shortcut
@@ -640,6 +652,16 @@ class MainWindow(QMainWindow):
         ):
             return
         self._toggle_task_timeline()
+
+    def _toggle_task_timeline_interruptions_shortcut(self) -> None:
+        if (
+            not self.task_timeline_interruptions_only.isEnabled()
+            or not self.task_timeline_interruptions_shortcut.isEnabled()
+        ):
+            return
+        self.task_timeline_interruptions_only.setChecked(
+            not self.task_timeline_interruptions_only.isChecked()
+        )
 
     def _refresh_context_status(self) -> None:
         self.context_status.setText(

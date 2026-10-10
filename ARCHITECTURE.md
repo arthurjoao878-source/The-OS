@@ -296,7 +296,9 @@ clear.
     only recognized failure and cancellation presentations within 12 events.
 54. M147: Explicit LYRA Task Timeline Toggle Shortcut Host v1, window-scoped
     Ctrl+Shift+E for the existing read-only task history panel, with no dispatch.
-55. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+55. M148: Explicit LYRA Interruption Filter Shortcut Host v1, window-scoped
+    Ctrl+Shift+I to toggle the existing bounded read-only interruption filter.
+56. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
