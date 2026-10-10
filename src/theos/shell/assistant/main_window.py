@@ -214,6 +214,15 @@ class MainWindow(QMainWindow):
         self.chat_jump_start.setToolTip("Ir ao início do chat sem alterar o acompanhamento.")
         self.chat_jump_end = QPushButton("Final")
         self.chat_jump_end.setObjectName("lyra_chat_jump_end")
+        self.chat_jump_end_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+J"), self
+        )
+        self.chat_jump_end_shortcut.setObjectName(
+            "lyra_chat_jump_end_shortcut"
+        )
+        self.chat_jump_end_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.chat_jump_end.setToolTip("Ir ao final do chat sem alterar o acompanhamento.")
         self._last_find_query: str | None = None
         self.transcript_find = QLineEdit()
@@ -476,6 +485,9 @@ class MainWindow(QMainWindow):
         )
         self.chat_jump_start.clicked.connect(self._jump_to_chat_start)
         self.chat_jump_end.clicked.connect(self._jump_to_chat_end)
+        self.chat_jump_end_shortcut.activated.connect(
+            self._jump_to_chat_end_shortcut
+        )
         self.chat_text_size.currentIndexChanged.connect(self._apply_chat_text_size)
         self.chat_text_size_cycle_shortcut.activated.connect(
             self._cycle_chat_text_size_shortcut
@@ -775,6 +787,15 @@ class MainWindow(QMainWindow):
     def _jump_to_chat_start(self) -> None:
         scrollbar = self.chat.verticalScrollBar()
         scrollbar.setValue(scrollbar.minimum())
+
+    def _jump_to_chat_end_shortcut(self) -> None:
+        if (
+            not self.chat.isEnabled()
+            or not self.chat_jump_end.isEnabled()
+            or not self.chat_jump_end_shortcut.isEnabled()
+        ):
+            return
+        self._jump_to_chat_end()
 
     def _jump_to_chat_end(self) -> None:
         scrollbar = self.chat.verticalScrollBar()

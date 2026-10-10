@@ -280,7 +280,9 @@ clear.
     Ctrl+Shift+C to toggle existing literal case-sensitive search mode.
 46. M139: Explicit LYRA Clear Find Shortcut Host v1, window-scoped
     Ctrl+Shift+L to clear only the current transcript search query and labels.
-47. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+47. M140: Explicit LYRA Jump End Shortcut Host v1, window-scoped
+    Ctrl+Shift+J to jump to transcript end, even while tasks are busy.
+48. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1392,3 +1394,16 @@ bounds remain intact and no new Phoenix authority, provider calls, task
 execution, memory writes or conversation mutation are introduced.
 Separate real Windows Qt dogfood and exact existing-commit finalization
 are required before closure.
+
+
+## M140 - LYRA Jump End Shortcut Host v1
+
+M140 introduces a window-scoped Ctrl+Shift+J shortcut reusing the
+existing passive chat jump-to-end action. Navigation remains available
+while tasks are busy, as with the existing navigation buttons. It never
+changes the follow-new-messages mode, search state, draft, conversation
+text, selection, personality, persistent memory, task context, or provider.
+Its direct handler checks the existing transcript widget, end button, and
+shortcut enabled states before navigating. No new Phoenix authority or
+execution effects are introduced. Separate real Windows Qt dogfood and
+exact commit publication are required to close M140.
