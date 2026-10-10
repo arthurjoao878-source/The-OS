@@ -266,6 +266,15 @@ class MainWindow(QMainWindow):
         self.task_timeline_visible_count.setToolTip(
             "Quantidade na lista atual de até 12 eventos; não comprova efeitos."
         )
+        self.task_timeline_view_scope = QLabel(
+            self._task_timeline.visible_view_scope_label(
+                interruptions_only=False, category="all"
+            )
+        )
+        self.task_timeline_view_scope.setObjectName("lyra_task_timeline_view_scope")
+        self.task_timeline_view_scope.setToolTip(
+            "Descreve apenas o filtro de apresentação ativo; não executa ações."
+        )
         self.context_status = QLabel()
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
@@ -575,6 +584,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.task_interruption_count)
         layout.addWidget(self.task_interruption_breakdown)
         layout.addWidget(self.task_timeline_visible_count)
+        layout.addWidget(self.task_timeline_view_scope)
         interruption_filters = QHBoxLayout()
         interruption_filters.addWidget(self.task_timeline_interruptions_only)
         interruption_filters.addWidget(QLabel("Tipo"))
@@ -712,6 +722,12 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_visible_count.setText(
             self._task_timeline.visible_entry_count_label(
+                interruptions_only=self.task_timeline_interruptions_only.isChecked(),
+                category=self.task_timeline_interruption_category.currentData(),
+            )
+        )
+        self.task_timeline_view_scope.setText(
+            self._task_timeline.visible_view_scope_label(
                 interruptions_only=self.task_timeline_interruptions_only.isChecked(),
                 category=self.task_timeline_interruption_category.currentData(),
             )

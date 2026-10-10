@@ -311,7 +311,9 @@ clear.
     window-scoped Ctrl+Shift+Y shortcut that cycles the existing safe selector.
 60. M153: Bounded LYRA Visible Timeline Count Host v1, a read-only label
     counting entries in the currently selected safe 12-event timeline view.
-61. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+61. M154: Bounded LYRA Timeline View Scope Label Host v1, a fixed read-only
+    indication of whether the current list shows full history or one safe filter.
+62. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1559,3 +1561,29 @@ it. Category preferences remain unchanged. Different windows are isolated.
 The feature adds no new tool, action, AI call, execution, memory write, approval
 rule, Phoenix authority, durable tracking or network operation. Full pytest,
 Ruff and separate real Windows Qt dogfood are required before publication.
+
+
+## M154 - Bounded LYRA Timeline View Scope Label Host v1
+
+M154 adds a read-only fixed label showing which of the existing M142/M151
+timeline views is active. When the interruption-only option is disabled,
+Visão: histórico completo is shown, regardless of the stored category.
+When enabled, it displays one of four fixed strings: interrupções · todas,
+interrupções · pendentes, interrupções · canceladas, interrupções · falhas.
+Invalid boolean or active category data yields Visão: indisponível, with no
+interpolation of untrusted strings. The label reports display scope, never
+whether an event happened or any effect was verified.
+
+The label remains visible when the read-only panel is hidden, synchronized
+with the same _refresh_task_timeline path as the M153 visible count, the M149
+interruption total and the M150 breakdown. Category changes, window-scoped
+Ctrl+Shift+Y and Ctrl+Shift+I, reset and task updates reuse existing
+presentation handlers. Invalid data does not trigger unfiltered fallback,
+and the existing 12-event bound and safe category classification are unchanged.
+A denied reset retains the scope; an accepted reset clears task history but
+retains the chosen view; windows have independent local presentation state.
+
+There is no new tool, provider call, request dispatch, memory mutation,
+permission, approval bypass, external operation or Phoenix authority. Full
+pytest, Ruff and separate real Windows Qt dogfood must pass before gated
+remote publication.

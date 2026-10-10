@@ -119,6 +119,22 @@ class TaskTimeline:
         ]
         return "\n".join(matches) if matches else TASK_TIMELINE_INTERRUPTIONS_EMPTY
 
+    def visible_view_scope_label(self, *, interruptions_only: bool, category: str) -> str:
+        """Fixed read-only name for the selected, bounded presentation view."""
+        if type(interruptions_only) is not bool:
+            return "Visão: indisponível"
+        if not interruptions_only:
+            return "Visão: histórico completo"
+        labels = {
+            "all": "todas",
+            "pending": "pendentes",
+            "cancelled": "canceladas",
+            "failed": "falhas",
+        }
+        if type(category) is not str or category not in labels:
+            return "Visão: indisponível"
+        return "Visão: interrupções · " + labels[category]
+
     def visible_entry_count_label(self, *, interruptions_only: bool, category: str) -> str:
         """Count only entries in the current safe, bounded presentation view."""
         if type(interruptions_only) is not bool:
