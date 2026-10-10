@@ -42,6 +42,7 @@ from theos.lyra.personality import (
 from theos.lyra.planning import LyraPlanner, PlanKind
 from theos.shell.assistant.context_status import present_context_status
 from theos.shell.assistant.draft_recall import recallable_user_drafts
+from theos.shell.assistant.task_timeline import TaskTimeline
 from theos.shell.assistant.workflow_progress import present_run_state
 
 
@@ -154,6 +155,7 @@ class MainWindow(QMainWindow):
         )
         self._pool = QThreadPool.globalInstance()
         self._active_control: ExecutionControl | None = None
+        self._task_timeline = TaskTimeline()
 
         self.setWindowTitle("LYRA — executor local: THE HANDS")
         self.resize(760, 600)
@@ -163,6 +165,17 @@ class MainWindow(QMainWindow):
 
         header = QLabel("LYRA  ● ON")
         self.workflow_status = QLabel("Tarefa: ociosa")
+        self.task_timeline_toggle = QPushButton("Etapas da tarefa")
+        self.task_timeline_toggle.setObjectName("lyra_task_timeline_toggle")
+        self.task_timeline_toggle.setToolTip(
+            "Mostra até 12 resumos recentes, sem pedidos ou evidências brutas."
+        )
+        self.task_timeline_view = QPlainTextEdit()
+        self.task_timeline_view.setObjectName("lyra_task_timeline_view")
+        self.task_timeline_view.setReadOnly(True)
+        self.task_timeline_view.setMaximumHeight(144)
+        self.task_timeline_view.setPlainText(self._task_timeline.display())
+        self.task_timeline_view.hide()
         self.context_status = QLabel()
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
@@ -464,7 +477,11 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(header)
         layout.addLayout(personality_controls)
-        layout.addWidget(self.workflow_status)
+        task_progress_controls = QHBoxLayout()
+        task_progress_controls.addWidget(self.workflow_status, 1)
+        task_progress_controls.addWidget(self.task_timeline_toggle)
+        layout.addLayout(task_progress_controls)
+        layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
         layout.addLayout(chat_presentation_controls)
@@ -488,6 +505,7 @@ class MainWindow(QMainWindow):
         self.resume_task.clicked.connect(self._resume_active_task)
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
+        self.task_timeline_toggle.clicked.connect(self._toggle_task_timeline)
         self.chat_follow.toggled.connect(self._on_chat_follow_toggled)
         self.chat_follow_toggle_shortcut.activated.connect(
             self._toggle_chat_follow_shortcut
@@ -561,6 +579,16 @@ class MainWindow(QMainWindow):
         self._update_task_controls(None)
         self._refresh_context_status()
         self._lyra("Pronta.")
+
+    def _refresh_task_timeline(self) -> None:
+        self.task_timeline_view.setPlainText(self._task_timeline.display())
+
+    def _toggle_task_timeline(self) -> None:
+        if not self.task_timeline_toggle.isEnabled():
+            return
+        self.task_timeline_view.setHidden(
+            not self.task_timeline_view.isHidden()
+        )
 
     def _refresh_context_status(self) -> None:
         self.context_status.setText(
@@ -949,6 +977,8 @@ class MainWindow(QMainWindow):
         self._on_transcript_find_query_changed("")
         self.input.clear()
         self.workflow_status.setText("Tarefa: ociosa")
+        self._task_timeline.clear()
+        self._refresh_task_timeline()
         self._lyra("Nova conversa iniciada.")
         self._refresh_context_status()
 
@@ -1030,6 +1060,8 @@ class MainWindow(QMainWindow):
         text: str,
         history: tuple[ConversationTurn, ...],
     ) -> None:
+        self._task_timeline.clear()
+        self._refresh_task_timeline()
         self._lyra("Pensando...")
         self._set_busy(True)
 
@@ -1163,7 +1195,10 @@ class MainWindow(QMainWindow):
     def _on_tool_state(self, state: object) -> None:
         if not isinstance(state, LyraRunState):
             return
-        self.workflow_status.setText(present_run_state(state).text)
+        view = present_run_state(state)
+        self.workflow_status.setText(view.text)
+        if self._task_timeline.record(view):
+            self._refresh_task_timeline()
 
     def _on_tool_loop_result(self, result: object) -> None:
         if not isinstance(result, ToolLoopResult):

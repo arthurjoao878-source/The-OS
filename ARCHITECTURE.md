@@ -284,7 +284,9 @@ clear.
     Ctrl+Shift+J to jump to transcript end, even while tasks are busy.
 48. M141: Explicit LYRA Jump Start Shortcut Host v1, window-scoped
     Ctrl+Shift+K to jump to transcript start, even while tasks are busy.
-49. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+49. M142: Bounded LYRA Task Timeline Host v1, explicit read-only panel
+    presenting up to 12 recent M102/M103 summary events for the current task.
+50. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1422,3 +1424,19 @@ The direct handler checks the existing transcript widget, start button,
 and shortcut enabled states before navigating. No new Phoenix authority
 or execution effects are introduced. Separate real Windows Qt dogfood
 and exact commit publication are required to close M141.
+
+## M142 - Bounded LYRA Task Timeline Host v1
+
+M142 exposes an opt-in, read-only, process-local timeline of up to 12
+recent summarized workflow states already produced by M102/M103.
+Only `HostWorkflowProgressView.text` is retained, bounded to 180
+printable characters per entry. Adjacent duplicate states are omitted;
+older states are discarded deterministically. This is a presentation
+trace, not durable audit evidence or a verified effect ledger.
+The panel is hidden by default, available during busy tasks, and cleared
+when a new tool-loop task starts or an approved session reset occurs.
+Denied reset preserves it. It never copies intent, raw action arguments,
+provider prompts, file contents, or execution evidence. No persistent
+write, external AI call, new tool, action, supervision, or Phoenix
+authority is introduced. Separate Windows Qt dogfood and controlled
+publication are required before M142 can be closed.
