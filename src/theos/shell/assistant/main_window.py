@@ -233,6 +233,21 @@ class MainWindow(QMainWindow):
         self.task_timeline_interruptions_shortcut.setContext(
             Qt.ShortcutContext.WindowShortcut
         )
+        self.task_timeline_interruption_category = QComboBox()
+        self.task_timeline_interruption_category.setObjectName(
+            "lyra_task_timeline_interruption_category"
+        )
+        self.task_timeline_interruption_category.setToolTip(
+            "Refina somente a visualização de interrupções reconhecidas; "
+            "não altera eventos, contadores ou execução."
+        )
+        for label, category in (
+            ("Todas", "all"),
+            ("Pendentes", "pending"),
+            ("Canceladas", "cancelled"),
+            ("Falhas", "failed"),
+        ):
+            self.task_timeline_interruption_category.addItem(label, category)
         self.context_status = QLabel()
         self.context_status.setObjectName("lyra_context_status")
         self.chat = QPlainTextEdit()
@@ -541,7 +556,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.task_summary)
         layout.addWidget(self.task_interruption_count)
         layout.addWidget(self.task_interruption_breakdown)
-        layout.addWidget(self.task_timeline_interruptions_only)
+        interruption_filters = QHBoxLayout()
+        interruption_filters.addWidget(self.task_timeline_interruptions_only)
+        interruption_filters.addWidget(QLabel("Tipo"))
+        interruption_filters.addWidget(self.task_timeline_interruption_category)
+        interruption_filters.addStretch(1)
+        layout.addLayout(interruption_filters)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
@@ -571,6 +591,9 @@ class MainWindow(QMainWindow):
             self._toggle_task_timeline_shortcut
         )
         self.task_timeline_interruptions_only.toggled.connect(
+            self._refresh_task_timeline
+        )
+        self.task_timeline_interruption_category.currentIndexChanged.connect(
             self._refresh_task_timeline
         )
         self.task_timeline_interruptions_shortcut.activated.connect(
@@ -652,7 +675,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_task_timeline(self) -> None:
         if self.task_timeline_interruptions_only.isChecked():
-            text = self._task_timeline.display_interruptions()
+            text = self._task_timeline.display_interruption_category(
+                self.task_timeline_interruption_category.currentData()
+            )
         else:
             text = self._task_timeline.display()
         self.task_timeline_view.setPlainText(text)

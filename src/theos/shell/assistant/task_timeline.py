@@ -95,6 +95,30 @@ class TaskTimeline:
         ]
         return "\n".join(matches) if matches else TASK_TIMELINE_INTERRUPTIONS_EMPTY
 
+    def display_interruption_category(self, category: str) -> str:
+        """Filter only previously recognized interruptions by a finite safe category."""
+        if type(category) is not str or category not in (
+            "all", "pending", "cancelled", "failed"
+        ):
+            return TASK_TIMELINE_INTERRUPTIONS_EMPTY
+        if category == "all":
+            return self.display_interruptions()
+        matches = [
+            f"{index}. {text}"
+            for index, (text, flagged) in enumerate(
+                zip(self._entries, self._interruption_flags, strict=True), 1
+            )
+            if flagged
+            and (
+                "pending"
+                if text == "Tarefa: cancelamento solicitado · aguardando confirmação"
+                else "cancelled"
+                if text.startswith("Tarefa: cancelada · ")
+                else "failed"
+            ) == category
+        ]
+        return "\n".join(matches) if matches else TASK_TIMELINE_INTERRUPTIONS_EMPTY
+
     def interruption_count_label(self) -> str:
         """Read-only count of already-classified presentations in the last 12."""
         return (

@@ -304,7 +304,10 @@ clear.
 57. M150: Bounded LYRA Interruption Breakdown Host v1, read-only counts
     separating pending cancellation requests, confirmed cancellations and
     failures within the same retained 12 classified presentation events.
-58. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+58. M151: Bounded LYRA Interruption Category Filter Host v1, an explicit
+    finite read-only selector that narrows the existing 12-event interruption
+    timeline to pending requests, confirmed cancellations or failures.
+59. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1476,3 +1479,26 @@ clears prior entries. This adds no new registry actions, execution
 permissions, confirmation bypass, model call, provider access, memory
 mutation or Phoenix authority. Run real Windows Qt dogfood and gated
 remote publication separately before closing M143.
+
+
+## M151 - Bounded LYRA Interruption Category Filter Host v1
+
+M151 extends M146's opt-in read-only interruption-only timeline with a
+four-choice finite Qt category selector: Todas, Pendentes, Canceladas, Falhas.
+The default Todas retains all M146 interruption entries and original event
+numbers. The three narrowed views use M150's existing recognized and bounded
+classifications only; invalid or missing selector data yields the safe empty
+message rather than falling back to an unfiltered private event list.
+
+The selection has no effect until Somente interrupções is checked. Toggling
+Ctrl+Shift+I off restores the complete M142 timeline; on applies the saved
+category. Ctrl+Shift+E keeps its previous panel behavior. The category and
+checkbox remain process-local and per-window, and may be used during busy
+tasks to inspect only already presented events. Neither changes the underlying
+12-event buffer, counts, summaries, original order, or raw evidence boundaries.
+A denied reset preserves the view; an approved reset clears task events but
+preserves the chosen filter. A new task clears old events while retaining the
+local view. There are no new tools, actions, provider calls, permission grants,
+automatic task execution, persistent memory writes, or Phoenix policy changes.
+Full pytest, Ruff and independent real Windows Qt dogfood must pass before an
+exact-commit publication on main.
