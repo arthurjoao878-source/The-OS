@@ -276,7 +276,9 @@ clear.
     Ctrl+Shift+T to cycle the four existing chat-only font sizes.
 44. M137: Explicit LYRA Whole-Word Find Toggle Shortcut Host v1, window-scoped
     Ctrl+Shift+W to toggle the existing literal whole-word search mode.
-45. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+45. M138: Explicit LYRA Case-Sensitive Find Toggle Shortcut Host v1, window-scoped
+    Ctrl+Shift+C to toggle existing literal case-sensitive search mode.
+46. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1359,3 +1361,18 @@ for the transcript and 256 for counted matches. This feature has no new
 Phoenix authority, task execution, provider calls, memory writes, or
 conversation mutations. A separate real Windows Qt keyboard dogfood and a
 separate exact existing-commit finalizer are required before closure.
+
+
+## M138 - LYRA Case-Sensitive Find Toggle Shortcut Host v1
+
+M138 adds window-scoped Ctrl+Shift+C to toggle only the existing literal
+case-sensitive search QCheckBox. The checkbox's toggled signal remains the
+source of truth. Toggling invalidates match-count and match-rank labels
+without scanning. The query, draft, transcript, selection, focus and follow
+state are preserved. Whole-word mode is independent. The shortcut requires
+the search input, case-sensitive checkbox and shortcut to be enabled, and
+is disabled while tasks are busy. Existing 120-character search, 65536
+transcript and 256-result bounds remain unchanged. No new Phoenix authority,
+provider calls, task execution, memory writes or conversation mutation.
+Separate real Windows Qt dogfood and exact existing-commit finalization
+are required before closure.

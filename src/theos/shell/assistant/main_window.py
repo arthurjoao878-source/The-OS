@@ -224,6 +224,15 @@ class MainWindow(QMainWindow):
         self.transcript_find_case_sensitive.setObjectName(
             "lyra_transcript_find_case_sensitive"
         )
+        self.transcript_find_case_sensitive_toggle_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+C"), self
+        )
+        self.transcript_find_case_sensitive_toggle_shortcut.setObjectName(
+            "lyra_transcript_find_case_sensitive_toggle_shortcut"
+        )
+        self.transcript_find_case_sensitive_toggle_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.transcript_find_case_sensitive.setToolTip(
             "Busca literal sensível a maiúsculas; padrão desativado."
         )
@@ -482,6 +491,9 @@ class MainWindow(QMainWindow):
         self.transcript_find_case_sensitive.toggled.connect(
             self._on_transcript_find_mode_changed
         )
+        self.transcript_find_case_sensitive_toggle_shortcut.activated.connect(
+            self._toggle_transcript_find_case_sensitive_shortcut
+        )
         self.transcript_find_whole_word.toggled.connect(
             self._on_transcript_find_mode_changed
         )
@@ -562,6 +574,17 @@ class MainWindow(QMainWindow):
             return
         self.transcript_find_whole_word.setChecked(
             not self.transcript_find_whole_word.isChecked()
+        )
+
+    def _toggle_transcript_find_case_sensitive_shortcut(self) -> None:
+        if (
+            not self.transcript_find.isEnabled()
+            or not self.transcript_find_case_sensitive.isEnabled()
+            or not self.transcript_find_case_sensitive_toggle_shortcut.isEnabled()
+        ):
+            return
+        self.transcript_find_case_sensitive.setChecked(
+            not self.transcript_find_case_sensitive.isChecked()
         )
 
     def _on_transcript_find_mode_changed(self, _checked: bool) -> None:
@@ -785,6 +808,7 @@ class MainWindow(QMainWindow):
         self.transcript_find_keypad_enter_next_shortcut.setEnabled(not busy)
         self.transcript_find_keypad_enter_previous_shortcut.setEnabled(not busy)
         self.transcript_find_case_sensitive.setEnabled(not busy)
+        self.transcript_find_case_sensitive_toggle_shortcut.setEnabled(not busy)
         self.transcript_find_whole_word.setEnabled(not busy)
         self.transcript_find_whole_word_toggle_shortcut.setEnabled(not busy)
         self.transcript_find_focus_shortcut.setEnabled(not busy)
