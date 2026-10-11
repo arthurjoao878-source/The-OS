@@ -238,7 +238,16 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_jump_middle.setToolTip(
             "Mostra o histórico visível e posiciona a rolagem no meio, "
-            "sem alterar eventos, filtros ou tarefas."
+            "sem alterar eventos, filtros ou tarefas (Ctrl+Shift+G)."
+        )
+        self.task_timeline_jump_middle_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+G"), self
+        )
+        self.task_timeline_jump_middle_shortcut.setObjectName(
+            "lyra_task_timeline_jump_middle_shortcut"
+        )
+        self.task_timeline_jump_middle_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
         )
         self.task_timeline_page_previous_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+PgUp"), self
@@ -744,6 +753,9 @@ class MainWindow(QMainWindow):
         self.task_timeline_jump_middle.clicked.connect(
             self._jump_to_middle_task_timeline_event
         )
+        self.task_timeline_jump_middle_shortcut.activated.connect(
+            self._jump_to_middle_task_timeline_event_shortcut
+        )
         self.task_timeline_page_previous_shortcut.activated.connect(
             self._page_task_timeline_previous_shortcut
         )
@@ -979,6 +991,16 @@ class MainWindow(QMainWindow):
         minimum = scrollbar.minimum()
         maximum = scrollbar.maximum()
         scrollbar.setValue(minimum + (maximum - minimum) // 2)
+
+    def _jump_to_middle_task_timeline_event_shortcut(self) -> None:
+        """Keyboard midpoint reuses the existing guarded read-only button handler."""
+        if (
+            not self.task_timeline_jump_middle_shortcut.isEnabled()
+            or not self.task_timeline_jump_middle.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        self._jump_to_middle_task_timeline_event()
 
     def _page_task_timeline_previous_shortcut(self) -> None:
         """Keyboard paging shares the guarded previous-page button handler."""

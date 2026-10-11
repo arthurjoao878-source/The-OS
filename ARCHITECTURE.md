@@ -331,7 +331,9 @@ clear.
     read-only finite viewport position label driven by Qt scrollbar signals.
 70. M163: Explicit LYRA Timeline Jump Middle Button Host v1, a guarded
     viewport-only midpoint action for the current bounded event display.
-71. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+71. M164: Explicit LYRA Timeline Jump Middle Keyboard Shortcut Host v1, a
+    window-scoped Ctrl+Shift+G route to the guarded M163 midpoint button.
+72. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1824,3 +1826,27 @@ No provider call, real local task execution, persistence, permission, Phoenix
 policy or authority is introduced. As before, full local Pytest and Ruff
 precede one local commit; a separate Windows Qt event dogfood precedes any
 controlled exact non-force remote publication.
+
+
+## M164 - Explicit LYRA Timeline Jump Middle Keyboard Shortcut Host v1
+
+M164 adds the window-scoped Qt keyboard shortcut Ctrl+Shift+G for the existing
+M163 "Meio da lista" button. Activation calls a separate thin, explicitly
+guarded keyboard route that delegates to the *existing* M163 midpoint handler.
+The Qt WindowShortcut parent is the owning LYRA MainWindow, never an
+application-level global shortcut or a system hotkey. All enabled checks
+(shortcut, button, and read-only view) are fail-closed even for direct Python
+invocation or a programmatically emitted activation signal.
+
+The previous filtered 12-event view, real QPlainTextEdit scrollbar midpoint,
+M162 finite position label, M157–M161 navigation, task state, composer,
+transcript and existing find shortcuts all preserve their current behavior.
+The shortcut reveals a hidden timeline via the pre-existing M163 handler,
+never adds events or reads task arguments, and remains presentation-only while
+a dry simulated task is busy. Separate LYRA windows keep independent viewport
+positions; unmodified and unrelated keys are not intercepted.
+
+No new persistence, provider call, real execution, memory access, approval,
+policy or Phoenix authority is introduced. Full local pytest and Ruff precede
+exactly one local commit; independent Windows Qt dogfood and a controlled
+non-force remote finalizer remain separate steps.
