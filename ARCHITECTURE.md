@@ -337,7 +337,9 @@ clear.
     window-scoped Ctrl+Shift+H route to the read-only timeline viewport.
 73. M166: Bounded LYRA Timeline Percent Seek Host v1, a read-only Qt slider
     for explicit 0–100% navigation of the currently visible event list.
-74. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+74. M167: Live LYRA Timeline Percent Readout Host v1, a bounded numeric
+    label synchronized to the actual read-only timeline scrollbar and slider.
+75. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1900,3 +1902,23 @@ No clipboard, filesystem write, real task execution, network provider call,
 persistent memory access, approval or Phoenix authority is added. Full local
 Pytest and Ruff, a single local commit, independent Windows Qt dogfood and
 controlled remote publication are separate auditable stages.
+
+
+## M167 - Live LYRA Timeline Percent Readout Host v1
+
+M167 adds a visible read-only numeric percent label (0% to 100%) alongside
+M166's existing timeline seek slider. The displayed value is derived from the
+current real Qt scrollbar position after signal-blocked synchronization of
+the finite slider, not from the requested percentage or an AI response.
+
+The label updates during existing first/middle/latest buttons, paging,
+percentage seek, ordinary scrollbar changes, interruption filtering and
+accepted context reset. It defaults to 0% and remains 0% for an empty or
+zero-range timeline. Its content is always a finite integer percentage and
+never exposes raw events, arguments or private task details. Existing view
+scope/count/status labels and all M157–M166 actions remain unchanged.
+
+No provider request, memory access, real task execution, filesystem output,
+clipboard access, approval or Phoenix authority is introduced. Full local
+Pytest and Ruff, exactly one local commit, independent Qt dogfood and a
+separate controlled remote finalizer remain mandatory.

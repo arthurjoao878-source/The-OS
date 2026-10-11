@@ -328,6 +328,16 @@ class MainWindow(QMainWindow):
         self.task_timeline_seek_percent.setToolTip(
             "Navegação visual de 0 a 100% no histórico visível, sem modificar eventos."
         )
+        self.task_timeline_seek_percent_value = QLabel("0%")
+        self.task_timeline_seek_percent_value.setObjectName(
+            "lyra_task_timeline_seek_percent_value"
+        )
+        self.task_timeline_seek_percent_value.setAccessibleName(
+            "Percentual atual do histórico de tarefas"
+        )
+        self.task_timeline_seek_percent_value.setToolTip(
+            "Percentual calculado somente pela posição real de rolagem do Qt."
+        )
         timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
         timeline_scrollbar.valueChanged.connect(
             self._refresh_task_timeline_scroll_position
@@ -735,6 +745,7 @@ class MainWindow(QMainWindow):
         timeline_page_controls.addWidget(self.task_timeline_page_next)
         timeline_page_controls.addWidget(self.task_timeline_jump_middle)
         timeline_page_controls.addWidget(self.task_timeline_seek_percent, 1)
+        timeline_page_controls.addWidget(self.task_timeline_seek_percent_value)
         timeline_page_controls.addStretch(1)
         timeline_page_controls.addWidget(self.task_timeline_scroll_position)
         layout.addLayout(timeline_page_controls)
@@ -941,6 +952,7 @@ class MainWindow(QMainWindow):
             slider.setValue(max(0, min(100, percent)))
         finally:
             slider.blockSignals(was_blocked)
+        self.task_timeline_seek_percent_value.setText(f"{slider.value()}%")
 
     def _seek_task_timeline_percentage(self, percent: int) -> None:
         """Bounded viewport seek, driven only by the current Qt scrollbar range."""
