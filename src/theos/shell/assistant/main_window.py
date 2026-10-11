@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtCore import QEvent, QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QFont, QKeySequence, QShortcut, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -217,6 +217,24 @@ class MainWindow(QMainWindow):
         self.task_timeline_jump_first.setToolTip(
             "Mostra o painel de etapas e navega ao início da lista visível, "
             "sem alterar eventos, filtros ou tarefas."
+        )
+        self.task_timeline_jump_first_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+Home"), self
+        )
+        self.task_timeline_jump_first_shortcut.setObjectName(
+            "lyra_task_timeline_jump_first_shortcut"
+        )
+        self.task_timeline_jump_first_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
+        self.task_timeline_jump_latest_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+End"), self
+        )
+        self.task_timeline_jump_latest_shortcut.setObjectName(
+            "lyra_task_timeline_jump_latest_shortcut"
+        )
+        self.task_timeline_jump_latest_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
         )
         self.task_timeline_toggle_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+E"), self
@@ -656,6 +674,21 @@ class MainWindow(QMainWindow):
         self.task_timeline_jump_first.clicked.connect(
             self._jump_to_first_task_timeline_event
         )
+        self.task_timeline_jump_first_shortcut.activated.connect(
+            self._jump_to_first_task_timeline_event_shortcut
+        )
+        self.task_timeline_jump_latest_shortcut.activated.connect(
+            self._jump_to_latest_task_timeline_event_shortcut
+        )
+        for timeline_keyboard_target in (
+            self.input,
+            self.transcript_find,
+            self.chat,
+            self.chat.viewport(),
+            self.task_timeline_view,
+            self.task_timeline_view.viewport(),
+        ):
+            timeline_keyboard_target.installEventFilter(self)
         self.task_timeline_toggle_shortcut.activated.connect(
             self._toggle_task_timeline_shortcut
         )
@@ -802,6 +835,76 @@ class MainWindow(QMainWindow):
             self.task_timeline_view.show()
         scrollbar = self.task_timeline_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    def _jump_to_first_task_timeline_event_shortcut(self) -> None:
+        """Guarded keyboard route to the existing first-event handler."""
+        if (
+            not self.task_timeline_jump_first_shortcut.isEnabled()
+            or not self.task_timeline_jump_first.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        self._jump_to_first_task_timeline_event()
+
+    def _jump_to_latest_task_timeline_event_shortcut(self) -> None:
+        """Guarded keyboard route to the existing latest-event handler."""
+        if (
+            not self.task_timeline_jump_latest_shortcut.isEnabled()
+            or not self.task_timeline_jump_latest.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        self._jump_to_latest_task_timeline_event()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        """Preserve explicit timeline shortcuts over text-selection overrides.
+
+        QLineEdit and QPlainTextEdit may consume Ctrl+Shift+Home/End as
+        native selection keys before a window QShortcut can activate. Handle
+        only these exact combinations and only for widgets owned here.
+        """
+        if watched not in (
+            self.input,
+            self.transcript_find,
+            self.chat,
+            self.chat.viewport(),
+            self.task_timeline_view,
+            self.task_timeline_view.viewport(),
+        ) or event.type() not in (
+            QEvent.Type.ShortcutOverride,
+            QEvent.Type.KeyPress,
+        ):
+            return super().eventFilter(watched, event)
+        required = (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.ShiftModifier
+        )
+        if event.modifiers() != required:
+            return super().eventFilter(watched, event)
+        if event.key() == Qt.Key.Key_Home:
+            shortcut = self.task_timeline_jump_first_shortcut
+            button = self.task_timeline_jump_first
+            action = self._jump_to_first_task_timeline_event_shortcut
+        elif event.key() == Qt.Key.Key_End:
+            shortcut = self.task_timeline_jump_latest_shortcut
+            button = self.task_timeline_jump_latest
+            action = self._jump_to_latest_task_timeline_event_shortcut
+        else:
+            return super().eventFilter(watched, event)
+        if not (
+            shortcut.isEnabled()
+            and button.isEnabled()
+            and self.task_timeline_view.isEnabled()
+        ):
+            return super().eventFilter(watched, event)
+        if event.type() == QEvent.Type.ShortcutOverride:
+            event.ignore()
+            return True
+        if not watched.hasFocus():
+            return super().eventFilter(watched, event)
+        action()
+        event.accept()
+        return True
 
     def _toggle_task_timeline(self) -> None:
         if not self.task_timeline_toggle.isEnabled():

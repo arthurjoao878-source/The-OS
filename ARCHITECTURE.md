@@ -321,7 +321,9 @@ clear.
     read-only viewport navigation control for the current bounded timeline view.
 65. M158: Explicit LYRA Timeline Jump First Button Host v1, an opt-in
     read-only viewport navigation control for the start of the current view.
-66. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+66. M159: Explicit LYRA Timeline First/Latest Keyboard Shortcuts Host v1,
+    window-scoped Ctrl+Shift+Home/End routes to the existing guarded buttons.
+67. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1687,3 +1689,32 @@ No provider inference or calls, memory access/mutation, workflow dispatch,
 real task execution, approval bypass, external effects, or Phoenix authority
 is introduced. Full pytest, Ruff, separate real Windows Qt dogfood and a
 controlled exact fast-forward publication are required before closure.
+
+
+## M159 - Explicit LYRA Timeline First/Latest Keyboard Shortcuts Host v1
+
+M159 adds two window-scoped, user-triggered Qt keyboard routes for the existing
+M158 "Primeiro evento" and M157 "Último evento" actions. Ctrl+Shift+Home
+opens the existing read-only bounded timeline panel if hidden and navigates to
+the start of the currently visible list; Ctrl+Shift+End navigates to its end.
+Both shortcuts call the same handlers as the buttons, with additional direct
+checks of the corresponding shortcut, button and view enabled states. Text
+editors may reserve Ctrl+Shift+Home/End for selecting text: the host uses a
+narrow, per-window Qt event filter on its own composer, find, transcript and
+timeline widgets to let these two explicit shortcuts operate. Only exact
+Ctrl+Shift+Home/End are intercepted when their controls are enabled; unrelated
+keys and disabled controls retain their normal Qt handling. A shortcut in one
+LYRA window must never control another window.
+
+The current M146 interruption filter, M151 finite category, M153 visible
+count, M154 scope, M155/M156 clear filters, event order, and bounded rolling
+12-event history are left unchanged. Empty and malformed category displays
+remain fixed safe presentations; no raw intent, tool arguments or results
+are exposed. Repeated keys are idempotent. Busy presentation remains passive;
+keyboard routes do not cause provider calls, persistence, worker dispatch,
+real task execution, approval bypass or any new Phoenix authority.
+Existing transcript shortcuts and composer draft remain unchanged.
+
+Full pytest and Ruff are required before one local commit; a separate real
+Windows PySide6 keyboard dogfood must pass before exact, non-force remote
+publication. No new external side-effect authority is introduced.
