@@ -333,7 +333,9 @@ clear.
     viewport-only midpoint action for the current bounded event display.
 71. M164: Explicit LYRA Timeline Jump Middle Keyboard Shortcut Host v1, a
     window-scoped Ctrl+Shift+G route to the guarded M163 midpoint button.
-72. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+72. M165: Explicit LYRA Timeline Focus Keyboard Shortcut Host v1, a
+    window-scoped Ctrl+Shift+H route to the read-only timeline viewport.
+73. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1850,3 +1852,25 @@ No new persistence, provider call, real execution, memory access, approval,
 policy or Phoenix authority is introduced. Full local pytest and Ruff precede
 exactly one local commit; independent Windows Qt dogfood and a controlled
 non-force remote finalizer remain separate steps.
+
+
+## M165 - Explicit LYRA Timeline Focus Keyboard Shortcut Host v1
+
+M165 adds Ctrl+Shift+H as a window-scoped Qt shortcut to reveal the existing
+bounded, read-only task timeline and place keyboard focus on its actual Qt
+viewport. It does not navigate, recalculate events, change a filter, modify
+a task or move the scroll position intentionally. When the timeline is already
+visible it only updates focus, allowing native keyboard scrolling thereafter.
+
+The route is fail-closed when its shortcut, the existing panel-toggle control,
+or the timeline view is disabled; direct handler calls and an emitted Qt signal
+must obey the same guards. It does not add a global shortcut, new inputs or
+additional permissions. Existing Ctrl+Shift+E, Ctrl+Shift+G, first/latest,
+page navigation, interruption filters, M162 position indicator and transcript
+find shortcuts remain independent. The action is presentation-only even while
+an existing dry-run simulated task is busy, and is scoped to the owning window.
+
+No real task execution, provider call, persistent memory change, new Phoenix
+authority, policy, approval or publication is introduced. Full local Pytest
+and Ruff precede a single local commit. Independent Windows Qt dogfood and
+controlled remote publication are separate stages.

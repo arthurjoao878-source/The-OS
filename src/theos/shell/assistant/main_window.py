@@ -240,6 +240,15 @@ class MainWindow(QMainWindow):
             "Mostra o histórico visível e posiciona a rolagem no meio, "
             "sem alterar eventos, filtros ou tarefas (Ctrl+Shift+G)."
         )
+        self.task_timeline_focus_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+H"), self
+        )
+        self.task_timeline_focus_shortcut.setObjectName(
+            "lyra_task_timeline_focus_shortcut"
+        )
+        self.task_timeline_focus_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.task_timeline_jump_middle_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+G"), self
         )
@@ -753,6 +762,9 @@ class MainWindow(QMainWindow):
         self.task_timeline_jump_middle.clicked.connect(
             self._jump_to_middle_task_timeline_event
         )
+        self.task_timeline_focus_shortcut.activated.connect(
+            self._focus_task_timeline_shortcut
+        )
         self.task_timeline_jump_middle_shortcut.activated.connect(
             self._jump_to_middle_task_timeline_event_shortcut
         )
@@ -991,6 +1003,21 @@ class MainWindow(QMainWindow):
         minimum = scrollbar.minimum()
         maximum = scrollbar.maximum()
         scrollbar.setValue(minimum + (maximum - minimum) // 2)
+
+    def _focus_task_timeline_shortcut(self) -> None:
+        """Reveal and focus the read-only timeline without navigating or mutating it."""
+        if (
+            not self.task_timeline_focus_shortcut.isEnabled()
+            or not self.task_timeline_toggle.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        if self.task_timeline_view.isHidden():
+            self.task_timeline_view.show()
+        scrollbar = self.task_timeline_view.verticalScrollBar()
+        previous_position = scrollbar.value()
+        self.task_timeline_view.setFocus()
+        scrollbar.setValue(previous_position)
 
     def _jump_to_middle_task_timeline_event_shortcut(self) -> None:
         """Keyboard midpoint reuses the existing guarded read-only button handler."""
