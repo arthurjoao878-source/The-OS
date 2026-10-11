@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -316,12 +317,26 @@ class MainWindow(QMainWindow):
         self.task_timeline_scroll_position.setToolTip(
             "Indica somente início, meio ou fim da lista visível, sem revelar eventos."
         )
+        self.task_timeline_seek_percent = QSlider(Qt.Orientation.Horizontal)
+        self.task_timeline_seek_percent.setObjectName("lyra_task_timeline_seek_percent")
+        self.task_timeline_seek_percent.setAccessibleName(
+            "Posição percentual da lista de eventos"
+        )
+        self.task_timeline_seek_percent.setRange(0, 100)
+        self.task_timeline_seek_percent.setSingleStep(5)
+        self.task_timeline_seek_percent.setPageStep(10)
+        self.task_timeline_seek_percent.setToolTip(
+            "Navegação visual de 0 a 100% no histórico visível, sem modificar eventos."
+        )
         timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
         timeline_scrollbar.valueChanged.connect(
             self._refresh_task_timeline_scroll_position
         )
         timeline_scrollbar.rangeChanged.connect(
             self._refresh_task_timeline_scroll_position
+        )
+        self.task_timeline_seek_percent.valueChanged.connect(
+            self._seek_task_timeline_percentage
         )
         self.task_timeline_interruptions_only = QCheckBox("Somente interrupções")
         self.task_timeline_interruptions_only.setObjectName(
@@ -719,6 +734,7 @@ class MainWindow(QMainWindow):
         timeline_page_controls.addWidget(self.task_timeline_page_previous)
         timeline_page_controls.addWidget(self.task_timeline_page_next)
         timeline_page_controls.addWidget(self.task_timeline_jump_middle)
+        timeline_page_controls.addWidget(self.task_timeline_seek_percent, 1)
         timeline_page_controls.addStretch(1)
         timeline_page_controls.addWidget(self.task_timeline_scroll_position)
         layout.addLayout(timeline_page_controls)
@@ -908,11 +924,39 @@ class MainWindow(QMainWindow):
 
     def _refresh_task_timeline_scroll_position(self, *_signal_args: object) -> None:
         scrollbar = self.task_timeline_view.verticalScrollBar()
-        self.task_timeline_scroll_position.setText(
-            self._task_timeline_scroll_position_text(
-                scrollbar.value(), scrollbar.minimum(), scrollbar.maximum()
-            )
+        value, minimum, maximum = (
+            scrollbar.value(), scrollbar.minimum(), scrollbar.maximum()
         )
+        self.task_timeline_scroll_position.setText(
+            self._task_timeline_scroll_position_text(value, minimum, maximum)
+        )
+        percent = (
+            0 if maximum <= minimum
+            else (100 * (value - minimum) + (maximum - minimum) // 2)
+            // (maximum - minimum)
+        )
+        slider = self.task_timeline_seek_percent
+        was_blocked = slider.blockSignals(True)
+        try:
+            slider.setValue(max(0, min(100, percent)))
+        finally:
+            slider.blockSignals(was_blocked)
+
+    def _seek_task_timeline_percentage(self, percent: int) -> None:
+        """Bounded viewport seek, driven only by the current Qt scrollbar range."""
+        if (
+            type(percent) is not int or not 0 <= percent <= 100
+            or not self.task_timeline_seek_percent.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        if self.task_timeline_view.isHidden():
+            self.task_timeline_view.show()
+        scrollbar = self.task_timeline_view.verticalScrollBar()
+        minimum, maximum = scrollbar.minimum(), scrollbar.maximum()
+        target = minimum + ((maximum - minimum) * percent + 50) // 100
+        scrollbar.setValue(target)
+        self._refresh_task_timeline_scroll_position()
 
     def _refresh_task_timeline(self) -> None:
         if self.task_timeline_interruptions_only.isChecked():

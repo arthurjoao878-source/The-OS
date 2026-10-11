@@ -335,7 +335,9 @@ clear.
     window-scoped Ctrl+Shift+G route to the guarded M163 midpoint button.
 72. M165: Explicit LYRA Timeline Focus Keyboard Shortcut Host v1, a
     window-scoped Ctrl+Shift+H route to the read-only timeline viewport.
-73. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+73. M166: Bounded LYRA Timeline Percent Seek Host v1, a read-only Qt slider
+    for explicit 0–100% navigation of the currently visible event list.
+74. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1874,3 +1876,27 @@ No real task execution, provider call, persistent memory change, new Phoenix
 authority, policy, approval or publication is introduced. Full local Pytest
 and Ruff precede a single local commit. Independent Windows Qt dogfood and
 controlled remote publication are separate stages.
+
+
+## M166 - Bounded LYRA Timeline Percent Seek Host v1
+
+M166 adds a visible horizontal Qt slider with a finite 0–100 percentage range
+for direct navigation within the existing read-only timeline viewport. It
+maps the user-selected percentage to the current Qt scrollbar minimum and
+maximum with deterministic integer rounding, and it reveals the panel when
+an enabled seek is requested. Moving the scrollbar through existing controls,
+filter changes or ordinary user scrolling synchronizes the slider from the
+actual viewport. The zero-scroll-range case is inert and displays 0 percent.
+
+A signal blocker prevents update recursion. The explicitly guarded handler
+rejects malformed types and values outside 0–100, including bool, and fails
+closed when the slider or timeline is disabled. The control never touches
+stored events, interruption category, count, summary, chat, draft or follow
+state. Two windows keep independent position controls, with the existing
+M157–M165 navigation and keyboard controls unaffected. The dry simulated-task
+state retains presentation-only access without dispatching new work.
+
+No clipboard, filesystem write, real task execution, network provider call,
+persistent memory access, approval or Phoenix authority is added. Full local
+Pytest and Ruff, a single local commit, independent Windows Qt dogfood and
+controlled remote publication are separate auditable stages.
