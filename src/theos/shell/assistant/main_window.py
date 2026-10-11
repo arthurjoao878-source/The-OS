@@ -338,6 +338,21 @@ class MainWindow(QMainWindow):
         self.task_timeline_seek_percent_value.setToolTip(
             "Percentual calculado somente pela posição real de rolagem do Qt."
         )
+        self.task_timeline_find_query = QLineEdit()
+        self.task_timeline_find_query.setObjectName("lyra_task_timeline_find_query")
+        self.task_timeline_find_query.setAccessibleName(
+            "Buscar nos eventos atualmente visíveis"
+        )
+        self.task_timeline_find_query.setPlaceholderText("Buscar no histórico visível")
+        self.task_timeline_find_query.setMaxLength(96)
+        self.task_timeline_find_query.setToolTip(
+            "Busca somente nos eventos apresentados; não consulta IA nem salva a busca."
+        )
+        self.task_timeline_find_next = QPushButton("Próxima ocorrência")
+        self.task_timeline_find_next.setObjectName("lyra_task_timeline_find_next")
+        self.task_timeline_find_next.setToolTip(
+            "Localiza a próxima correspondência no histórico filtrado e reinicia do começo."
+        )
         timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
         timeline_scrollbar.valueChanged.connect(
             self._refresh_task_timeline_scroll_position
@@ -749,6 +764,10 @@ class MainWindow(QMainWindow):
         timeline_page_controls.addStretch(1)
         timeline_page_controls.addWidget(self.task_timeline_scroll_position)
         layout.addLayout(timeline_page_controls)
+        timeline_find_controls = QHBoxLayout()
+        timeline_find_controls.addWidget(self.task_timeline_find_query, 1)
+        timeline_find_controls.addWidget(self.task_timeline_find_next)
+        layout.addLayout(timeline_find_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
@@ -774,6 +793,12 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.task_timeline_toggle.clicked.connect(self._toggle_task_timeline)
+        self.task_timeline_find_query.returnPressed.connect(
+            self._find_next_visible_task_timeline_match
+        )
+        self.task_timeline_find_next.clicked.connect(
+            self._find_next_visible_task_timeline_match
+        )
         self.task_timeline_jump_latest.clicked.connect(
             self._jump_to_latest_task_timeline_event
         )
@@ -969,6 +994,28 @@ class MainWindow(QMainWindow):
         target = minimum + ((maximum - minimum) * percent + 50) // 100
         scrollbar.setValue(target)
         self._refresh_task_timeline_scroll_position()
+
+    def _find_next_visible_task_timeline_match(self) -> None:
+        """Find within the currently rendered read-only task events only."""
+        if (
+            not self.task_timeline_find_query.isEnabled()
+            or not self.task_timeline_find_next.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        query = self.task_timeline_find_query.text()
+        if not query or len(query) > 96:
+            return
+        view = self.task_timeline_view
+        cursor = view.document().find(query, view.textCursor())
+        if cursor.isNull():
+            cursor = view.document().find(query)
+        if cursor.isNull():
+            return
+        if view.isHidden():
+            view.show()
+        view.setTextCursor(cursor)
+        view.ensureCursorVisible()
 
     def _refresh_task_timeline(self) -> None:
         if self.task_timeline_interruptions_only.isChecked():

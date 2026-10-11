@@ -339,7 +339,9 @@ clear.
     for explicit 0–100% navigation of the currently visible event list.
 74. M167: Live LYRA Timeline Percent Readout Host v1, a bounded numeric
     label synchronized to the actual read-only timeline scrollbar and slider.
-75. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+75. M168: Bounded LYRA Visible Timeline Find Host v1, a local, non-persistent
+    case-insensitive next-match search confined to the filtered read-only display.
+76. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1922,3 +1924,20 @@ No provider request, memory access, real task execution, filesystem output,
 clipboard access, approval or Phoenix authority is introduced. Full local
 Pytest and Ruff, exactly one local commit, independent Qt dogfood and a
 separate controlled remote finalizer remain mandatory.
+
+
+## M168 - Bounded LYRA Visible Timeline Find Host v1
+
+M168 adds an explicit, length-bounded (96-character) search field and a Next
+Match button for the currently rendered, filtered, read-only task timeline.
+A matching result selects only text in the Qt viewport, optionally reveals
+its already-existing panel and scrolls only enough to show the selection.
+Searching is case-insensitive by default and wraps once from the current
+selection to the first matching occurrence. Empty, disabled or missing-match
+requests do not navigate or mutate existing task events. Filters continue to
+determine which of the last 12 bounded task events may be searched; hidden
+filtered-out entries are not searched. There is no global shortcut, task
+execution, provider use, memory persistence, clipboard write, policy change,
+new Phoenix authority or remote publication in the implementation stage.
+Full local tests, Ruff and exact-hash guards precede the only permitted local
+commit. Independent real Qt dogfood and remote finalization remain separate.
