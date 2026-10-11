@@ -283,6 +283,20 @@ class MainWindow(QMainWindow):
         self.task_timeline_view.setMaximumHeight(144)
         self.task_timeline_view.setPlainText(self._task_timeline.display())
         self.task_timeline_view.hide()
+        self.task_timeline_scroll_position = QLabel("Posição: sem rolagem")
+        self.task_timeline_scroll_position.setObjectName(
+            "lyra_task_timeline_scroll_position"
+        )
+        self.task_timeline_scroll_position.setToolTip(
+            "Indica somente início, meio ou fim da lista visível, sem revelar eventos."
+        )
+        timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
+        timeline_scrollbar.valueChanged.connect(
+            self._refresh_task_timeline_scroll_position
+        )
+        timeline_scrollbar.rangeChanged.connect(
+            self._refresh_task_timeline_scroll_position
+        )
         self.task_timeline_interruptions_only = QCheckBox("Somente interrupções")
         self.task_timeline_interruptions_only.setObjectName(
             "lyra_task_timeline_interruptions_only"
@@ -679,6 +693,7 @@ class MainWindow(QMainWindow):
         timeline_page_controls.addWidget(self.task_timeline_page_previous)
         timeline_page_controls.addWidget(self.task_timeline_page_next)
         timeline_page_controls.addStretch(1)
+        timeline_page_controls.addWidget(self.task_timeline_scroll_position)
         layout.addLayout(timeline_page_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
@@ -831,7 +846,37 @@ class MainWindow(QMainWindow):
 
         self._update_task_controls(None)
         self._refresh_context_status()
+        self._refresh_task_timeline_scroll_position()
         self._lyra("Pronta.")
+
+    @staticmethod
+    def _task_timeline_scroll_position_text(
+        value: int, minimum: int, maximum: int
+    ) -> str:
+        """Finite viewport-only vocabulary; no task text or evidence."""
+        if (
+            type(value) is not int
+            or type(minimum) is not int
+            or type(maximum) is not int
+            or maximum < minimum
+            or not minimum <= value <= maximum
+        ):
+            return "Posição: indisponível"
+        if minimum == maximum:
+            return "Posição: sem rolagem"
+        if value == minimum:
+            return "Posição: início"
+        if value == maximum:
+            return "Posição: fim"
+        return "Posição: intermediária"
+
+    def _refresh_task_timeline_scroll_position(self, *_signal_args: object) -> None:
+        scrollbar = self.task_timeline_view.verticalScrollBar()
+        self.task_timeline_scroll_position.setText(
+            self._task_timeline_scroll_position_text(
+                scrollbar.value(), scrollbar.minimum(), scrollbar.maximum()
+            )
+        )
 
     def _refresh_task_timeline(self) -> None:
         if self.task_timeline_interruptions_only.isChecked():
@@ -860,6 +905,7 @@ class MainWindow(QMainWindow):
                 category=self.task_timeline_interruption_category.currentData(),
             )
         )
+        self._refresh_task_timeline_scroll_position()
 
     def _jump_to_first_task_timeline_event(self) -> None:
         """Explicit read-only navigation to the first visible task event."""

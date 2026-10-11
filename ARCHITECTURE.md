@@ -327,7 +327,9 @@ clear.
     guarded page-step buttons for the read-only filtered event viewport.
 68. M161: Explicit LYRA Timeline Page Keyboard Shortcuts Host v1, guarded
     Ctrl+Shift+PageUp/PageDown for existing page-step presentation actions.
-69. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+69. M162: Bounded LYRA Timeline Scroll Position Indicator Host v1, a
+    read-only finite viewport position label driven by Qt scrollbar signals.
+70. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1770,3 +1772,28 @@ dispatch or provider request is permitted. Full local pytest and Ruff precede
 one local commit. Separate Windows Qt event dogfood precedes any non-force
 remote publication. No persistence, approval bypass, external side-effect
 or Phoenix authority is added.
+
+
+## M162 - Bounded LYRA Timeline Scroll Position Indicator Host v1
+
+M162 adds one read-only, process-local QLabel next to the M160 page navigation
+buttons. It reflects the existing task timeline viewport scrollbar, with a
+strict finite vocabulary: no scrolling, start, intermediate or end (and a
+safe unavailable label for invalid helper inputs). This is a viewport
+presentation only, not an event index, task progress assessment or evidence
+of an executed side effect.
+
+The indicator listens to the owned QPlainTextEdit vertical scrollbar's
+valueChanged and rangeChanged signals, and refreshes when the existing
+filtered presentation changes or the host finishes initialization. It works
+with both page buttons, the M161 PageUp/PageDown keyboard routes, and M159
+first/last navigation. No polling or reading of underlying task arguments.
+Empty history, all four interruption categories, malformed category data,
+busy dry-host mode and session reset remain within existing behavior. Each
+window's indicator and scrollbar are independent; the up-to-12-event
+TaskTimeline model, filters, evidence qualifications, and memory are unchanged.
+
+The change grants no new action, provider request, workflow dispatch,
+approval, persistence, data access, or Phoenix authority. Full pytest and
+Ruff precede one local commit; a separate real Windows PySide6 Qt dogfood
+precedes any exact non-force remote publication.
