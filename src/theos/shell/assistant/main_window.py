@@ -232,6 +232,14 @@ class MainWindow(QMainWindow):
         self.task_timeline_page_next.setToolTip(
             "Avança uma página na lista de eventos visíveis, sem modificar o histórico."
         )
+        self.task_timeline_jump_middle = QPushButton("Meio da lista")
+        self.task_timeline_jump_middle.setObjectName(
+            "lyra_task_timeline_jump_middle"
+        )
+        self.task_timeline_jump_middle.setToolTip(
+            "Mostra o histórico visível e posiciona a rolagem no meio, "
+            "sem alterar eventos, filtros ou tarefas."
+        )
         self.task_timeline_page_previous_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+PgUp"), self
         )
@@ -692,6 +700,7 @@ class MainWindow(QMainWindow):
         timeline_page_controls = QHBoxLayout()
         timeline_page_controls.addWidget(self.task_timeline_page_previous)
         timeline_page_controls.addWidget(self.task_timeline_page_next)
+        timeline_page_controls.addWidget(self.task_timeline_jump_middle)
         timeline_page_controls.addStretch(1)
         timeline_page_controls.addWidget(self.task_timeline_scroll_position)
         layout.addLayout(timeline_page_controls)
@@ -731,6 +740,9 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_page_next.clicked.connect(
             self._page_task_timeline_next
+        )
+        self.task_timeline_jump_middle.clicked.connect(
+            self._jump_to_middle_task_timeline_event
         )
         self.task_timeline_page_previous_shortcut.activated.connect(
             self._page_task_timeline_previous_shortcut
@@ -953,6 +965,20 @@ class MainWindow(QMainWindow):
 
     def _page_task_timeline_next(self) -> None:
         self._page_task_timeline(1)
+
+    def _jump_to_middle_task_timeline_event(self) -> None:
+        """Explicit safe midpoint in the currently filtered Qt timeline viewport."""
+        if (
+            not self.task_timeline_jump_middle.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        if self.task_timeline_view.isHidden():
+            self.task_timeline_view.show()
+        scrollbar = self.task_timeline_view.verticalScrollBar()
+        minimum = scrollbar.minimum()
+        maximum = scrollbar.maximum()
+        scrollbar.setValue(minimum + (maximum - minimum) // 2)
 
     def _page_task_timeline_previous_shortcut(self) -> None:
         """Keyboard paging shares the guarded previous-page button handler."""

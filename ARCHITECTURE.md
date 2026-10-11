@@ -329,7 +329,9 @@ clear.
     Ctrl+Shift+PageUp/PageDown for existing page-step presentation actions.
 69. M162: Bounded LYRA Timeline Scroll Position Indicator Host v1, a
     read-only finite viewport position label driven by Qt scrollbar signals.
-70. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+70. M163: Explicit LYRA Timeline Jump Middle Button Host v1, a guarded
+    viewport-only midpoint action for the current bounded event display.
+71. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1797,3 +1799,28 @@ The change grants no new action, provider request, workflow dispatch,
 approval, persistence, data access, or Phoenix authority. Full pytest and
 Ruff precede one local commit; a separate real Windows PySide6 Qt dogfood
 precedes any exact non-force remote publication.
+
+
+## M163 - Explicit LYRA Timeline Jump Middle Button Host v1
+
+M163 introduces one user-operated "Meio da lista" button next to the existing
+M160 timeline page controls. When the button and timeline widget are enabled,
+its guarded handler reveals the existing read-only timeline if hidden, then
+sets the *existing* QPlainTextEdit vertical scrollbar to the integer midpoint
+between its current minimum and maximum (`min + (max - min) // 2`). The real
+Qt range reflects only the current bounded, filtered visible presentation;
+there is no new event index, search, data retention or synthesized event.
+
+When the viewport has no scrolling range, the midpoint remains at minimum.
+Repeated clicks are idempotent and preserve the M162 fixed-vocabulary scroll
+position label through the scrollbar's own signals. It does not change the
+selected filter category, interruption counters, task history, composer,
+conversation, context, memory or existing buttons and keyboard routes.
+Disabled button/view handlers fail closed. The control remains an explicitly
+requested passive view action even if a dry simulated task is busy; no worker
+can be started by clicking it. Each window has an independent Qt viewport.
+
+No provider call, real local task execution, persistence, permission, Phoenix
+policy or authority is introduced. As before, full local Pytest and Ruff
+precede one local commit; a separate Windows Qt event dogfood precedes any
+controlled exact non-force remote publication.
