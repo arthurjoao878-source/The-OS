@@ -323,7 +323,9 @@ clear.
     read-only viewport navigation control for the start of the current view.
 66. M159: Explicit LYRA Timeline First/Latest Keyboard Shortcuts Host v1,
     window-scoped Ctrl+Shift+Home/End routes to the existing guarded buttons.
-67. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+67. M160: Explicit LYRA Timeline Page Navigation Controls Host v1, two
+    guarded page-step buttons for the read-only filtered event viewport.
+68. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1718,3 +1720,27 @@ Existing transcript shortcuts and composer draft remain unchanged.
 Full pytest and Ruff are required before one local commit; a separate real
 Windows PySide6 keyboard dogfood must pass before exact, non-force remote
 publication. No new external side-effect authority is introduced.
+
+
+## M160 - Explicit LYRA Timeline Page Navigation Controls Host v1
+
+M160 introduces two presentation-only controls, "Página anterior" and
+"Próxima página", for paging through the already bounded, read-only 12-event
+LYRA task timeline. They use the existing QPlainTextEdit vertical scrollbar's
+pageStep; a click moves at most one viewport page, clamped between the current
+minimum and maximum. If the panel is hidden, an explicit click reveals the
+existing panel before paging. At either boundary further clicks are idempotent.
+The page size follows the current Qt viewport and is not an event count.
+
+This feature does not select or modify events, scroll the conversation,
+change interruption filters or the category selector, alter counts or scope,
+reset memory, modify a draft, dispatch a tool, or infer task effects. Existing
+first/latest buttons and Ctrl+Shift+Home/End remain independent. A disabled
+paging button or disabled timeline view fails closed even through the direct
+Python handler; unexpected directions are rejected without effects. The
+controls are per-window and remain presentation-only during a controlled
+dry busy task. An invalid category cannot expose untrusted raw content.
+
+Full local pytest and Ruff plus separate real Windows Qt dogfood must pass
+before any controlled non-force publication. No new Phoenix authority,
+provider invocation, persistence, or external side-effect authority.

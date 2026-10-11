@@ -218,6 +218,20 @@ class MainWindow(QMainWindow):
             "Mostra o painel de etapas e navega ao início da lista visível, "
             "sem alterar eventos, filtros ou tarefas."
         )
+        self.task_timeline_page_previous = QPushButton("Página anterior")
+        self.task_timeline_page_previous.setObjectName(
+            "lyra_task_timeline_page_previous"
+        )
+        self.task_timeline_page_previous.setToolTip(
+            "Volta uma página na lista de eventos visíveis, sem modificar o histórico."
+        )
+        self.task_timeline_page_next = QPushButton("Próxima página")
+        self.task_timeline_page_next.setObjectName(
+            "lyra_task_timeline_page_next"
+        )
+        self.task_timeline_page_next.setToolTip(
+            "Avança uma página na lista de eventos visíveis, sem modificar o histórico."
+        )
         self.task_timeline_jump_first_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+Home"), self
         )
@@ -643,6 +657,11 @@ class MainWindow(QMainWindow):
         interruption_filters.addWidget(self.task_timeline_filter_clear)
         interruption_filters.addStretch(1)
         layout.addLayout(interruption_filters)
+        timeline_page_controls = QHBoxLayout()
+        timeline_page_controls.addWidget(self.task_timeline_page_previous)
+        timeline_page_controls.addWidget(self.task_timeline_page_next)
+        timeline_page_controls.addStretch(1)
+        layout.addLayout(timeline_page_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
         layout.addWidget(self.chat, 1)
@@ -673,6 +692,12 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_jump_first.clicked.connect(
             self._jump_to_first_task_timeline_event
+        )
+        self.task_timeline_page_previous.clicked.connect(
+            self._page_task_timeline_previous
+        )
+        self.task_timeline_page_next.clicked.connect(
+            self._page_task_timeline_next
         )
         self.task_timeline_jump_first_shortcut.activated.connect(
             self._jump_to_first_task_timeline_event_shortcut
@@ -835,6 +860,29 @@ class MainWindow(QMainWindow):
             self.task_timeline_view.show()
         scrollbar = self.task_timeline_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    def _page_task_timeline(self, direction: int) -> None:
+        """Explicit, bounded viewport paging; never changes stored task events."""
+        if type(direction) is not int or direction not in (-1, 1):
+            return
+        button = (
+            self.task_timeline_page_previous
+            if direction == -1 else self.task_timeline_page_next
+        )
+        if not button.isEnabled() or not self.task_timeline_view.isEnabled():
+            return
+        if self.task_timeline_view.isHidden():
+            self.task_timeline_view.show()
+        scrollbar = self.task_timeline_view.verticalScrollBar()
+        shift = max(1, scrollbar.pageStep()) * direction
+        target = max(scrollbar.minimum(), min(scrollbar.maximum(), scrollbar.value() + shift))
+        scrollbar.setValue(target)
+
+    def _page_task_timeline_previous(self) -> None:
+        self._page_task_timeline(-1)
+
+    def _page_task_timeline_next(self) -> None:
+        self._page_task_timeline(1)
 
     def _jump_to_first_task_timeline_event_shortcut(self) -> None:
         """Guarded keyboard route to the existing first-event handler."""
