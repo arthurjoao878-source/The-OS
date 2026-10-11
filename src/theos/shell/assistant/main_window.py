@@ -210,6 +210,14 @@ class MainWindow(QMainWindow):
             "Mostra o painel de etapas e navega ao fim da lista visível, "
             "sem alterar eventos, filtros ou tarefas."
         )
+        self.task_timeline_jump_first = QPushButton("Primeiro evento")
+        self.task_timeline_jump_first.setObjectName(
+            "lyra_task_timeline_jump_first"
+        )
+        self.task_timeline_jump_first.setToolTip(
+            "Mostra o painel de etapas e navega ao início da lista visível, "
+            "sem alterar eventos, filtros ou tarefas."
+        )
         self.task_timeline_toggle_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+E"), self
         )
@@ -602,6 +610,7 @@ class MainWindow(QMainWindow):
         task_progress_controls = QHBoxLayout()
         task_progress_controls.addWidget(self.workflow_status, 1)
         task_progress_controls.addWidget(self.task_timeline_toggle)
+        task_progress_controls.addWidget(self.task_timeline_jump_first)
         task_progress_controls.addWidget(self.task_timeline_jump_latest)
         layout.addLayout(task_progress_controls)
         layout.addWidget(self.task_summary)
@@ -643,6 +652,9 @@ class MainWindow(QMainWindow):
         self.task_timeline_toggle.clicked.connect(self._toggle_task_timeline)
         self.task_timeline_jump_latest.clicked.connect(
             self._jump_to_latest_task_timeline_event
+        )
+        self.task_timeline_jump_first.clicked.connect(
+            self._jump_to_first_task_timeline_event
         )
         self.task_timeline_toggle_shortcut.activated.connect(
             self._toggle_task_timeline_shortcut
@@ -766,6 +778,18 @@ class MainWindow(QMainWindow):
                 category=self.task_timeline_interruption_category.currentData(),
             )
         )
+
+    def _jump_to_first_task_timeline_event(self) -> None:
+        """Explicit read-only navigation to the first visible task event."""
+        if (
+            not self.task_timeline_jump_first.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        if self.task_timeline_view.isHidden():
+            self.task_timeline_view.show()
+        scrollbar = self.task_timeline_view.verticalScrollBar()
+        scrollbar.setValue(scrollbar.minimum())
 
     def _jump_to_latest_task_timeline_event(self) -> None:
         """Explicit viewport navigation in the bounded read-only task timeline."""

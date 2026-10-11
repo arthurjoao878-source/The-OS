@@ -319,7 +319,9 @@ clear.
     window-scoped Ctrl+Shift+U keyboard route to the existing safe clear action.
 64. M157: Explicit LYRA Timeline Jump Latest Button Host v1, an opt-in
     read-only viewport navigation control for the current bounded timeline view.
-65. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+65. M158: Explicit LYRA Timeline Jump First Button Host v1, an opt-in
+    read-only viewport navigation control for the start of the current view.
+66. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1664,3 +1666,24 @@ The prior keyboard shortcuts, transcript/composer, session reset semantics,
 read-only timeline, and bounded 12-event model remain intact.
 Full pytest, Ruff, and a separate real Windows Qt dogfood are required before
 any controlled remote publication. No new external side-effect authority.
+
+
+## M158 - Explicit LYRA Timeline Jump First Button Host v1
+
+M158 adds a small "Primeiro evento" button beside the existing M157
+"Último evento" button. The explicit presentation-only control opens the existing bounded, read-only 12-event
+timeline when hidden and positions the vertical scrollbar at its minimum,
+showing the start of the currently selected visible list. It does not reset
+the filter, select an event, add any new view model, or change event order.
+
+The M146 interruption-only mode, M151 category, M153 visible count, M154
+scope label, M155/M156 clear filters, and M157 latest-navigation behavior
+are preserved. Both controls work independently per window and remain safe
+during a controlled dry busy task. Disabled controls fail closed, repeated
+clicks are idempotent, and malformed category data cannot cause raw event
+arguments to appear. The history is still at most twelve bounded summaries.
+
+No provider inference or calls, memory access/mutation, workflow dispatch,
+real task execution, approval bypass, external effects, or Phoenix authority
+is introduced. Full pytest, Ruff, separate real Windows Qt dogfood and a
+controlled exact fast-forward publication are required before closure.
