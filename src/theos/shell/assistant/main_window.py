@@ -232,6 +232,24 @@ class MainWindow(QMainWindow):
         self.task_timeline_page_next.setToolTip(
             "Avança uma página na lista de eventos visíveis, sem modificar o histórico."
         )
+        self.task_timeline_page_previous_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+PgUp"), self
+        )
+        self.task_timeline_page_previous_shortcut.setObjectName(
+            "lyra_task_timeline_page_previous_shortcut"
+        )
+        self.task_timeline_page_previous_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
+        self.task_timeline_page_next_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+PgDown"), self
+        )
+        self.task_timeline_page_next_shortcut.setObjectName(
+            "lyra_task_timeline_page_next_shortcut"
+        )
+        self.task_timeline_page_next_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
+        )
         self.task_timeline_jump_first_shortcut = QShortcut(
             QKeySequence("Ctrl+Shift+Home"), self
         )
@@ -699,6 +717,12 @@ class MainWindow(QMainWindow):
         self.task_timeline_page_next.clicked.connect(
             self._page_task_timeline_next
         )
+        self.task_timeline_page_previous_shortcut.activated.connect(
+            self._page_task_timeline_previous_shortcut
+        )
+        self.task_timeline_page_next_shortcut.activated.connect(
+            self._page_task_timeline_next_shortcut
+        )
         self.task_timeline_jump_first_shortcut.activated.connect(
             self._jump_to_first_task_timeline_event_shortcut
         )
@@ -884,6 +908,26 @@ class MainWindow(QMainWindow):
     def _page_task_timeline_next(self) -> None:
         self._page_task_timeline(1)
 
+    def _page_task_timeline_previous_shortcut(self) -> None:
+        """Keyboard paging shares the guarded previous-page button handler."""
+        if (
+            not self.task_timeline_page_previous_shortcut.isEnabled()
+            or not self.task_timeline_page_previous.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        self._page_task_timeline_previous()
+
+    def _page_task_timeline_next_shortcut(self) -> None:
+        """Keyboard paging shares the guarded next-page button handler."""
+        if (
+            not self.task_timeline_page_next_shortcut.isEnabled()
+            or not self.task_timeline_page_next.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        self._page_task_timeline_next()
+
     def _jump_to_first_task_timeline_event_shortcut(self) -> None:
         """Guarded keyboard route to the existing first-event handler."""
         if (
@@ -907,9 +951,9 @@ class MainWindow(QMainWindow):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         """Preserve explicit timeline shortcuts over text-selection overrides.
 
-        QLineEdit and QPlainTextEdit may consume Ctrl+Shift+Home/End as
-        native selection keys before a window QShortcut can activate. Handle
-        only these exact combinations and only for widgets owned here.
+        Qt text editors may reserve Ctrl+Shift+Home/End and PageUp/PageDown
+        for native selection or scrolling. Intercept only the four explicit
+        timeline shortcuts on this window's existing input/view widgets.
         """
         if watched not in (
             self.input,
@@ -937,6 +981,14 @@ class MainWindow(QMainWindow):
             shortcut = self.task_timeline_jump_latest_shortcut
             button = self.task_timeline_jump_latest
             action = self._jump_to_latest_task_timeline_event_shortcut
+        elif event.key() == Qt.Key.Key_PageUp:
+            shortcut = self.task_timeline_page_previous_shortcut
+            button = self.task_timeline_page_previous
+            action = self._page_task_timeline_previous_shortcut
+        elif event.key() == Qt.Key.Key_PageDown:
+            shortcut = self.task_timeline_page_next_shortcut
+            button = self.task_timeline_page_next
+            action = self._page_task_timeline_next_shortcut
         else:
             return super().eventFilter(watched, event)
         if not (

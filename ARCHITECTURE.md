@@ -325,7 +325,9 @@ clear.
     window-scoped Ctrl+Shift+Home/End routes to the existing guarded buttons.
 67. M160: Explicit LYRA Timeline Page Navigation Controls Host v1, two
     guarded page-step buttons for the read-only filtered event viewport.
-68. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+68. M161: Explicit LYRA Timeline Page Keyboard Shortcuts Host v1, guarded
+    Ctrl+Shift+PageUp/PageDown for existing page-step presentation actions.
+69. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1744,3 +1746,27 @@ dry busy task. An invalid category cannot expose untrusted raw content.
 Full local pytest and Ruff plus separate real Windows Qt dogfood must pass
 before any controlled non-force publication. No new Phoenix authority,
 provider invocation, persistence, or external side-effect authority.
+
+
+## M161 - Explicit LYRA Timeline Page Keyboard Shortcuts Host v1
+
+M161 adds two window-scoped, user-triggered Qt keyboard routes to the
+M160 timeline page buttons: Ctrl+Shift+PageUp (previous page) and
+Ctrl+Shift+PageDown (next page). The existing guarded button handlers perform
+all scrolling; keyboard navigation uses the current QPlainTextEdit scrollbar
+pageStep with the same min/max bounds, current filter and 12-entry limit.
+The shortcuts reveal the existing panel if hidden but never modify the event
+history, filter selection, labels, draft, transcript, memory or task state.
+
+Native editors may reserve modified PageUp/PageDown. The existing narrow,
+per-window Qt eventFilter adds exactly these two keys when both modifier keys
+are held and the matching shortcut, button and view are enabled. Unmodified
+PageUp/PageDown and unrelated combinations retain their native Qt behavior.
+The activation-signal/direct-handler paths have matching fail-closed guards.
+Two LYRA windows never share the same shortcut or timeline position.
+
+Controlled dry-busy tasks still allow passive timeline reading, but no real
+dispatch or provider request is permitted. Full local pytest and Ruff precede
+one local commit. Separate Windows Qt event dogfood precedes any non-force
+remote publication. No persistence, approval bypass, external side-effect
+or Phoenix authority is added.
