@@ -353,6 +353,16 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_next.setToolTip(
             "Localiza a próxima correspondência no histórico filtrado e reinicia do começo."
         )
+        self.task_timeline_find_previous = QPushButton("Ocorrência anterior")
+        self.task_timeline_find_previous.setObjectName(
+            "lyra_task_timeline_find_previous"
+        )
+        self.task_timeline_find_previous.setAccessibleName(
+            "Localizar ocorrência anterior no histórico visível"
+        )
+        self.task_timeline_find_previous.setToolTip(
+            "Localiza a correspondência anterior no histórico filtrado e volta do começo ao fim."
+        )
         timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
         timeline_scrollbar.valueChanged.connect(
             self._refresh_task_timeline_scroll_position
@@ -767,6 +777,7 @@ class MainWindow(QMainWindow):
         timeline_find_controls = QHBoxLayout()
         timeline_find_controls.addWidget(self.task_timeline_find_query, 1)
         timeline_find_controls.addWidget(self.task_timeline_find_next)
+        timeline_find_controls.addWidget(self.task_timeline_find_previous)
         layout.addLayout(timeline_find_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
@@ -798,6 +809,9 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_find_next.clicked.connect(
             self._find_next_visible_task_timeline_match
+        )
+        self.task_timeline_find_previous.clicked.connect(
+            self._find_previous_visible_task_timeline_match
         )
         self.task_timeline_jump_latest.clicked.connect(
             self._jump_to_latest_task_timeline_event
@@ -1010,6 +1024,32 @@ class MainWindow(QMainWindow):
         cursor = view.document().find(query, view.textCursor())
         if cursor.isNull():
             cursor = view.document().find(query)
+        if cursor.isNull():
+            return
+        if view.isHidden():
+            view.show()
+        view.setTextCursor(cursor)
+        view.ensureCursorVisible()
+
+    def _find_previous_visible_task_timeline_match(self) -> None:
+        """Navigate backwards in the current filtered read-only Qt document."""
+        if (
+            not self.task_timeline_find_query.isEnabled()
+            or not self.task_timeline_find_previous.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        query = self.task_timeline_find_query.text()
+        if not query or len(query) > 96:
+            return
+        view = self.task_timeline_view
+        document = view.document()
+        backwards = QTextDocument.FindFlag.FindBackward
+        cursor = document.find(query, view.textCursor(), backwards)
+        if cursor.isNull():
+            last = QTextCursor(document)
+            last.movePosition(QTextCursor.MoveOperation.End)
+            cursor = document.find(query, last, backwards)
         if cursor.isNull():
             return
         if view.isHidden():

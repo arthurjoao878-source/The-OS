@@ -341,7 +341,9 @@ clear.
     label synchronized to the actual read-only timeline scrollbar and slider.
 75. M168: Bounded LYRA Visible Timeline Find Host v1, a local, non-persistent
     case-insensitive next-match search confined to the filtered read-only display.
-76. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+76. M169: Bounded LYRA Visible Timeline Find Previous Host v1, an explicit
+    read-only reverse-match navigation control in the current filtered event view.
+77. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1941,3 +1943,20 @@ execution, provider use, memory persistence, clipboard write, policy change,
 new Phoenix authority or remote publication in the implementation stage.
 Full local tests, Ruff and exact-hash guards precede the only permitted local
 commit. Independent real Qt dogfood and remote finalization remain separate.
+
+
+## M169 - Bounded LYRA Visible Timeline Find Previous Host v1
+
+M169 extends the already bounded M168 local, case-insensitive find over the
+currently rendered, filtered task-event text with an explicit Previous Match
+button. The reverse direction searches backwards from the present Qt selection
+and wraps to the last visible match when necessary. It retains the 96-character
+query limit; empty queries, no matches and disabled controls are fail-closed.
+Only the read-only viewport selection and scroll position can change, not the
+underlying task events, summaries, filters, transcript, draft or persistent
+memory. Qt navigation is isolated per window. No external AI call, worker
+execution, clipboard write, global shortcut, Phoenix authority expansion or
+remote publication is permitted during this implementation milestone.
+The M169 local commit requires bounded preflight, targeted and complete pytest,
+Ruff and a fixed three-file commit; independent real Qt dogfood and the remote
+finalizer remain separate stages.
