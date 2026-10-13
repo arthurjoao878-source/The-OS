@@ -345,7 +345,9 @@ clear.
     read-only reverse-match navigation control in the current filtered event view.
 77. M170: Bounded LYRA Visible Timeline Find Clear Host v1, an explicit
     read-only clear-query and clear-selection action without changing events or filters.
-78. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+78. M171: Bounded LYRA Visible Timeline Find Count Host v1, a live
+    read-only match count for the non-persistent query and filtered Qt timeline.
+79. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1978,3 +1980,21 @@ M170 implementation is limited to the assistant main window, architecture note
 and dedicated regression tests. Local commit is gated by deterministic
 preflight, targeted and full pytest, Ruff, clean tree and a fixed three-file
 commit. Independent real-Qt dogfood and publication are separate stages.
+
+
+## M171 - Bounded LYRA Visible Timeline Find Count Host v1
+
+M171 adds a non-persistent read-only QLabel reporting the number of case-insensitive
+matches of the current bounded (96-character) query within the currently
+rendered, filtered task timeline. Query changes and Qt document refreshes
+recompute the count without moving the cursor, selecting text, changing
+filters, scrolling, dispatching tasks or accessing persistent memory.
+
+The counter scans at most 257 matches, displaying `Ocorrências: 256+`
+only if more than 256 matches exist. Empty queries show `Ocorrências: 0`.
+The operation is per-window and presentation-only: no AI calls, worker
+execution, clipboard, persistence, remote write or Phoenix authority.
+
+M171 implementation touches only the assistant main window, this architecture
+note and one new dedicated regression test file. Independent real Qt dogfood
+and remote publication require subsequent separately numbered stages.

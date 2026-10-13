@@ -371,6 +371,16 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_clear.setToolTip(
             "Limpa somente a consulta e a seleção, preservando eventos e filtros."
         )
+        self.task_timeline_find_count = QLabel("Ocorrências: 0")
+        self.task_timeline_find_count.setObjectName(
+            "lyra_task_timeline_find_count"
+        )
+        self.task_timeline_find_count.setAccessibleName(
+            "Quantidade de ocorrências no histórico filtrado"
+        )
+        self.task_timeline_find_count.setToolTip(
+            "Contagem local limitada das correspondências; não consulta IA."
+        )
         timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
         timeline_scrollbar.valueChanged.connect(
             self._refresh_task_timeline_scroll_position
@@ -787,6 +797,7 @@ class MainWindow(QMainWindow):
         timeline_find_controls.addWidget(self.task_timeline_find_next)
         timeline_find_controls.addWidget(self.task_timeline_find_previous)
         timeline_find_controls.addWidget(self.task_timeline_find_clear)
+        timeline_find_controls.addWidget(self.task_timeline_find_count)
         layout.addLayout(timeline_find_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
@@ -824,6 +835,12 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_find_clear.clicked.connect(
             self._clear_visible_task_timeline_find
+        )
+        self.task_timeline_find_query.textChanged.connect(
+            self._refresh_visible_task_timeline_find_count
+        )
+        self.task_timeline_view.textChanged.connect(
+            self._refresh_visible_task_timeline_find_count
         )
         self.task_timeline_jump_latest.clicked.connect(
             self._jump_to_latest_task_timeline_event
@@ -1086,6 +1103,23 @@ class MainWindow(QMainWindow):
         if cursor.hasSelection():
             cursor.clearSelection()
             view.setTextCursor(cursor)
+
+    def _refresh_visible_task_timeline_find_count(self, _text: str = "") -> None:
+        """Count only Qt document matches, bounded, without moving the cursor."""
+        query = self.task_timeline_find_query.text()
+        if not query or len(query) > 96:
+            self.task_timeline_find_count.setText("Ocorrências: 0")
+            return
+        document = self.task_timeline_view.document()
+        cursor = document.find(query)
+        matches = 0
+        while matches < 256 and not cursor.isNull():
+            matches += 1
+            cursor = document.find(query, cursor)
+        overflow = "+" if matches == 256 and not cursor.isNull() else ""
+        self.task_timeline_find_count.setText(
+            f"Ocorrências: {matches}{overflow}"
+        )
 
     def _refresh_task_timeline(self) -> None:
         if self.task_timeline_interruptions_only.isChecked():
