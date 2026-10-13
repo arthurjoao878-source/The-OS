@@ -349,7 +349,9 @@ clear.
     read-only match count for the non-persistent query and filtered Qt timeline.
 79. M172: Bounded LYRA Visible Timeline Current Match Position Host v1,
     a read-only 1-based ordinal for the selected local query match.
-80. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+80. M173: Bounded LYRA Timeline Find Escape Clear Shortcut Host v1,
+    an Esc-to-clear shortcut scoped exclusively to the timeline query widget.
+81. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -2019,3 +2021,24 @@ M172 implementation changes exactly the assistant main window, this document
 and dedicated tests. Independent real Qt dogfood and controlled remote
 publication remain separately numbered steps. No AI/provider calls, clipboard,
 external execution or remote mutation are allowed in implementation.
+
+
+## M173 - Bounded LYRA Timeline Find Escape Clear Shortcut Host v1
+
+M173 adds an Escape keyboard shortcut owned by the timeline search QLineEdit.
+Qt WidgetShortcut scope means the shortcut is active only while that field
+has focus; it does not intercept Escape in the chat composer, transcript find,
+or the read-only timeline view. The shortcut delegates exclusively to the
+existing guarded clear-search handler; it does not introduce new mutation
+or selection logic and does not dispatch tasks.
+
+The escape shortcut clears the current window's non-persistent query and its
+search selection, updating the existing bounded count/position labels through
+Qt signals. Empty, disabled or irrelevant invocations fail closed. Current
+filters, rendered task events, transcript, draft, viewport, provider, memory,
+worker state and Phoenix authority are untouched. No external AI/provider,
+clipboard, new execution authority, remote push or tag publication is allowed.
+
+M173 implementation changes only the assistant main window, this architecture
+note and the dedicated shortcut tests; the real Qt dogfood and controlled
+remote publication remain separately numbered stages.

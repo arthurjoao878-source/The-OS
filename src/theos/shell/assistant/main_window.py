@@ -369,7 +369,17 @@ class MainWindow(QMainWindow):
             "Limpar consulta e seleção da busca no histórico visível"
         )
         self.task_timeline_find_clear.setToolTip(
-            "Limpa somente a consulta e a seleção, preservando eventos e filtros."
+            "Limpa consulta e seleção, preservando eventos e filtros; "
+            "Esc no campo de busca."
+        )
+        self.task_timeline_find_escape_shortcut = QShortcut(
+            QKeySequence("Escape"), self.task_timeline_find_query
+        )
+        self.task_timeline_find_escape_shortcut.setObjectName(
+            "lyra_task_timeline_find_escape_shortcut"
+        )
+        self.task_timeline_find_escape_shortcut.setContext(
+            Qt.ShortcutContext.WidgetShortcut
         )
         self.task_timeline_find_count = QLabel("Ocorrências: 0")
         self.task_timeline_find_count.setObjectName(
@@ -845,6 +855,9 @@ class MainWindow(QMainWindow):
             self._find_previous_visible_task_timeline_match
         )
         self.task_timeline_find_clear.clicked.connect(
+            self._clear_visible_task_timeline_find
+        )
+        self.task_timeline_find_escape_shortcut.activated.connect(
             self._clear_visible_task_timeline_find
         )
         self.task_timeline_find_query.textChanged.connect(
