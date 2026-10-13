@@ -347,7 +347,9 @@ clear.
     read-only clear-query and clear-selection action without changing events or filters.
 78. M171: Bounded LYRA Visible Timeline Find Count Host v1, a live
     read-only match count for the non-persistent query and filtered Qt timeline.
-79. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+79. M172: Bounded LYRA Visible Timeline Current Match Position Host v1,
+    a read-only 1-based ordinal for the selected local query match.
+80. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1998,3 +2000,22 @@ execution, clipboard, persistence, remote write or Phoenix authority.
 M171 implementation touches only the assistant main window, this architecture
 note and one new dedicated regression test file. Independent real Qt dogfood
 and remote publication require subsequent separately numbered stages.
+
+
+## M172 - Bounded LYRA Visible Timeline Current Match Position Host v1
+
+M172 adds a local read-only `Atual: N` label displaying the 1-based ordinal
+of the currently selected matching occurrence in the filtered Qt timeline.
+The value stays `Atual: 0` without a valid query/selection. The label
+updates through query, document and cursor Qt signals. Navigation and
+clear-search retain their existing semantics; merely typing does not select.
+
+The ordinal scan uses only the rendered Qt document and stops at 257 matches;
+positions after 256 are displayed as `Atual: 256+`. This feature is per-window,
+non-persistent and presentation-only, preserving task events, filters, transcript,
+scroll position, draft, memory, worker state and Phoenix authority.
+
+M172 implementation changes exactly the assistant main window, this document
+and dedicated tests. Independent real Qt dogfood and controlled remote
+publication remain separately numbered steps. No AI/provider calls, clipboard,
+external execution or remote mutation are allowed in implementation.

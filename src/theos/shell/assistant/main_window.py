@@ -381,6 +381,16 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_count.setToolTip(
             "Contagem local limitada das correspondências; não consulta IA."
         )
+        self.task_timeline_find_position = QLabel("Atual: 0")
+        self.task_timeline_find_position.setObjectName(
+            "lyra_task_timeline_find_position"
+        )
+        self.task_timeline_find_position.setAccessibleName(
+            "Posição da ocorrência selecionada no histórico filtrado"
+        )
+        self.task_timeline_find_position.setToolTip(
+            "Índice local e limitado da seleção atual; zero sem correspondência ativa."
+        )
         timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
         timeline_scrollbar.valueChanged.connect(
             self._refresh_task_timeline_scroll_position
@@ -798,6 +808,7 @@ class MainWindow(QMainWindow):
         timeline_find_controls.addWidget(self.task_timeline_find_previous)
         timeline_find_controls.addWidget(self.task_timeline_find_clear)
         timeline_find_controls.addWidget(self.task_timeline_find_count)
+        timeline_find_controls.addWidget(self.task_timeline_find_position)
         layout.addLayout(timeline_find_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
@@ -841,6 +852,15 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_view.textChanged.connect(
             self._refresh_visible_task_timeline_find_count
+        )
+        self.task_timeline_find_query.textChanged.connect(
+            self._refresh_visible_task_timeline_find_position
+        )
+        self.task_timeline_view.textChanged.connect(
+            self._refresh_visible_task_timeline_find_position
+        )
+        self.task_timeline_view.cursorPositionChanged.connect(
+            self._refresh_visible_task_timeline_find_position
         )
         self.task_timeline_jump_latest.clicked.connect(
             self._jump_to_latest_task_timeline_event
@@ -1120,6 +1140,32 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_count.setText(
             f"Ocorrências: {matches}{overflow}"
         )
+
+    def _refresh_visible_task_timeline_find_position(self, _text: str = "") -> None:
+        """Report the selected Qt match ordinal, scanning at most 257 matches."""
+        query = self.task_timeline_find_query.text()
+        view = self.task_timeline_view
+        current = view.textCursor()
+        label = self.task_timeline_find_position
+        if (
+            not query or len(query) > 96 or not current.hasSelection()
+            or current.selectedText().casefold() != query.casefold()
+        ):
+            label.setText("Atual: 0")
+            return
+        document = view.document()
+        candidate = document.find(query)
+        ordinal = 0
+        while ordinal < 257 and not candidate.isNull():
+            ordinal += 1
+            if (
+                candidate.selectionStart() == current.selectionStart()
+                and candidate.selectionEnd() == current.selectionEnd()
+            ):
+                label.setText(f"Atual: {ordinal if ordinal <= 256 else '256+'}")
+                return
+            candidate = document.find(query, candidate)
+        label.setText("Atual: 256+" if not candidate.isNull() else "Atual: 0")
 
     def _refresh_task_timeline(self) -> None:
         if self.task_timeline_interruptions_only.isChecked():
