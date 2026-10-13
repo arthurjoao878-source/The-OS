@@ -346,7 +346,17 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_query.setPlaceholderText("Buscar no histórico visível")
         self.task_timeline_find_query.setMaxLength(96)
         self.task_timeline_find_query.setToolTip(
-            "Busca somente nos eventos apresentados; não consulta IA nem salva a busca."
+            "Busca nos eventos visíveis sem IA ou persistência. "
+            "Ctrl+Shift+F foca a busca."
+        )
+        self.task_timeline_find_focus_shortcut = QShortcut(
+            QKeySequence("Ctrl+Shift+F"), self
+        )
+        self.task_timeline_find_focus_shortcut.setObjectName(
+            "lyra_task_timeline_find_focus_shortcut"
+        )
+        self.task_timeline_find_focus_shortcut.setContext(
+            Qt.ShortcutContext.WindowShortcut
         )
         self.task_timeline_find_next = QPushButton("Próxima ocorrência")
         self.task_timeline_find_next.setObjectName("lyra_task_timeline_find_next")
@@ -845,6 +855,9 @@ class MainWindow(QMainWindow):
         self.cancel_task.clicked.connect(self._cancel_active_task)
         self.session_reset.clicked.connect(self._reset_session_context)
         self.task_timeline_toggle.clicked.connect(self._toggle_task_timeline)
+        self.task_timeline_find_focus_shortcut.activated.connect(
+            self._focus_visible_task_timeline_find_shortcut
+        )
         self.task_timeline_find_query.returnPressed.connect(
             self._find_next_visible_task_timeline_match
         )
@@ -1269,6 +1282,19 @@ class MainWindow(QMainWindow):
         minimum = scrollbar.minimum()
         maximum = scrollbar.maximum()
         scrollbar.setValue(minimum + (maximum - minimum) // 2)
+
+    def _focus_visible_task_timeline_find_shortcut(self) -> None:
+        """Focus the existing search field without changing task or find state."""
+        if (
+            not self.task_timeline_find_focus_shortcut.isEnabled()
+            or not self.task_timeline_toggle.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+            or not self.task_timeline_find_query.isEnabled()
+        ):
+            return
+        if self.task_timeline_view.isHidden():
+            self.task_timeline_view.show()
+        self.task_timeline_find_query.setFocus()
 
     def _focus_task_timeline_shortcut(self) -> None:
         """Reveal and focus the read-only timeline without navigating or mutating it."""

@@ -351,7 +351,10 @@ clear.
     a read-only 1-based ordinal for the selected local query match.
 80. M173: Bounded LYRA Timeline Find Escape Clear Shortcut Host v1,
     an Esc-to-clear shortcut scoped exclusively to the timeline query widget.
-81. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+81. M174: Bounded LYRA Timeline Find Focus Shortcut Host v1,
+    a window-local Ctrl+Shift+F shortcut that reveals the timeline and focuses
+    its existing search field without changing query, selection, or events.
+82. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -2042,3 +2045,22 @@ clipboard, new execution authority, remote push or tag publication is allowed.
 M173 implementation changes only the assistant main window, this architecture
 note and the dedicated shortcut tests; the real Qt dogfood and controlled
 remote publication remain separately numbered stages.
+
+
+## M174 - Bounded LYRA Timeline Find Focus Shortcut Host v1
+
+M174 adds a window-local Ctrl+Shift+F Qt QShortcut that reveals the previously
+hidden read-only task timeline, when necessary, and focuses its existing local
+search QLineEdit. It neither inserts nor changes the query, starts searching,
+navigates or clears a selection, scrolls the timeline, or mutates any events.
+
+The route fails closed whenever the shortcut, timeline toggle, timeline view
+or query widget is disabled. It does not invoke a provider, memory store,
+worker or Phoenix authority; it neither persists state nor opens external
+channels. A distinct window owns a distinct shortcut. The prior Ctrl+F
+transcript-find, Esc clear, next/previous navigation, bounded occurrence count
+and current position remain unchanged.
+
+M174 modifies exactly the main window, this architecture note, and dedicated
+real Qt shortcut tests. The independent dogfood and controlled remote
+publication have separately numbered stages. No push or tags in implementation.
