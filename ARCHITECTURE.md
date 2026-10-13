@@ -343,7 +343,9 @@ clear.
     case-insensitive next-match search confined to the filtered read-only display.
 76. M169: Bounded LYRA Visible Timeline Find Previous Host v1, an explicit
     read-only reverse-match navigation control in the current filtered event view.
-77. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+77. M170: Bounded LYRA Visible Timeline Find Clear Host v1, an explicit
+    read-only clear-query and clear-selection action without changing events or filters.
+78. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -1960,3 +1962,19 @@ remote publication is permitted during this implementation milestone.
 The M169 local commit requires bounded preflight, targeted and complete pytest,
 Ruff and a fixed three-file commit; independent real Qt dogfood and the remote
 finalizer remain separate stages.
+
+
+## M170 - Bounded LYRA Visible Timeline Find Clear Host v1
+
+M170 completes the M168/M169 bounded local timeline find controls with an explicit
+Clear Search action. It clears only the current window's non-persistent search
+text and the current find selection, without discarding task events or changing
+the current event filter, scroll position, transcript, draft, persistent memory
+or execution state. Empty queries and disabled controls fail closed. The action
+neither dispatches workers nor invokes an AI provider, writes to clipboard,
+grants Phoenix authority or publishes remotely.
+
+M170 implementation is limited to the assistant main window, architecture note
+and dedicated regression tests. Local commit is gated by deterministic
+preflight, targeted and full pytest, Ruff, clean tree and a fixed three-file
+commit. Independent real-Qt dogfood and publication are separate stages.

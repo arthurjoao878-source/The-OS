@@ -363,6 +363,14 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_previous.setToolTip(
             "Localiza a correspondência anterior no histórico filtrado e volta do começo ao fim."
         )
+        self.task_timeline_find_clear = QPushButton("Limpar busca")
+        self.task_timeline_find_clear.setObjectName("lyra_task_timeline_find_clear")
+        self.task_timeline_find_clear.setAccessibleName(
+            "Limpar consulta e seleção da busca no histórico visível"
+        )
+        self.task_timeline_find_clear.setToolTip(
+            "Limpa somente a consulta e a seleção, preservando eventos e filtros."
+        )
         timeline_scrollbar = self.task_timeline_view.verticalScrollBar()
         timeline_scrollbar.valueChanged.connect(
             self._refresh_task_timeline_scroll_position
@@ -778,6 +786,7 @@ class MainWindow(QMainWindow):
         timeline_find_controls.addWidget(self.task_timeline_find_query, 1)
         timeline_find_controls.addWidget(self.task_timeline_find_next)
         timeline_find_controls.addWidget(self.task_timeline_find_previous)
+        timeline_find_controls.addWidget(self.task_timeline_find_clear)
         layout.addLayout(timeline_find_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
@@ -812,6 +821,9 @@ class MainWindow(QMainWindow):
         )
         self.task_timeline_find_previous.clicked.connect(
             self._find_previous_visible_task_timeline_match
+        )
+        self.task_timeline_find_clear.clicked.connect(
+            self._clear_visible_task_timeline_find
         )
         self.task_timeline_jump_latest.clicked.connect(
             self._jump_to_latest_task_timeline_event
@@ -1056,6 +1068,24 @@ class MainWindow(QMainWindow):
             view.show()
         view.setTextCursor(cursor)
         view.ensureCursorVisible()
+
+    def _clear_visible_task_timeline_find(self) -> None:
+        """Discard only the local find query and selection in this window."""
+        if (
+            not self.task_timeline_find_query.isEnabled()
+            or not self.task_timeline_find_clear.isEnabled()
+            or not self.task_timeline_view.isEnabled()
+        ):
+            return
+        query = self.task_timeline_find_query.text()
+        if not query or len(query) > 96:
+            return
+        self.task_timeline_find_query.clear()
+        view = self.task_timeline_view
+        cursor = view.textCursor()
+        if cursor.hasSelection():
+            cursor.clearSelection()
+            view.setTextCursor(cursor)
 
     def _refresh_task_timeline(self) -> None:
         if self.task_timeline_interruptions_only.isChecked():
