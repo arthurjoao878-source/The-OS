@@ -354,7 +354,9 @@ clear.
 81. M174: Bounded LYRA Timeline Find Focus Shortcut Host v1,
     a window-local Ctrl+Shift+F shortcut that reveals the timeline and focuses
     its existing search field without changing query, selection, or events.
-82. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+82. M175: Bounded LYRA Timeline Find Shift+Enter Previous Shortcut Host v1,
+    a query-widget-only Shift+Enter shortcut for guarded reverse match navigation.
+83. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -2064,3 +2066,21 @@ and current position remain unchanged.
 M174 modifies exactly the main window, this architecture note, and dedicated
 real Qt shortcut tests. The independent dogfood and controlled remote
 publication have separately numbered stages. No push or tags in implementation.
+
+
+## M175 - Bounded LYRA Timeline Find Shift+Enter Previous Shortcut Host v1
+
+M175 adds Shift+Enter only to the timeline search QLineEdit. A widget-scoped
+Qt QShortcut invokes the existing guarded previous-match navigation without
+changing its wrap behavior, query limit, live match count or selected ordinal.
+Plain Enter continues to locate the next occurrence; Esc continues to clear
+the local search and Ctrl+Shift+F continues to focus it from the main window.
+
+The shortcut is window-local and presentation-only. Disabled shortcut, query,
+previous button or timeline view fail closed. Other fields have no new shortcut
+and neither provider, persistence, workers, execution nor Phoenix authority
+is involved. No new task events, history changes, remote write or push.
+
+Implementation touches exactly the assistant main window, this architecture
+note and the dedicated real Qt regression file. Independent real Qt dogfood
+and controlled publication remain separate, subsequently numbered stages.

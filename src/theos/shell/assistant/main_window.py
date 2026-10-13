@@ -391,6 +391,15 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_escape_shortcut.setContext(
             Qt.ShortcutContext.WidgetShortcut
         )
+        self.task_timeline_find_previous_shortcut = QShortcut(
+            QKeySequence("Shift+Return"), self.task_timeline_find_query
+        )
+        self.task_timeline_find_previous_shortcut.setObjectName(
+            "lyra_task_timeline_find_previous_shortcut"
+        )
+        self.task_timeline_find_previous_shortcut.setContext(
+            Qt.ShortcutContext.WidgetShortcut
+        )
         self.task_timeline_find_count = QLabel("Ocorrências: 0")
         self.task_timeline_find_count.setObjectName(
             "lyra_task_timeline_find_count"
@@ -867,6 +876,9 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_previous.clicked.connect(
             self._find_previous_visible_task_timeline_match
         )
+        self.task_timeline_find_previous_shortcut.activated.connect(
+            self._find_previous_visible_task_timeline_match_shortcut
+        )
         self.task_timeline_find_clear.clicked.connect(
             self._clear_visible_task_timeline_find
         )
@@ -1105,6 +1117,12 @@ class MainWindow(QMainWindow):
             view.show()
         view.setTextCursor(cursor)
         view.ensureCursorVisible()
+
+    def _find_previous_visible_task_timeline_match_shortcut(self) -> None:
+        """Use the focused query's Shift+Enter for guarded reverse navigation."""
+        if not self.task_timeline_find_previous_shortcut.isEnabled():
+            return
+        self._find_previous_visible_task_timeline_match()
 
     def _find_previous_visible_task_timeline_match(self) -> None:
         """Navigate backwards in the current filtered read-only Qt document."""
