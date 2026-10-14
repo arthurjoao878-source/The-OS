@@ -356,7 +356,9 @@ clear.
     its existing search field without changing query, selection, or events.
 82. M175: Bounded LYRA Timeline Find Shift+Enter Previous Shortcut Host v1,
     a query-widget-only Shift+Enter shortcut for guarded reverse match navigation.
-83. Then continue user-facing LYRA capabilities, voice, and composed workflows as
+83. M176: Bounded LYRA Visible Timeline Find Feedback Host v1,
+    a local read-only status for inactive, unmatched or matched queries.
+84. Then continue user-facing LYRA capabilities, voice, and composed workflows as
     concrete needs justify them.
 
 The project must remain usable throughout the migration.
@@ -2084,3 +2086,20 @@ is involved. No new task events, history changes, remote write or push.
 Implementation touches exactly the assistant main window, this architecture
 note and the dedicated real Qt regression file. Independent real Qt dogfood
 and controlled publication remain separate, subsequently numbered stages.
+
+
+## M176 - Bounded LYRA Visible Timeline Find Feedback Host v1
+
+M176 introduces a read-only status label next to the existing bounded Qt search
+count: `Busca: inativa` for empty or invalid queries; `Busca: sem ocorrências`
+for an active query with no visible match; and `Busca: com ocorrências` when
+there is at least one match in the currently filtered timeline document.
+
+The status reuses the existing bounded scan and its query/document Qt signals.
+It does not perform another scan, persist a query, change selection or viewport,
+or mutate events, filters, transcript, draft, memory, worker or provider state.
+The control is per-window and accessible with a stable Qt object name.
+
+Exactly the assistant main window, this architecture note and a dedicated
+Qt regression file are modified. Real Qt dogfood and controlled remote
+publication remain independent subsequent stages. No Phoenix authority change.

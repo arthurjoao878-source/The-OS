@@ -410,6 +410,16 @@ class MainWindow(QMainWindow):
         self.task_timeline_find_count.setToolTip(
             "Contagem local limitada das correspondências; não consulta IA."
         )
+        self.task_timeline_find_feedback = QLabel("Busca: inativa")
+        self.task_timeline_find_feedback.setObjectName(
+            "lyra_task_timeline_find_feedback"
+        )
+        self.task_timeline_find_feedback.setAccessibleName(
+            "Estado da busca no histórico de tarefas visível"
+        )
+        self.task_timeline_find_feedback.setToolTip(
+            "Distingue consulta vazia, ausência de resultados e resultados locais."
+        )
         self.task_timeline_find_position = QLabel("Atual: 0")
         self.task_timeline_find_position.setObjectName(
             "lyra_task_timeline_find_position"
@@ -838,6 +848,7 @@ class MainWindow(QMainWindow):
         timeline_find_controls.addWidget(self.task_timeline_find_clear)
         timeline_find_controls.addWidget(self.task_timeline_find_count)
         timeline_find_controls.addWidget(self.task_timeline_find_position)
+        timeline_find_controls.addWidget(self.task_timeline_find_feedback)
         layout.addLayout(timeline_find_controls)
         layout.addWidget(self.task_timeline_view)
         layout.addWidget(self.context_status)
@@ -1173,6 +1184,7 @@ class MainWindow(QMainWindow):
         query = self.task_timeline_find_query.text()
         if not query or len(query) > 96:
             self.task_timeline_find_count.setText("Ocorrências: 0")
+            self.task_timeline_find_feedback.setText("Busca: inativa")
             return
         document = self.task_timeline_view.document()
         cursor = document.find(query)
@@ -1183,6 +1195,9 @@ class MainWindow(QMainWindow):
         overflow = "+" if matches == 256 and not cursor.isNull() else ""
         self.task_timeline_find_count.setText(
             f"Ocorrências: {matches}{overflow}"
+        )
+        self.task_timeline_find_feedback.setText(
+            "Busca: com ocorrências" if matches else "Busca: sem ocorrências"
         )
 
     def _refresh_visible_task_timeline_find_position(self, _text: str = "") -> None:
